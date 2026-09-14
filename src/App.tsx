@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTokens, enrichLaunchpad, fetchMarket, fmt, price, CHAIN, NET, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 
@@ -66,6 +66,18 @@ export default function App() {
 
   const go = (p: Page) => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
+  // Interactive hero: the S tilts in 3D toward the cursor.
+  const stage = useRef<HTMLDivElement>(null);
+  const onMove = (e: React.MouseEvent) => {
+    const el = stage.current; if (!el) return;
+    const r = el.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width - 0.5;
+    const py = (e.clientY - r.top) / r.height - 0.5;
+    el.style.setProperty('--ry', (px * 30).toFixed(1) + 'deg');
+    el.style.setProperty('--rx', (-py * 22).toFixed(1) + 'deg');
+  };
+  const onLeave = () => { const el = stage.current; if (el) { el.style.setProperty('--ry', '0deg'); el.style.setProperty('--rx', '0deg'); } };
+
   return (
     <>
       <div className="backdrop" />
@@ -87,7 +99,7 @@ export default function App() {
             {NAV.map((n) => <button key={n.key} className={page === n.key ? 'on' : ''} onClick={() => go(n.key)}>{n.label}</button>)}
           </div>
           <div className="spacer" />
-          <button className="connect">Connect Wallet</button>
+          {page !== 'screener' && <button className="connect">Connect Wallet</button>}
         </div></div>
 
         {page === 'screener' && (
@@ -103,9 +115,8 @@ export default function App() {
                   <button className="btn ghost" onClick={() => { setFilter('new'); document.getElementById('screener')?.scrollIntoView({ behavior: 'smooth' }); }}>New Launches</button>
                 </div>
               </div>
-              <div className="hero-visual">
-                <div className="hero-ring two" /><div className="hero-ring" />
-                <img className="hero-s" src="/statera-s.png" alt="Statera" />
+              <div className="hero-visual" ref={stage} onMouseMove={onMove} onMouseLeave={onLeave}>
+                <img className="hero-s" src="/statera-hero.png" alt="Statera" draggable={false} />
               </div>
             </div></section>
 
