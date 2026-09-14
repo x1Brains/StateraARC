@@ -123,19 +123,31 @@ export async function enrichLaunchpad(t: Token): Promise<Token> {
 export const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString());
 
 // Market ticker — BTC/ETH/SOL from Coinbase's CORS-open spot API, plus the stables.
-export interface MarketPx { sym: string; price: number | null }
+export interface MarketPx { sym: string; price: number | null; logo: string | null }
+// The wider financial world — live via Coinbase spot (no key). Gold = PAXG (tokenized gold).
+const MARKET_ASSETS = [
+  { cb: 'BTC', sym: 'BTC', logo: '/coins/BTC.png' },
+  { cb: 'ETH', sym: 'ETH', logo: '/coins/ETH.png' },
+  { cb: 'SOL', sym: 'SOL', logo: '/coins/SOL.png' },
+  { cb: 'XRP', sym: 'XRP', logo: '/coins/XRP.png' },
+  { cb: 'SUI', sym: 'SUI', logo: '/coins/SUI.png' },
+  { cb: 'DOGE', sym: 'DOGE', logo: '/coins/DOGE.png' },
+  { cb: 'AVAX', sym: 'AVAX', logo: '/coins/AVAX.png' },
+  { cb: 'LINK', sym: 'LINK', logo: '/coins/LINK.png' },
+  { cb: 'PAXG', sym: 'GOLD', logo: '/coins/PAXG.png' },
+];
 export async function fetchMarket(): Promise<MarketPx[]> {
-  const majors = ['BTC', 'ETH', 'SOL'];
   const out: MarketPx[] = [];
-  await Promise.all(majors.map(async (s) => {
+  await Promise.all(MARKET_ASSETS.map(async (a) => {
     try {
-      const r = await fetch(`https://api.coinbase.com/v2/prices/${s}-USD/spot`);
+      const r = await fetch(`https://api.coinbase.com/v2/prices/${a.cb}-USD/spot`);
       const j = await r.json();
-      out.push({ sym: s, price: Number(j.data.amount) });
-    } catch { out.push({ sym: s, price: null }); }
+      out.push({ sym: a.sym, price: Number(j.data.amount), logo: a.logo });
+    } catch { out.push({ sym: a.sym, price: null, logo: a.logo }); }
   }));
-  out.sort((a, b) => majors.indexOf(a.sym) - majors.indexOf(b.sym));
-  out.push({ sym: 'USDC', price: 1 }, { sym: 'EURC', price: 1.08 });
+  out.sort((x, y) => MARKET_ASSETS.findIndex((a) => a.sym === x.sym) - MARKET_ASSETS.findIndex((a) => a.sym === y.sym));
+  // Arc's own money (fixed peg).
+  out.push({ sym: 'USDC', price: 1, logo: '/coins/USDC.svg' }, { sym: 'EURC', price: 1.08, logo: '/coins/EURC.svg' });
   return out;
 }
 export const price = (n: number | null) =>
@@ -208,13 +220,25 @@ const QUOTES = [
   { addr: '0x911b4000d3422f482f4062a913885f7b035382df', dec: 18, sym: 'WUSDC' },
   { addr: '0x89b50855aa3be2f677cd6303cec089b5f319d72a', dec: 6, sym: 'EURC' },
 ];
+// RPC failover: try each endpoint with a short retry on 429/error. Add alternate providers or
+// our own read-only Arc node to RPCS for real redundancy (no single point of failure).
+export const RPCS = [(import.meta.env.VITE_ARC_RPC as string) || CHAIN.rpc, ...((import.meta.env.VITE_ARC_RPC_BACKUP as string || '').split(',').map((s) => s.trim()).filter(Boolean))].filter(Boolean);
+async function rpcCall(body: object): Promise<any> {
+  for (const rpc of RPCS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        if (r.status === 429) { await sleep(400 * (attempt + 1)); continue; }
+        if (!r.ok) break; // dead endpoint — fail over to the next
+        return await r.json();
+      } catch { /* network error — retry, then next endpoint */ }
+    }
+  }
+  return null;
+}
 async function ethCall(to: string, data: string): Promise<string | null> {
-  try {
-    const r = await fetch(CHAIN.rpc, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data }, 'latest'] }) });
-    const j = await r.json();
-    return j.result && j.result !== '0x' ? j.result : null;
-  } catch { return null; }
+  const j = await rpcCall({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data }, 'latest'] });
+  return j && j.result && j.result !== '0x' ? j.result : null;
 }
 const balanceOfRaw = (token: string, holder: string) => ethCall(token, '0x70a08231000000000000000000000000' + holder.slice(2));
 

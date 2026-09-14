@@ -92,13 +92,22 @@ export default function App() {
     <>
       <div className="backdrop" />
       <div className="shell">
-        {/* ticker */}
-        <div className="ticker"><div className="wrap">
-          {market.map((m) => (
-            <span className="t" key={m.sym}><span className="s">{m.sym}</span><span className="p">{price(m.price)}</span></span>
-          ))}
-          <span className="t"><span className="s" style={{ color: 'var(--red)' }}>ARC</span><span className="p">GAS = USDC</span></span>
-        </div></div>
+        {/* ticker — scrolling marquee */}
+        <div className="ticker">
+          <div className="tk-track">
+            {[0, 1].map((dup) => (
+              <div className="tk-seg" key={dup} aria-hidden={dup === 1}>
+                {market.map((m) => (
+                  <span className="t" key={m.sym + dup}>
+                    {m.logo && <img className="tk-logo" src={m.logo} alt="" loading="lazy" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
+                    <span className="s">{m.sym}</span><span className="p">{price(m.price)}</span>
+                  </span>
+                ))}
+                <span className="t arc"><span className="s">ARC</span><span className="p">GAS = USDC</span></span>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* nav */}
         <div className="nav"><div className="wrap">

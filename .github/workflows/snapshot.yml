@@ -1,0 +1,46 @@
+name: Refresh token snapshot
+
+# Rebuilds public/tokens-snapshot.json on GitHub's infra (not the single VPS) and commits it.
+# A push to main auto-deploys on Vercel, so the live site stays fresh without any one box.
+on:
+  schedule:
+    - cron: '*/30 * * * *' # every 30 min (best-effort on GitHub's shared runners)
+  workflow_dispatch: {} # allow manual runs
+
+# Never let two rebuilds overlap.
+concurrency:
+  group: snapshot
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Rebuild snapshot (list -> holders/launchpad -> prices + market cap)
+        env:
+          ENRICH_MAX: '300'
+          MAX: '500'
+          PRICE_MAX: '200'
+        run: bash scripts/refresh.sh
+
+      - name: Commit if the snapshot changed
+        run: |
+          git config user.name "statera-snapshot-bot"
+          git config user.email "bot@stateraarc.com"
+          git add public/tokens-snapshot.json
+          if git diff --staged --quiet; then
+            echo "No snapshot changes."
+          else
+            git commit -m "chore: refresh token snapshot [skip ci]"
+            git push
+          fi
