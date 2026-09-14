@@ -37,7 +37,10 @@ const STABLES = {
   '0x2d84d79c852f6842abe0304b70bbaa1506add457': 1,     // USDC/EURC
   '0x89b50855aa3be2f677cd6303cec089b5f319d72a': 1.08,  // EURC
 };
-const PRICE_CEIL = 1e5; // no test token is credibly worth >$100k each — reject as a bad match
+const PRICE_CEIL = Number(process.env.PRICE_CEIL_USD || 1e4); // nothing on this testnet is credibly worth >$10k/token; above = a thin-pool mismatch
+const LIQ_CEIL = Number(process.env.LIQ_CEIL || 5e8); // $500M cap: a match above this is a treasury/bridge balance, not a real pair pool
+const MIN_POOL_SHARE = Number(process.env.MIN_POOL_SHARE || 0.002); // a real pool holds >=0.2% of supply; a treasury holding a few tokens does not
+const LIQ_FLOOR = Number(process.env.LIQ_FLOOR || 100); // below ~$100 is a dust pool — untradeable, price is noise, don't show it
 
 async function scan(pathq) {
   for (let a = 0; a < 6; a++) {
@@ -56,9 +59,10 @@ async function ethCall(to, data) {
 }
 const balanceOf = (token, holder) => ethCall(token, '0x70a08231000000000000000000000000' + holder.slice(2));
 async function decimals(token) { const r = await ethCall(token, '0x313ce567'); return r ? parseInt(r, 16) : 18; }
+async function totalSupply(token, dec) { const r = await ethCall(token, '0x18160ddd'); return r ? Number(BigInt(r)) / 10 ** dec : 0; }
 const isContract = async (a) => { const c = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getCode', params: [a, 'latest'] }) }).then((r) => r.json()); return c.result && c.result !== '0x'; };
 
-async function priceOf(token, tokenDec) {
+async function priceOf(token, tokenDec, supply) {
   let holders;
   try { holders = await scan(`/tokens/${token}/holders`); } catch { return null; }
   const top = (holders.items || []).slice(0, 6);
@@ -67,6 +71,9 @@ async function priceOf(token, tokenDec) {
     const holder = addrOf(h.address).toLowerCase();
     const tokBal = Number(h.value || 0) / 10 ** tokenDec;
     if (!holder || tokBal <= 0) continue;
+    // A real liquidity pool holds a meaningful share of supply. A treasury/bridge that merely
+    // holds a big quote balance + a few tokens does not — skip it (else price blows up).
+    if (supply > 0 && tokBal / supply < MIN_POOL_SHARE) continue;
     for (const q of QUOTES) {
       const raw = await balanceOf(q.addr, holder);
       if (!raw) continue;
@@ -75,8 +82,8 @@ async function priceOf(token, tokenDec) {
       const usd = quoteHuman * q.usd;
       const price = usd / tokBal;
       const liq = usd * 2;
-      if (!(price > 0) || price > PRICE_CEIL) continue; // sanity backstop against garbage
-      if (!best || liq > best.liq) best = { price, liq, quote: q.sym };
+      if (!(price > 0) || price > PRICE_CEIL || liq > LIQ_CEIL || liq < LIQ_FLOOR) continue; // sanity backstop against garbage & dust
+      if (!best || liq > best.liq) best = { price, liq, quote: q.sym, pool: holder };
     }
   }
   return best;
@@ -92,21 +99,22 @@ async function priceOf(token, tokenDec) {
   const tokens = snap.tokens;
   console.log(`[prices] enriching top ${Math.min(MAX, tokens.length)} of ${tokens.length}…`);
   let priced = 0;
+  const chosenPool = new Map(); // token address -> the holder we priced against (to catch shared treasuries)
   for (let i = 0; i < Math.min(MAX, tokens.length); i++) {
     const t = tokens[i];
     t.price = null; t.liq = null; t.quote = null; // clear any prior value so stale garbage can't survive
     try {
       const peg = STABLES[t.address.toLowerCase()];
+      const dec = await decimals(t.address);
+      const supply = await totalSupply(t.address, dec);
+      const p = await priceOf(t.address, dec, supply);
       if (peg != null) {
         // Stablecoin: price at peg, still discover liquidity for the tile.
-        const dec = await decimals(t.address);
-        const p = await priceOf(t.address, dec);
         t.price = peg; t.liq = p ? p.liq : null; t.quote = 'peg'; priced++;
-      } else {
-        const dec = await decimals(t.address);
-        const p = await priceOf(t.address, dec);
-        if (p) { t.price = p.price; t.liq = p.liq; t.quote = p.quote; priced++; }
+      } else if (p) {
+        t.price = p.price; t.liq = p.liq; t.quote = p.quote; priced++;
       }
+      if (p) chosenPool.set(t.address, p.pool);
     } catch { /* skip */ }
     if (i % 15 === 0) {
       fs.writeFileSync(file, JSON.stringify({ ...snap, pricedAt: new Date().toISOString(), tokens }));
@@ -114,6 +122,23 @@ async function priceOf(token, tokenDec) {
     }
     await sleep(120);
   }
+  // Reject shared-holder false matches: a real pair pool backs exactly ONE token. If the same
+  // holder was priced against by 2+ tokens, it's a treasury/bridge/router — drop its liquidity
+  // (and the price too, unless the token is a known-peg stablecoin we price independently).
+  const poolUse = {};
+  for (const pool of chosenPool.values()) poolUse[pool] = (poolUse[pool] || 0) + 1;
+  let dropped = 0;
+  for (const t of tokens) {
+    const pool = chosenPool.get(t.address);
+    if (pool && poolUse[pool] > 1) {
+      t.liq = null;
+      if (t.quote !== 'peg') { t.price = null; t.quote = null; }
+      dropped++;
+    }
+  }
+  if (dropped) console.log(`\n[prices] dropped ${dropped} shared-treasury false matches`);
+
+  const finalPriced = tokens.filter((t) => t.price != null).length;
   fs.writeFileSync(file, JSON.stringify({ ...snap, pricedAt: new Date().toISOString(), tokens }));
-  console.log(`\n[prices] done — ${priced} tokens priced`);
+  console.log(`\n[prices] done — ${finalPriced} tokens priced (of ${priced} raw matches)`);
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });

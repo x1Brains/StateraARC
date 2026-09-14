@@ -198,8 +198,61 @@ export async function fetchTransfers(address: string, limit = 50): Promise<Trans
     method: it.method || '',
   }));
 }
+// ── pool discovery + trade classification (detail page) ──
+// Quote stablecoins — a token's liquidity pool is a top-holder that ALSO holds one of these.
+const QUOTES = [
+  { addr: '0x3600000000000000000000000000000000000000', dec: 6, sym: 'USDC' },
+  { addr: '0x911b4000d3422f482f4062a913885f7b035382df', dec: 18, sym: 'WUSDC' },
+  { addr: '0x89b50855aa3be2f677cd6303cec089b5f319d72a', dec: 6, sym: 'EURC' },
+];
+async function ethCall(to: string, data: string): Promise<string | null> {
+  try {
+    const r = await fetch(CHAIN.rpc, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data }, 'latest'] }) });
+    const j = await r.json();
+    return j.result && j.result !== '0x' ? j.result : null;
+  } catch { return null; }
+}
+const balanceOfRaw = (token: string, holder: string) => ethCall(token, '0x70a08231000000000000000000000000' + holder.slice(2));
+
+export interface HolderRow { address: string; balance: number; pct: number | null; }
+export async function fetchHolders(address: string, decimals: number, totalSupply: number | null): Promise<HolderRow[]> {
+  const j = await api(`/tokens/${address}/holders`).catch(() => ({ items: [] as any[] }));
+  return (j.items || []).slice(0, 20).map((h: any) => {
+    const bal = Number(h.value || 0) / 10 ** decimals;
+    return { address: addrOf(h.address), balance: bal, pct: totalSupply ? (bal / totalSupply) * 100 : null };
+  });
+}
+export interface PoolInfo { pool: string; quoteSym: string; }
+// The liquidity pool is whichever of the top holders also holds a quote stablecoin (read via RPC).
+export async function findPool(holders: HolderRow[]): Promise<PoolInfo | null> {
+  for (const h of holders.slice(0, 6)) {
+    for (const q of QUOTES) {
+      const raw = await balanceOfRaw(q.addr, h.address);
+      if (raw && Number(BigInt(raw)) / 10 ** q.dec > 0.5) return { pool: h.address.toLowerCase(), quoteSym: q.sym };
+    }
+  }
+  return null;
+}
+
+export interface Trade extends Transfer { side: 'buy' | 'sell' | 'xfer'; value: number | null; }
+// Classify each transfer against the pool: tokens leaving the pool = a BUY, entering = a SELL.
+export function classifyTrades(transfers: Transfer[], pool: string | null, price: number | null): Trade[] {
+  const p = pool?.toLowerCase();
+  const zero = '0x0000000000000000000000000000000000000000';
+  return transfers.map((t) => {
+    let side: 'buy' | 'sell' | 'xfer' = 'xfer';
+    const from = t.from.toLowerCase(), to = t.to.toLowerCase();
+    if (p && from !== zero && to !== zero) {
+      if (from === p) side = 'buy';
+      else if (to === p) side = 'sell';
+    }
+    return { ...t, side, value: price != null ? t.amount * price : null };
+  });
+}
+
 export const ago = (ms: number) => {
-  const s = (Date.now() - ms) / 1000;
+  const s = Math.max(0, (Date.now() - ms) / 1000); // clamp: block timestamps can read a hair ahead of local clock
   if (s < 60) return Math.floor(s) + 's';
   if (s < 3600) return Math.floor(s / 60) + 'm';
   if (s < 86400) return Math.floor(s / 3600) + 'h';

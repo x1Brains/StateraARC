@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN, NET, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
@@ -37,6 +37,8 @@ export default function App() {
   const switchNet = (n: 'testnet' | 'mainnet') => { setNet(n); setSelected(null); try { localStorage.setItem('statera-net', n); } catch {} };
   const [wallet, setWallet] = useState<string | null>(null);
   const onConnect = async () => { try { const a = await connectWallet(); if (a) setWallet(a); } catch {} };
+  // Cinematic hero: one of the four lava scenes, chosen at random on each fresh load.
+  const [heroVariant] = useState<number>(() => 1 + Math.floor(Math.random() * 4));
 
   async function load() {
     setLoading(true); setErr(null);
@@ -70,18 +72,6 @@ export default function App() {
   const ecoCount = tokens.filter((t) => t.isEcosystem).length;
 
   const go = (p: Page) => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-
-  // Interactive hero: the S tilts in 3D toward the cursor.
-  const stage = useRef<HTMLDivElement>(null);
-  const onMove = (e: React.MouseEvent) => {
-    const el = stage.current; if (!el) return;
-    const r = el.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width - 0.5;
-    const py = (e.clientY - r.top) / r.height - 0.5;
-    el.style.setProperty('--ry', (px * 30).toFixed(1) + 'deg');
-    el.style.setProperty('--rx', (-py * 22).toFixed(1) + 'deg');
-  };
-  const onLeave = () => { const el = stage.current; if (el) { el.style.setProperty('--ry', '0deg'); el.style.setProperty('--rx', '0deg'); } };
 
   return (
     <>
@@ -133,20 +123,27 @@ export default function App() {
         {page === 'screener' && net === 'testnet' && !selected && (
           <>
             {/* hero */}
-            <section className="hero"><div className="wrap">
-              <div>
+            <section className="hero">
+              <div className="hero-bg"><img src={`/hero-lava-${heroVariant}.jpg`} alt="Statera" /></div>
+              <div className="wrap">
+              <div className="hero-copy">
                 <span className="eyebrow"><span className="dot" /> Live · {CHAIN.name}</span>
-                <h1>See every <span className="r">launch</span><br />on Arc first.</h1>
+                <h1>Track any <span className="r">launch</span><br />on Arc.</h1>
                 <p className="lede">The token screener for Circle's Arc chain. Every token, every launchpad, every pool — tracked in real time so you spot the plays before the crowd.</p>
                 <div className="hero-cta">
-                  <button className="btn solid" onClick={() => { setFilter('all'); document.getElementById('screener')?.scrollIntoView({ behavior: 'smooth' }); }}>Open Screener</button>
+                  <button className="btn solid" onClick={() => { setFilter('all'); document.getElementById('screener')?.scrollIntoView({ behavior: 'smooth' }); }}>Open Screener <span className="arw">→</span></button>
                   <button className="btn ghost" onClick={() => { setFilter('new'); document.getElementById('screener')?.scrollIntoView({ behavior: 'smooth' }); }}>New Launches</button>
                 </div>
+                <div className="hero-trust">
+                  <div className="ht"><b>{tokens.length || '500'}</b><span>Tokens Tracked</span></div>
+                  <div className="div" />
+                  <div className="ht"><b>{launchpadCount || '—'}</b><span>Launchpad</span></div>
+                  <div className="div" />
+                  <div className="ht"><b className="r">Live</b><span>Arc Testnet</span></div>
+                </div>
               </div>
-              <div className="hero-visual" ref={stage} onMouseMove={onMove} onMouseLeave={onLeave}>
-                <img className="hero-s" src="/statera-hero.png" alt="Statera" draggable={false} />
               </div>
-            </div></section>
+            </section>
 
             {/* screener */}
             <div className="wrap"><section className="section" id="screener">
