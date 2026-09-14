@@ -191,6 +191,27 @@ img { max-width: 100%; display: block; }
 .pf-row { grid-template-columns: 38px minmax(140px, 1fr) 120px 110px 120px; }
 .pf-row.head { color: var(--gray-2); }
 
+/* ============ swap ============ */
+.swap-wrap { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; max-width: 760px; }
+.swap-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.swap-box { background: #060a0e; border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.swap-box:focus-within { border-color: var(--red-dim); }
+.swap-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.swap-l { font-size: 11px; color: var(--gray-2); text-transform: uppercase; letter-spacing: 1px; font-family: var(--disp); }
+.swap-in { display: flex; align-items: center; gap: 10px; }
+.swap-amt { flex: 1; background: transparent; border: 0; color: var(--white); font: 700 26px var(--body); outline: none; min-width: 0; }
+.tk-pill { display: flex; align-items: center; gap: 8px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px 6px 6px; }
+.tk-pill .tlogo, .tk-pill .tmono { width: 24px; height: 24px; font-size: 11px; }
+.tk-select { background: transparent; border: 0; color: var(--white); font: 700 13px var(--disp); letter-spacing: .5px; cursor: pointer; outline: none; }
+.swap-sub { color: var(--gray-2); font-size: 12px; margin-top: 8px; }
+.swap-flip { display: block; margin: -6px auto; position: relative; z-index: 1; width: 34px; height: 34px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); color: var(--red-hi); cursor: pointer; font-size: 16px; }
+.swap-flip:hover { border-color: var(--red-dim); }
+.swap-info { display: flex; justify-content: space-between; padding: 12px 4px; color: var(--gray-2); font-size: 13px; }
+.swap-cta { width: 100%; margin-top: 8px; }
+.swap-cta:disabled { opacity: .85; cursor: default; }
+.swap-note { color: var(--gray-3); font-size: 11px; line-height: 1.5; margin-top: 12px; }
+@media (max-width: 720px) { .swap-wrap { grid-template-columns: 1fr; } .swap-side { display: none; } }
+
 footer { border-top: 1px solid var(--line); margin-top: 40px; }
 footer .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 26px 20px; color: var(--gray-3); font-size: 11px; }
 footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px; color: var(--gray); }

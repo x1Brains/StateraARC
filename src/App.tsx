@@ -3,6 +3,7 @@ import { fetchTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN
 import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
 import { Portfolio } from './components/Portfolio';
+import { Swap } from './components/Swap';
 
 type Page = 'screener' | 'portfolio' | 'swap';
 type Filter = 'all' | 'new' | 'eco' | 'ours';
@@ -214,15 +215,7 @@ export default function App() {
         )}
 
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} />}
-        {page === 'swap' && (
-          <div className="wrap"><section className="section">
-            <div className="soon">
-              <span className="badge b-red">Coming Soon</span>
-              <h2>Swap</h2>
-              <p>Swap USDC, EURC, and Arc tokens routed through on-chain pool liquidity, with slippage protection.</p>
-            </div>
-          </section></div>
-        )}
+        {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} />}
 
         <footer><div className="wrap">
           <span className="fbrand">STATERA · ARC</span>
