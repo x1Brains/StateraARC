@@ -5,7 +5,7 @@ import { TokenLogo } from './TokenLogo';
 const USDC: Token = {
   address: '0x3600000000000000000000000000000000000000', name: 'USD Coin', symbol: 'USDC',
   holders: null, totalSupply: null, type: 'ERC-20', iconUrl: null, launchpad: null,
-  isOurs: false, isEcosystem: true, price: 1, liq: null,
+  isOurs: false, isEcosystem: true, price: 1, liq: null, mcap: null,
 };
 
 export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: string | null; onConnect: () => void }) {

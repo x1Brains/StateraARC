@@ -100,13 +100,15 @@ async function priceOf(token, tokenDec, supply) {
   console.log(`[prices] enriching top ${Math.min(MAX, tokens.length)} of ${tokens.length}…`);
   let priced = 0;
   const chosenPool = new Map(); // token address -> the holder we priced against (to catch shared treasuries)
+  const supplyMap = new Map(); // token address -> human total supply (for market cap)
   for (let i = 0; i < Math.min(MAX, tokens.length); i++) {
     const t = tokens[i];
-    t.price = null; t.liq = null; t.quote = null; // clear any prior value so stale garbage can't survive
+    t.price = null; t.liq = null; t.quote = null; t.mcap = null; // clear any prior value so stale garbage can't survive
     try {
       const peg = STABLES[t.address.toLowerCase()];
       const dec = await decimals(t.address);
       const supply = await totalSupply(t.address, dec);
+      if (supply > 0) supplyMap.set(t.address, supply);
       const p = await priceOf(t.address, dec, supply);
       if (peg != null) {
         // Stablecoin: price at peg, still discover liquidity for the tile.
@@ -137,6 +139,15 @@ async function priceOf(token, tokenDec, supply) {
     }
   }
   if (dropped) console.log(`\n[prices] dropped ${dropped} shared-treasury false matches`);
+
+  // Market cap = final (post-dedup) price × total supply. Testnet stablecoin supplies are minted
+  // into the trillions, so cap absurd values (EURC would read $2T) — nothing real exceeds this.
+  const MCAP_CEIL = Number(process.env.MCAP_CEIL || 1e10);
+  for (const t of tokens) {
+    const s = supplyMap.get(t.address);
+    const m = (t.price != null && s > 0) ? t.price * s : null;
+    t.mcap = (m != null && m <= MCAP_CEIL) ? m : null;
+  }
 
   const finalPriced = tokens.filter((t) => t.price != null).length;
   fs.writeFileSync(file, JSON.stringify({ ...snap, pricedAt: new Date().toISOString(), tokens }));

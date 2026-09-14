@@ -37,6 +37,7 @@ export interface Token {
   isEcosystem: boolean;
   price: number | null;
   liq: number | null;
+  mcap: number | null;
 }
 
 export const addrOf = (o: any): string =>
@@ -72,6 +73,8 @@ export async function fetchTokens(limit = 500): Promise<Token[]> {
           iconUrl: t.iconUrl ?? null, launchpad: t.launchpad ?? null,
           isOurs: !!t.isOurs, isEcosystem: !!t.isEcosystem,
           price: t.price ?? null, liq: t.liq ?? null,
+          // guard testnet supply-inflation: a $2T "market cap" is a minted-huge stablecoin, not real
+          mcap: (typeof t.mcap === 'number' && t.mcap > 0 && t.mcap <= 1e10) ? t.mcap : null,
         }));
       }
     }
@@ -97,7 +100,7 @@ export async function fetchTokens(limit = 500): Promise<Token[]> {
         launchpad: null, // filled lazily via enrichLaunchpad
         isOurs: OURS.has(address),
         isEcosystem: ECOSYSTEM.test(`${t.name} ${t.symbol}`),
-        price: null, liq: null,
+        price: null, liq: null, mcap: null,
       });
     }
     if (!j.next_page_params) break;
