@@ -62,26 +62,35 @@ async function req(url) {
     params = new URLSearchParams({ type: 'ERC-20', ...j.next_page_params });
     await sleep(140);
   }
-  // Launchpad flags need one deployer lookup per token — expensive and rate-limit-prone.
-  // OFF by default (list-only snapshot is fast). Run with ENRICH=1 for a slow, full pass.
+  const file = path.join(__dirname, '..', 'public', 'tokens-snapshot.json');
   let flagged = 0;
+  const save = () => {
+    const sorted = [...tokens].sort((a, b) => (b.holders ?? -1) - (a.holders ?? -1));
+    fs.writeFileSync(file, JSON.stringify({ generatedAt: new Date().toISOString(), count: sorted.length, launchpad: flagged, tokens: sorted }));
+  };
+  save(); // write the fast list-only snapshot immediately
+  console.log(`[snapshot] wrote list-only snapshot — ${tokens.length} tokens, ${(fs.statSync(file).size / 1024).toFixed(0)}KB`);
+
+  // ENRICH: holders (counters) + launchpad (deployer), progressive writes so the app gets
+  // the improving snapshot without waiting for the whole pass. Rate-limit-friendly (backoff).
   if (process.env.ENRICH) {
-    console.log(`[snapshot] ${tokens.length} tokens. Computing launchpad flags (ENRICH)…`);
-    for (let i = 0; i < tokens.length; i++) {
+    const N = Number(process.env.ENRICH_MAX || 300);
+    console.log(`[snapshot] enriching holders + launchpad for top ${N}…`);
+    for (let i = 0; i < Math.min(N, tokens.length); i++) {
+      try {
+        const c = await req(`${API}/tokens/${tokens[i].address}/counters`);
+        if (c && c.token_holders_count != null) tokens[i].holders = Number(c.token_holders_count);
+      } catch { /* skip */ }
+      await sleep(180);
       try {
         const a = await req(`${API}/addresses/${tokens[i].address}`);
         const creator = addrOf(a.creator_address_hash).toLowerCase();
         if (LAUNCHPADS[creator]) { tokens[i].launchpad = LAUNCHPADS[creator]; flagged++; }
       } catch { /* skip */ }
-      if (i % 25 === 0) process.stdout.write(`\r[snapshot] enriched ${i}/${tokens.length} (${flagged} launchpad)`);
-      await sleep(250);
+      await sleep(180);
+      if (i % 20 === 0) { save(); process.stdout.write(`\r[snapshot] enriched ${i}/${N} (${flagged} launchpad)`); }
     }
-    process.stdout.write('\n');
+    save();
+    console.log(`\n[snapshot] enrichment done — ${flagged} launchpad flagged`);
   }
-
-  tokens.sort((a, b) => (b.holders ?? -1) - (a.holders ?? -1));
-  const out = { generatedAt: new Date().toISOString(), count: tokens.length, launchpad: flagged, tokens };
-  const file = path.join(__dirname, '..', 'public', 'tokens-snapshot.json');
-  fs.writeFileSync(file, JSON.stringify(out));
-  console.log(`[snapshot] wrote ${file} — ${tokens.length} tokens, ${flagged} launchpad, ${(fs.statSync(file).size / 1024).toFixed(0)}KB`);
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });
