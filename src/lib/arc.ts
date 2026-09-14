@@ -5,9 +5,15 @@ export type Net = 'testnet' | 'mainnet';
 
 export const NETS: Record<Net, { name: string; chainId: number; scan: string; api: string; rpc: string }> = {
   testnet: { name: 'Arc Testnet', chainId: 5042002, scan: 'https://testnet.arcscan.app', api: 'https://testnet.arcscan.app/api/v2', rpc: 'https://rpc.testnet.arc.io' },
-  // Mainnet explorer URL TBD at launch — update the moment it's known.
+  // ⛔ MAINNET STUB — fill chainId/scan/api/rpc with arc.io's official mainnet values on launch day
+  // (Sept 16, 2026), then flip MAINNET_LIVE = true. That single change turns the countdown gate into
+  // live mainnet data.
   mainnet: { name: 'Arc', chainId: 0, scan: '', api: '', rpc: '' },
 };
+
+// Arc public mainnet — date VERIFIED from arc.io ("Arc Public Mainnet will launch on September 16, 2026").
+export const MAINNET_LAUNCH_ISO = '2026-09-16T00:00:00Z';
+export const MAINNET_LIVE = false; // flip to true once NETS.mainnet is populated with real values
 
 export const NET: Net = (import.meta.env.VITE_ARC_NET as Net) || 'testnet';
 export const CHAIN = NETS[NET];

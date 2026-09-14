@@ -244,6 +244,34 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .soon p { color: var(--gray-2); max-width: 480px; margin: 0 auto; line-height: 1.6; }
 .soon .badge { display: inline-block; margin-bottom: 20px; }
 
+/* ============ countdown to Arc mainnet ============ */
+.cd { display: inline-flex; align-items: center; gap: 8px; margin: 20px 0 24px; }
+.cd-cell { min-width: 82px; padding: 15px 10px; border-radius: 12px; background: linear-gradient(180deg, rgba(255,255,255,.035), transparent), var(--panel-2); border: 1px solid var(--line-2); box-shadow: inset 0 1px 0 rgba(255,255,255,.05); }
+.cd-v { font-family: var(--disp); font-weight: 700; font-size: 36px; color: var(--white); line-height: 1; font-variant-numeric: tabular-nums; }
+.cd-l { font-family: var(--disp); font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--gray-2); margin-top: 7px; }
+.cd-sep { font-family: var(--disp); font-weight: 700; font-size: 26px; color: var(--red-hi); }
+.cd-live { font-family: var(--disp); font-weight: 700; color: #59e0a0; text-transform: uppercase; letter-spacing: 1px; }
+.cd-compact { font-family: var(--mono); font-weight: 600; color: var(--red-hi); font-size: 13px; font-variant-numeric: tabular-nums; letter-spacing: .5px; }
+
+/* home countdown banner */
+.cd-banner { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 22px 0 2px; padding: 13px 18px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--line-2); background: linear-gradient(120deg, rgba(255,90,25,.08), rgba(255,255,255,.015)), var(--panel); transition: border-color .15s; }
+.cd-banner:hover { border-color: var(--red-dim); }
+.cd-banner-l { display: inline-flex; align-items: center; gap: 9px; font-family: var(--disp); font-weight: 600; font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--chrome); }
+.cd-banner-cta { margin-left: auto; font-family: var(--disp); font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--red-hi); }
+
+/* ============ legend ============ */
+.legend { margin-top: 30px; padding: 22px 24px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); box-shadow: inset 0 1px 0 rgba(255,255,255,.03); }
+.legend-head h3 { font-family: var(--disp); font-weight: 700; font-size: 18px; text-transform: uppercase; letter-spacing: .5px; margin: 4px 0 8px; }
+.legend-head .kicker { font-family: var(--disp); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--red); }
+.legend-head p { color: var(--gray-2); font-size: 13px; line-height: 1.55; max-width: 760px; margin: 0; }
+.legend-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px 20px; margin: 18px 0 14px; }
+.legend-item { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--gray); }
+.legend-item .badge { flex-shrink: 0; }
+.legend-foot { color: var(--gray-2); font-size: 12.5px; border-top: 1px solid var(--line-soft); padding-top: 14px; }
+.legend-foot b { color: var(--white); }
+@media (max-width: 640px) { .cd-cell { min-width: 62px; padding: 11px 6px; } .cd-v { font-size: 27px; } .legend-grid { grid-template-columns: 1fr; } }
+
 /* ============ token detail ============ */
 .back { background: transparent; border: 1px solid var(--line); color: var(--gray); font: 600 12px var(--disp); letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; border-radius: 8px; cursor: pointer; margin-bottom: 20px; }
 .back:hover { color: var(--white); border-color: var(--gray-2); }

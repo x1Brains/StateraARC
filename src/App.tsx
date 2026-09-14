@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN, NET, type Token, type MarketPx } from './lib/arc';
+import { fetchTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN, NET, LAUNCHPADS, MAINNET_LAUNCH_ISO, MAINNET_LIVE, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
 import { Portfolio } from './components/Portfolio';
 import { Swap } from './components/Swap';
 
 type Page = 'home' | 'screener' | 'portfolio' | 'swap';
-type Filter = 'all' | 'new' | 'eco' | 'ours';
+type Filter = 'all' | 'new' | 'eco';
 type SortKey = 'liq' | 'mcap' | 'holders' | 'price' | 'name';
 
 const NAV: { key: Page; label: string }[] = [
@@ -19,10 +19,18 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'new', label: 'Launchpad' },
   { key: 'eco', label: 'Ecosystem' },
-  { key: 'ours', label: 'Ours' },
 ];
 const PER_PAGE_OPTS = [100, 250, 500];
 const byLiq = (a: Token, b: Token) => (b.liq ?? -1) - (a.liq ?? -1);
+
+// Legend for the launchpad/factory tags we detect on Arc (from LAUNCHPADS deployer clustering).
+const LP_DESC: Record<string, string> = {
+  'Memepad': 'Memecoin launchpad — fresh degen mints.',
+  'Launcher': 'Generic token launcher.',
+  'LP factory': 'Liquidity-pool factory — usually an LP / pool token.',
+  'Curve factory': 'Curve-style stableswap factory — usually an LP / pool token.',
+};
+const LAUNCHPAD_LEGEND = [...new Set(Object.values(LAUNCHPADS))].map((l) => ({ label: l, desc: LP_DESC[l] || `Tokens minted by the ${l} contract on Arc.` }));
 
 export default function App() {
   const [page, setPage] = useState<Page>('home');
@@ -60,7 +68,6 @@ export default function App() {
     let r = tokens;
     if (filter === 'new') r = r.filter((t) => t.launchpad);
     else if (filter === 'eco') r = r.filter((t) => t.isEcosystem);
-    else if (filter === 'ours') r = r.filter((t) => t.isOurs);
     if (q.trim()) {
       const s = q.toLowerCase();
       r = r.filter((t) => t.name.toLowerCase().includes(s) || t.symbol.toLowerCase().includes(s) || t.address.includes(s));
@@ -125,13 +132,14 @@ export default function App() {
           {(page === 'portfolio' || page === 'swap') && <button className="connect" onClick={onConnect}>{wallet ? wallet.slice(0, 6) + '…' + wallet.slice(-4) : 'Connect Wallet'}</button>}
         </div></div>
 
-        {/* mainnet gate (home + screener) */}
-        {(page === 'home' || page === 'screener') && net === 'mainnet' && (
+        {/* mainnet gate (home + screener) — live countdown to Sept 16, 2026 */}
+        {(page === 'home' || page === 'screener') && net === 'mainnet' && !MAINNET_LIVE && (
           <div className="wrap"><section className="section">
-            <div className="soon">
-              <span className="badge b-red">Not Live Yet</span>
-              <h2>Arc Mainnet — launching soon</h2>
-              <p>Circle's Arc mainnet isn't public yet. StateraArc flips to live mainnet data the moment it is — one switch, no redeploy. For now, flip back to <b style={{ color: 'var(--red-hi)', cursor: 'pointer' }} onClick={() => switchNet('testnet')}>Testnet</b> to explore real Arc tokens.</p>
+            <div className="soon cd-card">
+              <span className="badge b-red">Mainnet · Sept 16, 2026</span>
+              <h2>Arc Mainnet goes live in</h2>
+              <Countdown iso={MAINNET_LAUNCH_ISO} />
+              <p>Circle's Arc public mainnet launches <b style={{ color: 'var(--white)' }}>September 16, 2026</b>. StateraArc flips to live mainnet data automatically the moment it's on — no redeploy. For now, explore real tokens on <b style={{ color: 'var(--red-hi)', cursor: 'pointer' }} onClick={() => switchNet('testnet')}>Testnet</b>.</p>
             </div>
           </section></div>
         )}
@@ -160,6 +168,14 @@ export default function App() {
                 </div>
               </div>
             </section>
+
+            {!MAINNET_LIVE && (
+              <div className="wrap"><div className="cd-banner" onClick={() => switchNet('mainnet')}>
+                <span className="cd-banner-l"><span className="dot" /> Arc Mainnet · Sept 16, 2026</span>
+                <Countdown iso={MAINNET_LAUNCH_ISO} compact />
+                <span className="cd-banner-cta">Countdown →</span>
+              </div></div>
+            )}
 
             <div className="wrap"><section className="section home">
               <div className="home-cards">
@@ -239,7 +255,7 @@ export default function App() {
                   <span className="hidesm">Tags</span>
                 </div>
                 {pageRows.map((t, i) => (
-                  <div className={`trow tok sc${t.isOurs ? ' mine' : ''}`} key={t.address} onClick={() => setSelected(t.address)}>
+                  <div className="trow tok sc" key={t.address} onClick={() => setSelected(t.address)}>
                     <span className="rank">{(pageNum - 1) * perPage + i + 1}</span>
                     <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
                     <span><div className="tname">{t.name}</div><div className="tsym">{t.symbol}</div></span>
@@ -250,7 +266,6 @@ export default function App() {
                     <span className="flags hidesm">
                       {t.launchpad && <span className="badge b-red">{t.launchpad}</span>}
                       {t.isEcosystem && <span className="badge b-gray">ECO</span>}
-                      {t.isOurs && <span className="badge b-white">OURS</span>}
                     </span>
                   </div>
                 ))}
@@ -273,6 +288,22 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            {/* legend — what the tags mean + which launchpads we track */}
+            <div className="legend">
+              <div className="legend-head">
+                <div className="kicker">Legend</div>
+                <h3>What the tags mean</h3>
+                <p>All data is read live from the <b style={{ color: 'var(--white)' }}>Arc chain</b> ({CHAIN.name}) — on-chain pools, holders &amp; deployer clustering. Not affiliated with any other network's launchpads.</p>
+              </div>
+              <div className="legend-grid">
+                <div className="legend-item"><span className="badge b-gray">ECO</span><span>Core ecosystem asset — Circle / Arc infra &amp; stablecoins (USDC, EURC, USDT…).</span></div>
+                {LAUNCHPAD_LEGEND.map((l) => (
+                  <div className="legend-item" key={l.label}><span className="badge b-red">{l.label}</span><span>{l.desc}</span></div>
+                ))}
+              </div>
+              <div className="legend-foot">Tracking <b>{LAUNCHPAD_LEGEND.length}</b> launchpads / factories on Arc — each token flagged by the deployer contract that minted it.</div>
+            </div>
           </section></div>
         )}
 
@@ -287,6 +318,28 @@ export default function App() {
       </div>
     </>
   );
+}
+
+// ── live countdown to Arc mainnet ──
+function useCountdown(iso: string) {
+  const target = new Date(iso).getTime();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
+  const ms = Math.max(0, target - now);
+  return {
+    d: Math.floor(ms / 86400000),
+    h: Math.floor((ms % 86400000) / 3600000),
+    m: Math.floor((ms % 3600000) / 60000),
+    s: Math.floor((ms % 60000) / 1000),
+    done: ms === 0,
+  };
+}
+function Countdown({ iso, compact }: { iso: string; compact?: boolean }) {
+  const { d, h, m, s, done } = useCountdown(iso);
+  if (done) return <span className="cd-live">Mainnet is live</span>;
+  if (compact) return <span className="cd-compact">{d}d {String(h).padStart(2, '0')}h {String(m).padStart(2, '0')}m {String(s).padStart(2, '0')}s</span>;
+  const cell = (v: number, l: string) => <div className="cd-cell"><div className="cd-v">{String(v).padStart(2, '0')}</div><div className="cd-l">{l}</div></div>;
+  return <div className="cd">{cell(d, 'Days')}<span className="cd-sep">:</span>{cell(h, 'Hrs')}<span className="cd-sep">:</span>{cell(m, 'Min')}<span className="cd-sep">:</span>{cell(s, 'Sec')}</div>;
 }
 
 // ── home preview card (Trending / Launches / Ecosystem) ──
