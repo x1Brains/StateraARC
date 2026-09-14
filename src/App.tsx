@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchTokens, fetchMarket, fmt, price, tprice, usd, CHAIN, NET, type Token, type MarketPx } from './lib/arc';
+import { fetchTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN, NET, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
+import { Portfolio } from './components/Portfolio';
 
 type Page = 'screener' | 'portfolio' | 'swap';
 type Filter = 'all' | 'new' | 'eco' | 'ours';
@@ -33,6 +34,8 @@ export default function App() {
     try { return (localStorage.getItem('statera-net') as 'testnet' | 'mainnet') || 'testnet'; } catch { return 'testnet'; }
   });
   const switchNet = (n: 'testnet' | 'mainnet') => { setNet(n); setSelected(null); try { localStorage.setItem('statera-net', n); } catch {} };
+  const [wallet, setWallet] = useState<string | null>(null);
+  const onConnect = async () => { try { const a = await connectWallet(); if (a) setWallet(a); } catch {} };
 
   async function load() {
     setLoading(true); setErr(null);
@@ -104,7 +107,7 @@ export default function App() {
             <button className={net === 'testnet' ? 'on' : ''} onClick={() => switchNet('testnet')}>Testnet</button>
             <button className={net === 'mainnet' ? 'on' : ''} onClick={() => switchNet('mainnet')}>Mainnet</button>
           </div>
-          {page !== 'screener' && <button className="connect">Connect Wallet</button>}
+          {page !== 'screener' && <button className="connect" onClick={onConnect}>{wallet ? wallet.slice(0, 6) + '…' + wallet.slice(-4) : 'Connect Wallet'}</button>}
         </div></div>
 
         {page === 'screener' && net === 'mainnet' && (
@@ -210,15 +213,7 @@ export default function App() {
           </>
         )}
 
-        {page === 'portfolio' && (
-          <div className="wrap"><section className="section">
-            <div className="soon">
-              <span className="badge b-red">Coming Soon</span>
-              <h2>Portfolio</h2>
-              <p>Connect your Arc wallet to track holdings, P&amp;L, and LP positions in real time — the x1brains portfolio tracker, rebuilt for Arc.</p>
-            </div>
-          </section></div>
-        )}
+        {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} />}
         {page === 'swap' && (
           <div className="wrap"><section className="section">
             <div className="soon">

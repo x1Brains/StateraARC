@@ -3,10 +3,10 @@
 
 export type Net = 'testnet' | 'mainnet';
 
-export const NETS: Record<Net, { name: string; chainId: number; scan: string; api: string }> = {
-  testnet: { name: 'Arc Testnet', chainId: 5042002, scan: 'https://testnet.arcscan.app', api: 'https://testnet.arcscan.app/api/v2' },
+export const NETS: Record<Net, { name: string; chainId: number; scan: string; api: string; rpc: string }> = {
+  testnet: { name: 'Arc Testnet', chainId: 5042002, scan: 'https://testnet.arcscan.app', api: 'https://testnet.arcscan.app/api/v2', rpc: 'https://rpc.testnet.arc.io' },
   // Mainnet explorer URL TBD at launch — update the moment it's known.
-  mainnet: { name: 'Arc', chainId: 0, scan: '', api: '' },
+  mainnet: { name: 'Arc', chainId: 0, scan: '', api: '', rpc: '' },
 };
 
 export const NET: Net = (import.meta.env.VITE_ARC_NET as Net) || 'testnet';
@@ -203,3 +203,41 @@ export const ago = (ms: number) => {
   if (s < 86400) return Math.floor(s / 3600) + 'h';
   return Math.floor(s / 86400) + 'd';
 };
+
+// ── portfolio ──
+export interface Holding { address: string; name: string; symbol: string; decimals: number; balance: number; iconUrl: string | null; }
+export async function fetchHoldings(addr: string): Promise<Holding[]> {
+  const j = await req(`${CHAIN.api}/addresses/${addr}/token-balances`).catch(() => []);
+  const arr = Array.isArray(j) ? j : (j.items || []);
+  return arr
+    .filter((x: any) => !x.token?.type || String(x.token.type).includes('ERC-20'))
+    .map((x: any) => {
+      const dec = Number(x.token?.decimals || 18);
+      return {
+        address: addrOf(x.token?.address || x.token).toLowerCase(),
+        name: x.token?.name || '?', symbol: x.token?.symbol || '?', decimals: dec,
+        balance: Number(x.value || 0) / 10 ** dec, iconUrl: x.token?.icon_url || null,
+      };
+    })
+    .filter((h: Holding) => h.balance > 0);
+}
+export const isAddress = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
+
+// ── wallet (EIP-1193 injected, e.g. MetaMask) ──
+export async function connectWallet(): Promise<string | null> {
+  const eth = (window as any).ethereum;
+  if (!eth) { alert('No EVM wallet found — install MetaMask (or any injected wallet) to connect.'); return null; }
+  const accts = await eth.request({ method: 'eth_requestAccounts' });
+  const hexId = '0x' + CHAIN.chainId.toString(16);
+  try { await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hexId }] }); }
+  catch (e: any) {
+    if (e.code === 4902) {
+      await eth.request({ method: 'wallet_addEthereumChain', params: [{
+        chainId: hexId, chainName: CHAIN.name,
+        nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+        rpcUrls: [CHAIN.rpc], blockExplorerUrls: [CHAIN.scan],
+      }] });
+    }
+  }
+  return accts?.[0] || null;
+}
