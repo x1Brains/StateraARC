@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchTokens, enrichLaunchpad, fetchMarket, fmt, price, CHAIN, NET, type Token, type MarketPx } from './lib/arc';
+import { fetchTokens, fetchMarket, fmt, price, CHAIN, NET, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
 
@@ -34,22 +34,9 @@ export default function App() {
     setLoading(true); setErr(null);
     fetchMarket().then(setMarket).catch(() => {});
     try {
-      const list = await fetchTokens(300);
+      // Loads instantly from the pre-baked snapshot (launchpad flags already computed).
+      const list = await fetchTokens(500);
       setTokens(list);
-      // Throttled launchpad enrichment — only the top slice, small batches with a pause,
-      // so we never burst the public API into a 429.
-      (async () => {
-        const top = list.slice(0, 50);
-        for (let i = 0; i < top.length; i += 3) {
-          const batch = await Promise.all(top.slice(i, i + 3).map(enrichLaunchpad));
-          setTokens((prev) => {
-            const m = new Map(prev.map((t) => [t.address, t]));
-            for (const b of batch) if (b.launchpad) m.set(b.address, b);
-            return [...m.values()];
-          });
-          await new Promise((r) => setTimeout(r, 500));
-        }
-      })();
     } catch (e: any) { setErr(e.message || 'failed to load'); }
     finally { setLoading(false); }
   }

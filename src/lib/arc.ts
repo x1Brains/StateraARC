@@ -54,7 +54,25 @@ export async function req(url: string): Promise<any> {
 }
 async function api(path: string): Promise<any> { return req(`${CHAIN.api}${path}`); }
 
-export async function fetchTokens(limit = 150): Promise<Token[]> {
+export async function fetchTokens(limit = 500): Promise<Token[]> {
+  // FAST PATH: pre-baked snapshot (one small file, launchpad flags already computed) — the app
+  // loads the whole screener instantly instead of hammering Blockscout's rate-limited API.
+  try {
+    const r = await fetch('/tokens-snapshot.json', { cache: 'default' });
+    if (r.ok) {
+      const snap = await r.json();
+      if (snap && Array.isArray(snap.tokens) && snap.tokens.length) {
+        return snap.tokens.slice(0, limit).map((t: any): Token => ({
+          address: t.address, name: t.name, symbol: t.symbol,
+          holders: t.holders ?? null, totalSupply: null, type: 'ERC-20',
+          iconUrl: t.iconUrl ?? null, launchpad: t.launchpad ?? null,
+          isOurs: !!t.isOurs, isEcosystem: !!t.isEcosystem,
+        }));
+      }
+    }
+  } catch { /* fall through to the live path */ }
+
+  // FALLBACK: live fetch (rate-limited) — only used before a snapshot exists.
   const out: Token[] = [];
   let params = new URLSearchParams({ type: 'ERC-20' });
   while (out.length < limit) {
