@@ -4,7 +4,7 @@ name: Refresh token snapshot
 # A push to main auto-deploys on Vercel, so the live site stays fresh without any one box.
 on:
   schedule:
-    - cron: '*/30 * * * *' # every 30 min (best-effort on GitHub's shared runners)
+    - cron: '0 */6 * * *' # every 6 hours — keeps a private repo inside the 2,000 free Action-min/month
   workflow_dispatch: {} # allow manual runs
 
 # Never let two rebuilds overlap.
