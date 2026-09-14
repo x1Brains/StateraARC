@@ -31,6 +31,7 @@ export interface Token {
   holders: number | null;
   totalSupply: string | null;
   type: string;
+  iconUrl: string | null;
   launchpad: string | null;
   isOurs: boolean;
   isEcosystem: boolean;
@@ -56,6 +57,7 @@ export async function fetchTokens(limit = 300): Promise<Token[]> {
         holders: t.holders != null ? Number(t.holders) : (t.holder_count != null ? Number(t.holder_count) : null),
         totalSupply: t.total_supply ?? null,
         type: t.type || 'ERC-20',
+        iconUrl: t.icon_url ?? null,
         launchpad: null, // filled lazily via enrichLaunchpad
         isOurs: OURS.has(address),
         isEcosystem: ECOSYSTEM.test(`${t.name} ${t.symbol}`),
@@ -80,3 +82,22 @@ export async function enrichLaunchpad(t: Token): Promise<Token> {
 }
 
 export const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString());
+
+// Market ticker — BTC/ETH/SOL from Coinbase's CORS-open spot API, plus the stables.
+export interface MarketPx { sym: string; price: number | null }
+export async function fetchMarket(): Promise<MarketPx[]> {
+  const majors = ['BTC', 'ETH', 'SOL'];
+  const out: MarketPx[] = [];
+  await Promise.all(majors.map(async (s) => {
+    try {
+      const r = await fetch(`https://api.coinbase.com/v2/prices/${s}-USD/spot`);
+      const j = await r.json();
+      out.push({ sym: s, price: Number(j.data.amount) });
+    } catch { out.push({ sym: s, price: null }); }
+  }));
+  out.sort((a, b) => majors.indexOf(a.sym) - majors.indexOf(b.sym));
+  out.push({ sym: 'USDC', price: 1 }, { sym: 'EURC', price: 1.08 });
+  return out;
+}
+export const price = (n: number | null) =>
+  n == null ? '—' : n >= 1000 ? '$' + (n / 1000).toFixed(1) + 'K' : n >= 1 ? '$' + n.toFixed(2) : '$' + n.toFixed(4);
