@@ -29,6 +29,10 @@ export default function App() {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('holders');
   const [selected, setSelected] = useState<string | null>(null);
+  const [net, setNet] = useState<'testnet' | 'mainnet'>(() => {
+    try { return (localStorage.getItem('statera-net') as 'testnet' | 'mainnet') || 'testnet'; } catch { return 'testnet'; }
+  });
+  const switchNet = (n: 'testnet' | 'mainnet') => { setNet(n); setSelected(null); try { localStorage.setItem('statera-net', n); } catch {} };
 
   async function load() {
     setLoading(true); setErr(null);
@@ -96,14 +100,33 @@ export default function App() {
             {NAV.map((n) => <button key={n.key} className={page === n.key ? 'on' : ''} onClick={() => go(n.key)}>{n.label}</button>)}
           </div>
           <div className="spacer" />
+          <div className="net-toggle" role="group" aria-label="network">
+            <button className={net === 'testnet' ? 'on' : ''} onClick={() => switchNet('testnet')}>Testnet</button>
+            <button className={net === 'mainnet' ? 'on' : ''} onClick={() => switchNet('mainnet')}>Mainnet</button>
+          </div>
           {page !== 'screener' && <button className="connect">Connect Wallet</button>}
         </div></div>
 
-        {page === 'screener' && selected && (
-          <TokenDetail address={selected} onBack={() => setSelected(null)} />
+        {page === 'screener' && net === 'mainnet' && (
+          <div className="wrap"><section className="section">
+            <div className="soon">
+              <span className="badge b-red">Not Live Yet</span>
+              <h2>Arc Mainnet — launching soon</h2>
+              <p>Circle's Arc mainnet isn't public yet. StateraArc flips to live mainnet data the moment it is — one switch, no redeploy. For now, flip back to <b style={{ color: 'var(--red-hi)', cursor: 'pointer' }} onClick={() => switchNet('testnet')}>Testnet</b> to explore real Arc tokens.</p>
+            </div>
+          </section></div>
         )}
 
-        {page === 'screener' && !selected && (
+        {page === 'screener' && net === 'testnet' && selected && (
+          <TokenDetail
+            address={selected}
+            price={tokens.find((t) => t.address === selected)?.price ?? null}
+            liq={tokens.find((t) => t.address === selected)?.liq ?? null}
+            onBack={() => setSelected(null)}
+          />
+        )}
+
+        {page === 'screener' && net === 'testnet' && !selected && (
           <>
             {/* hero */}
             <section className="hero"><div className="wrap">

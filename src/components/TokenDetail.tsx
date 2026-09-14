@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchTokenDetail, fetchTransfers, compact, usd, ago, CHAIN, type TokenDetail as TD, type Transfer } from '../lib/arc';
+import { fetchTokenDetail, fetchTransfers, compact, usd, tprice, ago, CHAIN, type TokenDetail as TD, type Transfer } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 
 const short = (a: string) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '—');
 
-export function TokenDetail({ address, onBack }: { address: string; onBack: () => void }) {
+export function TokenDetail({ address, price, liq, onBack }: { address: string; price: number | null; liq: number | null; onBack: () => void }) {
   const [d, setD] = useState<TD | null>(null);
   const [txs, setTxs] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,10 +18,11 @@ export function TokenDetail({ address, onBack }: { address: string; onBack: () =
       .finally(() => setLoading(false));
   }, [address]);
 
-  const fdv = useMemo(() => (d?.exchangeRate && d?.totalSupply ? d.exchangeRate * d.totalSupply : d?.marketCap ?? null), [d]);
+  // On testnet circulating ≈ total supply, so market cap = FDV = price × supply.
+  const mcap = useMemo(() => (price != null && d?.totalSupply ? price * d.totalSupply : null), [price, d]);
   const calcOut = useMemo(() => {
-    const n = parseFloat(calc); if (!d?.exchangeRate || !n) return null; return n / d.exchangeRate;
-  }, [calc, d]);
+    const n = parseFloat(calc); if (!price || !n) return null; return n / price;
+  }, [calc, price]);
 
   if (loading) return <div className="wrap"><div className="section"><div className="msg">Loading token…</div></div></div>;
   if (!d) return <div className="wrap"><div className="section"><div className="msg err">Could not load token.</div></div></div>;
@@ -43,16 +44,16 @@ export function TokenDetail({ address, onBack }: { address: string; onBack: () =
             </div>
           </div>
           <div className="td-price">
-            <div className="td-px">{d.exchangeRate != null ? '$' + d.exchangeRate.toPrecision(4) : '—'}</div>
-            <div className="td-px-l">price {d.exchangeRate == null && '· via pools soon'}</div>
+            <div className="td-px">{tprice(price)}</div>
+            <div className="td-px-l">price{price == null ? ' · no pool found' : liq != null ? ` · ${usd(liq)} liq` : ''}</div>
           </div>
         </div>
 
         {/* stat tiles */}
         <div className="stats td-stats">
-          <div className="stat"><div className="v">{usd(d.marketCap)}</div><div className="l">Market Cap</div></div>
-          <div className="stat"><div className="v">{usd(fdv)}</div><div className="l">FDV</div></div>
-          <div className="stat"><div className="v">{usd(d.volume24h)}</div><div className="l">24h Volume</div></div>
+          <div className="stat"><div className="v">{usd(mcap)}</div><div className="l">Market Cap</div></div>
+          <div className="stat"><div className="v">{usd(mcap)}</div><div className="l">FDV</div></div>
+          <div className="stat"><div className="v">{liq == null ? '—' : usd(liq)}</div><div className="l">Liquidity</div></div>
           <div className="stat"><div className="v">{compact(d.holders)}</div><div className="l">Holders</div></div>
           <div className="stat"><div className="v">{compact(d.totalSupply)}</div><div className="l">Total Supply</div></div>
           <div className="stat"><div className="v">{compact(d.transfersCount)}</div><div className="l">Transfers</div></div>
@@ -97,7 +98,7 @@ export function TokenDetail({ address, onBack }: { address: string; onBack: () =
               <div className="calc">
                 <input className="search" placeholder="0.00" value={calc} onChange={(e) => setCalc(e.target.value)} />
                 <span className="calc-eq">USD →</span>
-                <div className="calc-out">{calcOut != null ? compact(calcOut) + ' ' + d.symbol : (d.exchangeRate == null ? 'price soon' : '—')}</div>
+                <div className="calc-out">{calcOut != null ? compact(calcOut) + ' ' + d.symbol : (price == null ? 'no pool' : '—')}</div>
               </div>
             </div>
 
@@ -109,7 +110,7 @@ export function TokenDetail({ address, onBack }: { address: string; onBack: () =
           </aside>
         </div>
 
-        <div className="td-disc">Price, liquidity, volume &amp; buy/sell classification come from the DEX-pool layer (phase 2). Supply, holders, transfers &amp; contract data are live from Arcscan.</div>
+        <div className="td-disc">Price &amp; liquidity are read live from on-chain pool reserves. Volume, buy/sell classification &amp; price history are still being wired in. Supply, holders, transfers &amp; contract data are live from Arcscan.</div>
       </div>
     </div>
   );
