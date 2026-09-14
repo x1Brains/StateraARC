@@ -142,16 +142,32 @@ const MARKET_ASSETS = [
   { cb: 'LINK', sym: 'LINK', logo: '/coins/LINK.png' },
   { cb: 'PAXG', sym: 'GOLD', logo: '/coins/PAXG.png' },
 ];
+// XNT (X1's native token) — live USD price via XDEX. CORS-blocked, so proxied at /api/xdex
+// (Vercel rewrite in prod, vite proxy in dev). Mint So111…112 = X1 native.
+async function fetchXnt(): Promise<number | null> {
+  try {
+    const r = await fetch('/api/xdex/api/token-price/price?network=X1%20Mainnet&token_address=So11111111111111111111111111111111111111112', { signal: AbortSignal.timeout(6000) });
+    const j = await r.json();
+    return Number(j?.data?.price) || null;
+  } catch { return null; }
+}
 export async function fetchMarket(): Promise<MarketPx[]> {
   const out: MarketPx[] = [];
-  await Promise.all(MARKET_ASSETS.map(async (a) => {
-    try {
-      const r = await fetch(`https://api.coinbase.com/v2/prices/${a.cb}-USD/spot`);
-      const j = await r.json();
-      out.push({ sym: a.sym, price: Number(j.data.amount), logo: a.logo });
-    } catch { out.push({ sym: a.sym, price: null, logo: a.logo }); }
-  }));
+  const [, xnt] = await Promise.all([
+    Promise.all(MARKET_ASSETS.map(async (a) => {
+      try {
+        const r = await fetch(`https://api.coinbase.com/v2/prices/${a.cb}-USD/spot`);
+        const j = await r.json();
+        out.push({ sym: a.sym, price: Number(j.data.amount), logo: a.logo });
+      } catch { out.push({ sym: a.sym, price: null, logo: a.logo }); }
+    })),
+    fetchXnt(),
+  ]);
   out.sort((x, y) => MARKET_ASSETS.findIndex((a) => a.sym === x.sym) - MARKET_ASSETS.findIndex((a) => a.sym === y.sym));
+  // XNT right after SOL.
+  const solIdx = out.findIndex((a) => a.sym === 'SOL');
+  const xntEntry: MarketPx = { sym: 'XNT', price: xnt, logo: '/coins/XNT.svg' };
+  if (solIdx >= 0) out.splice(solIdx + 1, 0, xntEntry); else out.push(xntEntry);
   // Arc's own money (fixed peg).
   out.push({ sym: 'USDC', price: 1, logo: '/coins/USDC.svg' }, { sym: 'EURC', price: 1.08, logo: '/coins/EURC.svg' });
   return out;
