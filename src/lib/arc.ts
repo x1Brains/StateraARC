@@ -37,16 +37,29 @@ export interface Token {
   isEcosystem: boolean;
 }
 
-const addrOf = (o: any): string =>
+export const addrOf = (o: any): string =>
   (o && (o.hash || o.address_hash || o.address)) || (typeof o === 'string' ? o : '');
 
-export async function fetchTokens(limit = 300): Promise<Token[]> {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Fetch with 429 backoff — Blockscout's public API rate-limits, so retry politely.
+export async function req(url: string): Promise<any> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const r = await fetch(url, { headers: { accept: 'application/json' } });
+    if (r.status === 429) { await sleep(800 * (attempt + 1)); continue; }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  }
+  throw new Error('rate-limited (429) — try again shortly');
+}
+async function api(path: string): Promise<any> { return req(`${CHAIN.api}${path}`); }
+
+export async function fetchTokens(limit = 150): Promise<Token[]> {
   const out: Token[] = [];
   let params = new URLSearchParams({ type: 'ERC-20' });
   while (out.length < limit) {
-    const r = await fetch(`${CHAIN.api}/tokens?${params.toString()}`, { headers: { accept: 'application/json' } });
-    if (!r.ok) break;
-    const j = await r.json();
+    const j = await req(`${CHAIN.api}/tokens?${params.toString()}`);
+    if (!j) break;
     for (const t of j.items || []) {
       const address = addrOf(t.address ?? t).toLowerCase();
       if (!address) continue;
@@ -65,17 +78,16 @@ export async function fetchTokens(limit = 300): Promise<Token[]> {
     }
     if (!j.next_page_params) break;
     params = new URLSearchParams({ type: 'ERC-20', ...j.next_page_params });
+    await sleep(160); // be gentle on the public API
   }
   return out.slice(0, limit);
 }
 
-// Fetch a token's deployer and tag it if the deployer is a known launchpad. Called on demand
-// (one request per token) so the initial table paints fast.
+// Fetch a token's deployer and tag it if the deployer is a known launchpad. Called sparingly
+// (throttled by the caller) so we don't trip the public API rate limit.
 export async function enrichLaunchpad(t: Token): Promise<Token> {
   try {
-    const r = await fetch(`${CHAIN.api}/addresses/${t.address}`, { headers: { accept: 'application/json' } });
-    if (!r.ok) return t;
-    const j = await r.json();
+    const j = await req(`${CHAIN.api}/addresses/${t.address}`);
     const creator = addrOf(j.creator_address_hash).toLowerCase();
     return { ...t, launchpad: LAUNCHPADS[creator] || null };
   } catch { return t; }
@@ -101,3 +113,61 @@ export async function fetchMarket(): Promise<MarketPx[]> {
 }
 export const price = (n: number | null) =>
   n == null ? '—' : n >= 1000 ? '$' + (n / 1000).toFixed(1) + 'K' : n >= 1 ? '$' + n.toFixed(2) : '$' + n.toFixed(4);
+
+export const usd = (n: number | null) => {
+  if (n == null) return '—';
+  if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + (n / 1e3).toFixed(2) + 'K';
+  return '$' + n.toFixed(2);
+};
+export const compact = (n: number | null) =>
+  n == null ? '—' : n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(Math.round(n));
+
+// ── token detail ──
+export interface TokenDetail {
+  address: string; name: string; symbol: string; decimals: number;
+  totalSupply: number | null; holders: number | null; iconUrl: string | null;
+  exchangeRate: number | null; marketCap: number | null; volume24h: number | null;
+  creator: string | null; isVerified: boolean; transfersCount: number | null;
+}
+export async function fetchTokenDetail(address: string): Promise<TokenDetail> {
+  const [tok, counters, addr] = await Promise.all([
+    api(`/tokens/${address}`),
+    api(`/tokens/${address}/counters`).catch(() => ({} as any)),
+    api(`/addresses/${address}`).catch(() => ({} as any)),
+  ]);
+  const dec = Number(tok.decimals || 18);
+  const supplyRaw = tok.total_supply != null ? Number(tok.total_supply) / 10 ** dec : null;
+  return {
+    address, name: tok.name || '(unnamed)', symbol: tok.symbol || '?', decimals: dec,
+    totalSupply: supplyRaw,
+    holders: tok.holders != null ? Number(tok.holders) : (counters.token_holders_count != null ? Number(counters.token_holders_count) : null),
+    iconUrl: tok.icon_url ?? null,
+    exchangeRate: tok.exchange_rate != null ? Number(tok.exchange_rate) : null,
+    marketCap: tok.circulating_market_cap != null ? Number(tok.circulating_market_cap) : null,
+    volume24h: tok.volume_24h != null ? Number(tok.volume_24h) : null,
+    creator: addr.creator_address_hash ? addrOf(addr.creator_address_hash) : null,
+    isVerified: !!(addr.is_verified),
+    transfersCount: counters.transfers_count != null ? Number(counters.transfers_count) : null,
+  };
+}
+
+export interface Transfer { t: number; from: string; to: string; amount: number; tx: string; method: string; }
+export async function fetchTransfers(address: string, limit = 50): Promise<Transfer[]> {
+  const j = await api(`/tokens/${address}/transfers`).catch(() => ({ items: [] }));
+  return (j.items || []).slice(0, limit).map((it: any) => ({
+    t: new Date(it.timestamp).getTime(),
+    from: addrOf(it.from), to: addrOf(it.to),
+    amount: Number(it.total?.value || 0) / 10 ** Number(it.total?.decimals || 18),
+    tx: it.transaction_hash || it.tx_hash || '',
+    method: it.method || '',
+  }));
+}
+export const ago = (ms: number) => {
+  const s = (Date.now() - ms) / 1000;
+  if (s < 60) return Math.floor(s) + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm';
+  if (s < 86400) return Math.floor(s / 3600) + 'h';
+  return Math.floor(s / 86400) + 'd';
+};

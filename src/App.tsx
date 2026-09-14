@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTokens, enrichLaunchpad, fetchMarket, fmt, price, CHAIN, NET, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
+import { TokenDetail } from './components/TokenDetail';
 
 type Page = 'screener' | 'portfolio' | 'swap';
 type Filter = 'all' | 'new' | 'eco' | 'ours';
@@ -27,6 +28,7 @@ export default function App() {
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('holders');
+  const [selected, setSelected] = useState<string | null>(null);
 
   async function load() {
     setLoading(true); setErr(null);
@@ -34,14 +36,18 @@ export default function App() {
     try {
       const list = await fetchTokens(300);
       setTokens(list);
+      // Throttled launchpad enrichment — only the top slice, small batches with a pause,
+      // so we never burst the public API into a 429.
       (async () => {
-        for (let i = 0; i < list.length; i += 6) {
-          const batch = await Promise.all(list.slice(i, i + 6).map(enrichLaunchpad));
+        const top = list.slice(0, 50);
+        for (let i = 0; i < top.length; i += 3) {
+          const batch = await Promise.all(top.slice(i, i + 3).map(enrichLaunchpad));
           setTokens((prev) => {
             const m = new Map(prev.map((t) => [t.address, t]));
             for (const b of batch) if (b.launchpad) m.set(b.address, b);
             return [...m.values()];
           });
+          await new Promise((r) => setTimeout(r, 500));
         }
       })();
     } catch (e: any) { setErr(e.message || 'failed to load'); }
@@ -102,7 +108,11 @@ export default function App() {
           {page !== 'screener' && <button className="connect">Connect Wallet</button>}
         </div></div>
 
-        {page === 'screener' && (
+        {page === 'screener' && selected && (
+          <TokenDetail address={selected} onBack={() => setSelected(null)} />
+        )}
+
+        {page === 'screener' && !selected && (
           <>
             {/* hero */}
             <section className="hero"><div className="wrap">
@@ -161,7 +171,7 @@ export default function App() {
                     <span className="hidesm">Contract</span>
                   </div>
                   {rows.map((t, i) => (
-                    <div className={`trow tok${t.isOurs ? ' mine' : ''}`} key={t.address}>
+                    <div className={`trow tok${t.isOurs ? ' mine' : ''}`} key={t.address} onClick={() => setSelected(t.address)}>
                       <span className="rank">{i + 1}</span>
                       <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
                       <span><div className="tname">{t.name}</div><div className="tsym">{t.symbol}</div></span>
@@ -171,7 +181,7 @@ export default function App() {
                         {t.isEcosystem && <span className="badge b-gray">ECO</span>}
                         {t.isOurs && <span className="badge b-white">OURS</span>}
                       </span>
-                      <a className="addr hidesm" href={`${CHAIN.scan}/token/${t.address}`} target="_blank" rel="noreferrer">{t.address.slice(0, 6)}…{t.address.slice(-4)}</a>
+                      <a className="addr hidesm" href={`${CHAIN.scan}/token/${t.address}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t.address.slice(0, 6)}…{t.address.slice(-4)}</a>
                     </div>
                   ))}
                 </div>

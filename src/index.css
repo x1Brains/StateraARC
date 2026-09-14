@@ -115,7 +115,7 @@ img { max-width: 100%; display: block; }
 .trow { display: grid; grid-template-columns: 46px 44px minmax(150px, 1fr) 130px 168px 140px; align-items: center; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--line-soft); }
 .trow.head { background: var(--panel-2); font-family: var(--disp); font-size: 10px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--gray-2); }
 .trow:last-child { border-bottom: 0; }
-.trow.tok { position: relative; transition: background .1s; }
+.trow.tok { position: relative; transition: background .1s; cursor: pointer; }
 .trow.tok::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; background: var(--fire-soft); opacity: 0; box-shadow: 0 0 10px var(--red-glow); }
 .trow.tok:hover { background: var(--panel-2); }
 .trow.tok:hover::before { opacity: 1; }
@@ -144,6 +144,41 @@ img { max-width: 100%; display: block; }
 .soon h2 { font-family: var(--disp); font-weight: 700; font-size: 30px; letter-spacing: 2px; text-transform: uppercase; margin: 0 0 12px; }
 .soon p { color: var(--gray-2); max-width: 480px; margin: 0 auto; line-height: 1.6; }
 .soon .badge { display: inline-block; margin-bottom: 20px; }
+
+/* ============ token detail ============ */
+.back { background: transparent; border: 1px solid var(--line); color: var(--gray); font: 600 12px var(--disp); letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; border-radius: 8px; cursor: pointer; margin-bottom: 20px; }
+.back:hover { color: var(--white); border-color: var(--gray-2); }
+.td-head { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+.td-head .tlogo, .td-head .tmono { width: 52px; height: 52px; font-size: 20px; }
+.td-id { flex: 1; }
+.td-name { font-family: var(--disp); font-weight: 700; font-size: 24px; letter-spacing: .5px; }
+.td-sym { color: var(--gray-2); font-size: 16px; }
+.td-flags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.td-price { text-align: right; }
+.td-px { font-family: var(--mono); font-weight: 700; font-size: 24px; color: var(--white); }
+.td-px-l { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); margin-top: 3px; }
+.td-stats { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.td-grid { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }
+.trow.th { grid-template-columns: 90px 1fr 120px 120px; background: var(--panel-2); font-family: var(--disp); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
+.trow-tx { grid-template-columns: 90px 1fr 120px 120px; }
+.trow-tx:hover { background: var(--panel-2); }
+.td-route { display: flex; align-items: center; gap: 8px; }
+.td-route .arrow { color: var(--red); }
+.mono { font-family: var(--mono); font-size: 12px; color: var(--gray); }
+.td-side { display: flex; flex-direction: column; gap: 16px; }
+.side-card { padding: 16px; }
+.side-card h3 { font-family: var(--disp); font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray); margin: 0 0 12px; }
+.ir { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.ir:last-child { border-bottom: 0; }
+.ir-k { color: var(--gray-2); }
+.ir-v { color: var(--white); font-family: var(--mono); font-size: 12px; }
+.calc { display: flex; align-items: center; gap: 10px; }
+.calc .search { flex: 1; }
+.calc-eq { color: var(--gray-2); font-size: 12px; }
+.calc-out { font-family: var(--mono); color: var(--red-hi); font-size: 13px; min-width: 80px; text-align: right; }
+.side-note { color: var(--gray-2); font-size: 12px; margin: 0 0 12px; line-height: 1.5; }
+.td-disc { margin-top: 22px; color: var(--gray-3); font-size: 11px; line-height: 1.6; border-top: 1px solid var(--line); padding-top: 16px; }
+@media (max-width: 820px) { .td-grid { grid-template-columns: 1fr; } }
 
 footer { border-top: 1px solid var(--line); margin-top: 40px; }
 footer .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 26px 20px; color: var(--gray-3); font-size: 11px; }
