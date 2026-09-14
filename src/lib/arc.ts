@@ -166,7 +166,7 @@ export async function fetchMarket(): Promise<MarketPx[]> {
   out.sort((x, y) => MARKET_ASSETS.findIndex((a) => a.sym === x.sym) - MARKET_ASSETS.findIndex((a) => a.sym === y.sym));
   // XNT right after SOL.
   const solIdx = out.findIndex((a) => a.sym === 'SOL');
-  const xntEntry: MarketPx = { sym: 'XNT', price: xnt, logo: '/coins/XNT.png' };
+  const xntEntry: MarketPx = { sym: 'XNT', price: xnt, logo: '/coins/XNT.webp' };
   if (solIdx >= 0) out.splice(solIdx + 1, 0, xntEntry); else out.push(xntEntry);
   // Arc's own money (fixed peg).
   out.push({ sym: 'USDC', price: 1, logo: '/coins/USDC.svg' }, { sym: 'EURC', price: 1.08, logo: '/coins/EURC.svg' });
