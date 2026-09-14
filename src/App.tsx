@@ -29,7 +29,7 @@ export default function App() {
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
-  const [sort, setSort] = useState<SortKey>('holders');
+  const [sort, setSort] = useState<SortKey>('liq');
   const [selected, setSelected] = useState<string | null>(null);
   const [net, setNet] = useState<'testnet' | 'mainnet'>(() => {
     try { return (localStorage.getItem('statera-net') as 'testnet' | 'mainnet') || 'testnet'; } catch { return 'testnet'; }
@@ -154,7 +154,7 @@ export default function App() {
                 <div>
                   <div className="kicker">Screener</div>
                   <h2>Arc Tokens</h2>
-                  <p>Ranked by holders. Launchpad tokens flagged from on-chain deployer clustering.</p>
+                  <p>Live prices &amp; liquidity from on-chain pools. Launchpad tokens flagged from deployer clustering.</p>
                 </div>
                 <button className="btn ghost" onClick={load} disabled={loading} style={{ opacity: loading ? .5 : 1 }}>{loading ? 'Loading' : 'Refresh'}</button>
               </div>
@@ -210,6 +210,7 @@ export default function App() {
                   ))}
                 </div>
               )}
+              {!loading && !!tokens.length && !rows.length && <div className="msg">No tokens match{q ? ` "${q}"` : ' this filter'}.</div>}
             </section></div>
           </>
         )}

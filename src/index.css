@@ -217,9 +217,13 @@ footer .wrap { display: flex; align-items: center; justify-content: space-betwee
 footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px; color: var(--gray); }
 
 @media (max-width: 820px) {
-  .hero .wrap { grid-template-columns: 1fr; padding: 48px 20px; }
-  .hero-visual { display: none; }
-  .nav-links { display: none; }
+  .hero .wrap { grid-template-columns: 1fr; padding: 40px 20px 44px; }
+  .hero-visual { min-height: 300px; margin-top: 8px; }
+  .hero-s { width: min(340px, 78%); }
+  .nav .wrap { flex-wrap: wrap; height: auto; padding: 10px 0; row-gap: 10px; }
+  .nav-links { order: 5; width: 100%; justify-content: center; margin-left: 0; }
+  .net-toggle { margin-left: auto; }
+  .hero h1 { font-size: clamp(30px, 8vw, 44px); }
 }
 @media (max-width: 640px) {
   .trow { grid-template-columns: 34px 40px minmax(110px, 1fr) 96px; }
