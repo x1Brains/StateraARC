@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchTokens, fetchMarket, fmt, price, CHAIN, NET, type Token, type MarketPx } from './lib/arc';
+import { fetchTokens, fetchMarket, fmt, price, tprice, usd, CHAIN, NET, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
 
 type Page = 'screener' | 'portfolio' | 'swap';
 type Filter = 'all' | 'new' | 'eco' | 'ours';
-type SortKey = 'holders' | 'name';
+type SortKey = 'liq' | 'holders' | 'price' | 'name';
 
 const NAV: { key: Page; label: string }[] = [
   { key: 'screener', label: 'Screener' },
@@ -51,7 +51,11 @@ export default function App() {
       const s = q.toLowerCase();
       r = r.filter((t) => t.name.toLowerCase().includes(s) || t.symbol.toLowerCase().includes(s) || t.address.includes(s));
     }
-    return [...r].sort((a, b) => (sort === 'holders' ? (b.holders ?? -1) - (a.holders ?? -1) : a.name.localeCompare(b.name)));
+    return [...r].sort((a, b) => {
+      if (sort === 'name') return a.name.localeCompare(b.name);
+      const k = sort as 'liq' | 'holders' | 'price';
+      return (b[k] ?? -1) - (a[k] ?? -1);
+    });
   }, [tokens, filter, q, sort]);
 
   const launchpadCount = tokens.filter((t) => t.launchpad).length;
@@ -141,7 +145,9 @@ export default function App() {
                 </div>
                 <input className="search" placeholder="Search name, symbol, or address" value={q} onChange={(e) => setQ(e.target.value)} />
                 <select className="sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
+                  <option value="liq">Liquidity</option>
                   <option value="holders">Holders</option>
+                  <option value="price">Price</option>
                   <option value="name">Name</option>
                 </select>
               </div>
@@ -153,6 +159,8 @@ export default function App() {
                 <div className="table">
                   <div className="trow head">
                     <span>#</span><span /><span>Token</span>
+                    <span className="num">Price</span>
+                    <span className="num hidesm">Liquidity</span>
                     <span className="num hidesm">Holders</span>
                     <span className="hidesm">Tags</span>
                     <span className="hidesm">Contract</span>
@@ -162,6 +170,8 @@ export default function App() {
                       <span className="rank">{i + 1}</span>
                       <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
                       <span><div className="tname">{t.name}</div><div className="tsym">{t.symbol}</div></span>
+                      <span className="num">{tprice(t.price)}</span>
+                      <span className="num hidesm">{t.liq == null ? '—' : usd(t.liq)}</span>
                       <span className="num hidesm">{fmt(t.holders)}</span>
                       <span className="flags hidesm">
                         {t.launchpad && <span className="badge b-red">{t.launchpad}</span>}

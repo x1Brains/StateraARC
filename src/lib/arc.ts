@@ -35,6 +35,8 @@ export interface Token {
   launchpad: string | null;
   isOurs: boolean;
   isEcosystem: boolean;
+  price: number | null;
+  liq: number | null;
 }
 
 export const addrOf = (o: any): string =>
@@ -67,6 +69,7 @@ export async function fetchTokens(limit = 500): Promise<Token[]> {
           holders: t.holders ?? null, totalSupply: null, type: 'ERC-20',
           iconUrl: t.iconUrl ?? null, launchpad: t.launchpad ?? null,
           isOurs: !!t.isOurs, isEcosystem: !!t.isEcosystem,
+          price: t.price ?? null, liq: t.liq ?? null,
         }));
       }
     }
@@ -92,6 +95,7 @@ export async function fetchTokens(limit = 500): Promise<Token[]> {
         launchpad: null, // filled lazily via enrichLaunchpad
         isOurs: OURS.has(address),
         isEcosystem: ECOSYSTEM.test(`${t.name} ${t.symbol}`),
+        price: null, liq: null,
       });
     }
     if (!j.next_page_params) break;
@@ -141,6 +145,16 @@ export const usd = (n: number | null) => {
 };
 export const compact = (n: number | null) =>
   n == null ? '—' : n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(Math.round(n));
+
+// Token price — handles both normal and sub-cent values.
+export const tprice = (n: number | null) => {
+  if (n == null) return '—';
+  if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
+  if (n >= 1) return '$' + n.toFixed(2);
+  if (n >= 0.01) return '$' + n.toFixed(4);
+  if (n >= 1e-6) return '$' + n.toFixed(8).replace(/0+$/, '');
+  return '$' + n.toExponential(2);
+};
 
 // ── token detail ──
 export interface TokenDetail {

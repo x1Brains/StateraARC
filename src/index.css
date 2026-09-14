@@ -112,7 +112,7 @@ img { max-width: 100%; display: block; }
 
 /* ============ screener table ============ */
 .table { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); }
-.trow { display: grid; grid-template-columns: 46px 44px minmax(150px, 1fr) 130px 168px 140px; align-items: center; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--line-soft); }
+.trow { display: grid; grid-template-columns: 42px 36px minmax(120px, 1fr) 96px 104px 82px 138px 112px; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line-soft); }
 .trow.head { background: var(--panel-2); font-family: var(--disp); font-size: 10px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--gray-2); }
 .trow:last-child { border-bottom: 0; }
 .trow.tok { position: relative; transition: background .1s; cursor: pointer; }
