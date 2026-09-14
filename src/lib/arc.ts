@@ -60,7 +60,9 @@ export async function fetchTokens(limit = 500): Promise<Token[]> {
   // FAST PATH: pre-baked snapshot (one small file, launchpad flags already computed) — the app
   // loads the whole screener instantly instead of hammering Blockscout's rate-limited API.
   try {
-    const r = await fetch('/tokens-snapshot.json', { cache: 'default' });
+    // A cron can host a fresh snapshot at VITE_SNAPSHOT_URL; otherwise use the bundled one.
+    const url = (import.meta.env.VITE_SNAPSHOT_URL as string) || '/tokens-snapshot.json';
+    const r = await fetch(url, { cache: 'default' });
     if (r.ok) {
       const snap = await r.json();
       if (snap && Array.isArray(snap.tokens) && snap.tokens.length) {
