@@ -9,12 +9,12 @@ export function disclaimerAcked(): boolean {
 }
 
 const POINTS = [
-  ['Not financial advice', 'Nothing on StateraArc is a recommendation to buy, sell, or hold anything. We are a data & tooling hub, not an advisor or broker.'],
-  ['Crypto is extremely volatile', 'Most tokens — especially new launches and memes — go to zero. You can lose everything you put in. Never risk money you can’t afford to lose.'],
-  ['Unaudited, experimental software', 'This site and the contracts it interacts with are not audited. Bugs, downtime, and unexpected behavior are possible. You use it entirely at your own risk.'],
-  ['Pre-public & unofficial data', 'Testnet and pre-public (chain 5042) data comes from unofficial, sometimes flaky sources and cannot be fully verified. Treat prices, volumes, and “trending” as indicative only.'],
-  ['You own your wallet & keys', 'You are solely responsible for your wallet, keys, approvals, and every transaction you sign. Verify contract addresses yourself — any address can be imported, including scams and impersonators.'],
-  ['No liability', 'StateraArc and its creators are not liable for any loss or damage from using this site. There is no recourse, refund, or insurance. Do your own research.'],
+  ['Not financial advice', 'A data & tooling hub, not an advisor. Nothing here is a recommendation.'],
+  ['Extremely volatile', 'Most tokens go to zero. Never risk what you can’t afford to lose.'],
+  ['Unaudited software', 'This site and the contracts it touches aren’t audited. Use at your own risk.'],
+  ['Unofficial data', 'Testnet & pre-public (5042) data is unverified — treat it as indicative only.'],
+  ['Your keys, your risk', 'You’re responsible for your wallet and every tx you sign. Verify addresses yourself.'],
+  ['No liability', 'No recourse, refund, or insurance. Do your own research.'],
 ];
 
 export function Disclaimer({ onAccept }: { onAccept: () => void }) {
@@ -34,7 +34,7 @@ export function Disclaimer({ onAccept }: { onAccept: () => void }) {
             <h2 id="dsc-title">Before you continue</h2>
           </div>
         </div>
-        <p className="dsc-lede">StateraArc is a hub for Circle’s Arc chain — a screener, portfolio tracker, and swap. It is high-risk, experimental software. Please read and understand the following before you use it.</p>
+        <p className="dsc-lede">StateraArc is a high-risk, experimental hub for Circle’s Arc chain. Please read before you continue.</p>
         <div className="dsc-points">
           {POINTS.map(([h, b]) => (
             <div className="dsc-point" key={h}>
