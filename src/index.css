@@ -778,3 +778,24 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 .atr-copy.ok { border-color: rgba(90,209,138,.5); color: #5ad18a; }
 .atr-trade { flex: none; padding: 8px 15px; border: none; border-radius: 9px; background: var(--fire); color: #fff; font: 700 12px var(--disp); letter-spacing: .5px; cursor: pointer; }
 .atr-trade:hover { filter: brightness(1.08); }
+
+/* ── Unreal Engine 5 · X1 City showpiece (home) ── */
+.ue5 { position: relative; overflow: hidden; margin: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.ue5-bg { position: absolute; inset: 0; z-index: 0; }
+.ue5-bg img { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.ue5::after { content: ""; position: absolute; inset: 0; z-index: 0;
+  background: linear-gradient(180deg, rgba(4,3,2,.9), rgba(4,3,2,.72) 45%, rgba(4,3,2,.9)); }
+.ue5-inner { position: relative; z-index: 1; text-align: center; padding: 66px 20px; }
+.ue5-badge { display: inline-flex; align-items: center; gap: 8px; font: 700 10px var(--disp); letter-spacing: 2px; text-transform: uppercase;
+  color: var(--chrome); padding: 7px 15px; border: 1px solid var(--red-dim); border-radius: 999px; background: rgba(0,0,0,.4); margin-bottom: 18px; }
+.ue5-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px var(--red); animation: pulse 2s infinite; }
+.ue5-h { font-family: var(--disp); font-weight: 700; font-size: clamp(28px, 5vw, 50px); line-height: 1.04; letter-spacing: -1px; margin: 0 auto; max-width: 820px; text-shadow: 0 3px 30px rgba(0,0,0,.7); }
+.ue5-h .r { background: var(--fire); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 3px 22px rgba(255,105,35,.5)); }
+.ue5-sub { color: var(--chrome); font-size: 15.5px; line-height: 1.68; max-width: 680px; margin: 18px auto 0; text-shadow: 0 2px 14px rgba(0,0,0,.8); }
+.ue5-sub b { color: var(--white); }
+.ue5-feats { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 26px auto 0; max-width: 720px; }
+.ue5-feat { flex: 1; min-width: 170px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(0,0,0,.42); backdrop-filter: blur(4px); }
+.ue5-feat b { display: block; font-family: var(--disp); font-size: 18px; letter-spacing: .5px; color: var(--white); margin-bottom: 3px; }
+.ue5-feat span { font-size: 12.5px; color: var(--gray); }
+.ue5-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 30px; }
+@media (max-width: 640px) { .ue5-inner { padding: 46px 18px; } .ue5-feat { min-width: 100%; } }

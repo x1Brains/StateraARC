@@ -225,6 +225,25 @@ export default function App() {
               </div>
             </section>
 
+            {/* ── Unreal Engine 5 · X1 City showpiece (our biggest marketing) ── */}
+            <section className="ue5">
+              <div className="ue5-bg"><img src="/hero-lava-3.jpg" alt="" /></div>
+              <div className="wrap ue5-inner">
+                <div className="ue5-badge"><span className="ue5-dot" /> Unreal Engine 5 · Web3 GameFi · In development</div>
+                <h2 className="ue5-h">We’re building <span className="r">X1 City</span> — the first <span className="r">EVM↔SVM</span> game.</h2>
+                <p className="ue5-sub">A full open world in <b>Unreal Engine 5</b>, bridging Circle’s Arc (EVM) with X1 (SVM) in web3 gaming — the first to connect both. Hold <b>$STR</b> and your place in X1 City is guaranteed: the token isn’t just a chart, it’s your seat in a real world we’re building.</p>
+                <div className="ue5-feats">
+                  <div className="ue5-feat"><b>Open World</b><span>An explorable UE5 city</span></div>
+                  <div className="ue5-feat"><b className="r">EVM↔SVM</b><span>First to bridge both</span></div>
+                  <div className="ue5-feat"><b>Web3 GameFi</b><span>An on-chain economy</span></div>
+                </div>
+                <div className="ue5-actions">
+                  <a className="btn solid" href="https://x1city.io" target="_blank" rel="noreferrer">Explore X1 City <span className="arw">→</span></a>
+                  <button className="btn ghost" onClick={() => go('token')}>The $STR token</button>
+                </div>
+              </div>
+            </section>
+
             {!MAINNET_LIVE && (
               <div className="wrap"><div className="cd-banner" onClick={() => switchNet('mainnet')}>
                 <span className="cd-banner-l"><span className="dot" /> Arc Mainnet · Sept 16, 2026</span>
