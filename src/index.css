@@ -693,6 +693,7 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 @media (max-width: 640px) { .hst-txt { font-size: 12px; white-space: normal; } }
 
 /* showpiece tag + cta */
-.tok-city-tag { display: inline-flex; align-items: center; gap: 9px; margin-top: 20px; font: 700 10px var(--disp); letter-spacing: 1.5px; text-transform: uppercase; color: var(--chrome); padding: 7px 15px; border: 1px solid var(--line-2); border-radius: 999px; background: rgba(6,10,14,.6); }
+.tok-city-actions { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; margin-top: 26px; }
+.tok-city-tag { display: inline-flex; align-items: center; gap: 9px; font: 700 10px var(--disp); letter-spacing: 1.5px; text-transform: uppercase; color: var(--chrome); padding: 9px 16px; border: 1px solid var(--line-2); border-radius: 999px; background: rgba(6,10,14,.6); }
 .tct-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px var(--red); animation: pulse 2s infinite; }
-.tok-city-cta { display: inline-flex; margin-top: 26px; }
+.tok-city-cta { display: inline-flex; }
