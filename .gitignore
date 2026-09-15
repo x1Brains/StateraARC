@@ -5,3 +5,4 @@ dist
 
 # dev screenshots (root only)
 /*.png
+scripts/intel-wide.json
