@@ -79,29 +79,34 @@ export function TokenPage() {
         </div>
       </section>
 
-      {/* tie-in to X1 City / Unreal Engine */}
-      <section className="section">
-        <div className="tok-x1 panel">
-          <div className="tok-x1-l">
-            <div className="kicker">The bigger picture</div>
-            <h2>Hold STR. Stand taller in <span className="r">X1 City</span>.</h2>
-            <p>X1 City is a living, Unreal-Engine-built world at <b>x1city.io</b>. Holding STR is your pass — it unlocks perks, status and access inside the game. Your STR balance *is* your standing; the more you hold, the more you get.</p>
-            <p>And because STR goes omnichain, the token you buy on Arc reaches X1 as one and the same asset — your holdings and your perks follow you between chains, no second app required.</p>
-            <ul className="tok-x1-list">
-              <li><b>Hold STR</b> → perks, status &amp; access in X1 City.</li>
-              <li><b>Hold more</b> → higher standing, more unlocks.</li>
-              <li><b>Omnichain</b> → STR spans Arc and X1 as one token.</li>
-              <li><b>Unreal Engine</b> → a real world your bag plugs into.</li>
-            </ul>
+      {/* ── THE SHOWPIECE: STR = your rank in X1 City ── */}
+      <section className="tok-city">
+        <div className="tok-city-bg"><img src="/hero-lava-4.jpg" alt="" /></div>
+        <div className="wrap tok-city-inner">
+          <div className="kicker">The bigger picture · why Statera matters</div>
+          <h2 className="tok-city-h">Your STR isn’t a chart.<br />It’s your <span className="r">rank</span> in X1 City.</h2>
+          <p className="tok-city-sub">X1 City is a living, Unreal-Engine metropolis at <b>x1city.io</b>. The STR in your wallet is your key, your status and your reputation inside it — and because STR goes omnichain, the token you buy on Arc <b>is</b> your standing in the city. One asset, two chains, a real world your bag plugs into.</p>
+
+          {/* tier ladder — the more you hold, the higher you stand */}
+          <div className="tok-tiers">
+            {[
+              { t: 'Visitor', h: 34 }, { t: 'Resident', h: 52 }, { t: 'Citizen', h: 70 }, { t: 'Elite', h: 86 }, { t: 'Founder', h: 100, top: true },
+            ].map((x) => (
+              <div className="tt-col" key={x.t}>
+                <div className="tt-bar-wrap"><div className={`tt-bar ${x.top ? 'top' : ''}`} style={{ height: `${x.h}%` }} /></div>
+                <div className="tt-label">{x.t}</div>
+              </div>
+            ))}
           </div>
-          <div className="tok-x1-r">
-            <div className="tok-flow">
-              <div className="tf-step"><span className="tf-n">1</span><div><b>Arc</b><span>Buy / hold STR</span></div></div>
-              <div className="tf-arrow">↓</div>
-              <div className="tf-step"><span className="tf-n">2</span><div><b>Perks</b><span>Status &amp; access unlock</span></div></div>
-              <div className="tf-arrow">↓</div>
-              <div className="tf-step"><span className="tf-n">3</span><div><b>X1 City</b><span>Enter the world · Unreal Engine</span></div></div>
-            </div>
+          <div className="tok-tiers-cap">More STR held → higher standing, more of the city unlocked. <span className="dim">(tiers illustrative — the vision, not final)</span></div>
+
+          {/* Arc → X1 flow */}
+          <div className="tok-flow2">
+            <div className="tf2"><span className="tf2-n">1</span><b>Arc</b><span>Buy &amp; hold STR</span></div>
+            <div className="tf2-arw">→</div>
+            <div className="tf2"><span className="tf2-n">2</span><b>Standing</b><span>Perks &amp; access unlock</span></div>
+            <div className="tf2-arw">→</div>
+            <div className="tf2 hot"><span className="tf2-n">3</span><b>X1 City</b><span>Enter the world · Unreal Engine</span></div>
           </div>
         </div>
       </section>

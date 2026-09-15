@@ -175,6 +175,11 @@ export default function App() {
                     <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <span className="arw">→</span></button>
                     <button className="btn ghost" onClick={() => goScreener('new')}>New Launches</button>
                   </div>
+                  <button className="hero-str-teaser" onClick={() => go('token')}>
+                    <span className="hst-tag">New</span>
+                    <span className="hst-txt">$STR — hold it, <b>stand taller in X1 City</b></span>
+                    <span className="hst-arw">→</span>
+                  </button>
                   <div className="hero-trust">
                     <div className="ht"><b>{tokens.length || '500'}</b><span>Tokens Tracked</span></div>
                     <div className="div" />
