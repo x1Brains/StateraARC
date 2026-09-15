@@ -56,6 +56,19 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
     });
   }, [from?.address, to?.address]); // eslint-disable-line
 
+  // wallet balances for the selected tokens (refetched on connect / token change / after a swap)
+  const [bal, setBal] = useState<Record<string, bigint>>({});
+  const [phaseTick, setPhaseTick] = useState(0);
+  useEffect(() => {
+    if (!wallet) { setBal({}); return; }
+    let alive = true;
+    [from?.address, to?.address].filter(Boolean).forEach(async (a) => {
+      const b = await balanceOf(a!, wallet);
+      if (alive) setBal((p) => ({ ...p, [a!.toLowerCase()]: b }));
+    });
+    return () => { alive = false; };
+  }, [wallet, fromA, toA, phaseTick]); // eslint-disable-line
+
   const [quote, setQuote] = useState<Quote | null>(null);
   const [qErr, setQErr] = useState<string | null>(null);
   const [quoting, setQuoting] = useState(false);
@@ -84,6 +97,12 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
   const outHuman = quote && decOut != null ? fromRaw(quote.amountOutRaw, decOut) : null;
   const minRecv = quote && decOut != null ? fromRaw(minOut(quote.amountOutRaw, slip), decOut) : null;
   const rate = quote && outHuman && parseFloat(amt) ? outHuman / parseFloat(amt) : null;
+
+  const fromBalRaw = from ? bal[from.address.toLowerCase()] : undefined;
+  const toBalRaw = to ? bal[to.address.toLowerCase()] : undefined;
+  const fromBal = fromBalRaw != null && decIn != null ? fromRaw(fromBalRaw, decIn) : null;
+  const toBal = toBalRaw != null && decOut != null ? fromRaw(toBalRaw, decOut) : null;
+  const fmtBal = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: n < 1 ? 6 : 4 });
 
   // resolve + add a pasted token address, and select it into the given side
   const [adding, setAdding] = useState(false);
@@ -131,7 +150,7 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
       const ok = await waitReceipt(sh);
       if (!ok) { setPhase('error'); setMsg('Swap transaction failed.'); return; }
       setPhase('done'); setMsg(`Swapped ${amt} ${from.symbol} → ${to?.symbol}.`);
-      setAmt('');
+      setAmt(''); setPhaseTick((t) => t + 1); // refresh balances
     } catch (e: any) {
       setPhase('error'); setMsg(e?.message?.slice(0, 120) || 'Transaction rejected.');
     }
@@ -149,7 +168,14 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
       <div className="swap-wrap">
         <div className="swap-card">
           <div className="swap-box">
-            <div className="swap-row"><span className="swap-l">You pay</span></div>
+            <div className="swap-row">
+              <span className="swap-l">You pay</span>
+              {wallet && fromBal != null && (
+                <span className="swap-bal">Balance: {fmtBal(fromBal)} {from?.symbol}
+                  {fromBal > 0 && <button type="button" className="swap-max" onClick={() => setAmt(String(fromBal))}>MAX</button>}
+                </span>
+              )}
+            </div>
             <div className="swap-in">
               <input className="swap-amt" placeholder="0.0" value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="decimal" />
               <TokenPicker value={from} tokens={universe} exclude={toA} onSelect={(t) => setFromA(t.address)} onAddAddress={(a) => addToken(a, 'from')} adding={adding} />
@@ -159,7 +185,10 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
           <button className="swap-flip" onClick={flip} aria-label="flip">⇅</button>
 
           <div className="swap-box">
-            <div className="swap-row"><span className="swap-l">You receive (est.)</span></div>
+            <div className="swap-row">
+              <span className="swap-l">You receive (est.)</span>
+              {wallet && to && toBal != null && <span className="swap-bal">Balance: {fmtBal(toBal)} {to.symbol}</span>}
+            </div>
             <div className="swap-in">
               <input className="swap-amt" placeholder="0.0" value={outHuman != null ? compact(outHuman) : ''} readOnly />
               <TokenPicker value={to} tokens={universe} exclude={fromA} onSelect={(t) => setToA(t.address)} onAddAddress={(a) => addToken(a, 'to')} adding={adding} />
