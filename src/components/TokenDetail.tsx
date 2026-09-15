@@ -7,6 +7,7 @@ import {
 import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
+import { fetchWarpToken, type WarpToken } from '../lib/warp';
 
 const short = (a: string) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '—');
 
@@ -18,6 +19,9 @@ export function TokenDetail({ address, price, liq, onBack }: { address: string; 
   const [loading, setLoading] = useState(true);
   const [calc, setCalc] = useState('');
   const [copied, setCopied] = useState(false);
+  const [warp, setWarp] = useState<WarpToken | null>(null);
+  // Warp (Arc mainnet 5042) enrichment — market/fee/top-holder/created for mainnet tokens.
+  useEffect(() => { let a = true; setWarp(null); fetchWarpToken(address).then((w) => { if (a) setWarp(w); }); return () => { a = false; }; }, [address]);
   const copyAddr = () => {
     if (!d) return;
     navigator.clipboard?.writeText(d.address)
@@ -186,6 +190,9 @@ export function TokenDetail({ address, price, liq, onBack }: { address: string; 
               <Row k="Total Supply" v={compact(d.totalSupply)} />
               <Row k="Holders" v={compact(d.holders)} />
               <Row k="Verified" v={d.isVerified ? 'Yes' : 'No'} />
+              {warp?.v4 && <Row k="Market" v={`Uniswap v4${warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}`} />}
+              {warp?.topHolderBps != null && <Row k="Top holder" v={`${(warp.topHolderBps / 100).toFixed(1)}%`} />}
+              {warp?.createdAt != null && <Row k="Created" v={new Date(warp.createdAt).toLocaleDateString()} />}
             </div>
 
             <div className="panel side-card">

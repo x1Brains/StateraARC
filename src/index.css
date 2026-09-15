@@ -837,3 +837,8 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 .tlink-dexes a { color: var(--red-hi); text-decoration: none; }
 .tlink-dexes a:hover { text-decoration: underline; }
 .tlink-dexes .sep { color: var(--gray-2); }
+
+/* trending: hot / market-cap sort toggle */
+.atr-sort { display: flex; gap: 4px; align-self: flex-start; }
+.atr-sort button { font-family: var(--disp); font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--gray-2); background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+.atr-sort button.on { background: var(--fire); color: #180a03; border-color: transparent; }

@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
-import { fetchWarpTrending, type WarpToken } from '../lib/warp';
+import { useEffect, useMemo, useState } from 'react';
+import { fetchWarpTrending, fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, compact } from '../lib/arc';
+
+const WARP_TOKEN = '0x384c60f98ecd4c26345499345c03d677e40f115e'; // pin the platform token
 
 // Live Arc-mainnet trending, sourced from the Warp launchpad (circlewarp.fun) — the active
 // Pump.fun-style venue on chain 5042. Read-only tracking: momentum, volume, holders, bonding-curve
@@ -13,19 +15,27 @@ export function ArcTrending({ onPick }: { onPick?: (t: WarpToken) => void }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [sort, setSort] = useState<'hot' | 'mcap'>('hot');
 
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      const t = await fetchWarpTrending();
+      const [t, warp] = await Promise.all([fetchWarpTrending(), fetchWarpToken(WARP_TOKEN)]);
       if (!alive) return;
-      if (t.length) { setToks(t); setErr(false); } else if (!toks.length) setErr(true);
+      // pin WARP (the platform token) if it isn't already in the momentum feed
+      const merged = warp && !t.some((x) => x.address === warp.address) ? [...t, warp] : t;
+      if (merged.length) { setToks(merged); setErr(false); } else if (!toks.length) setErr(true);
       setLoading(false);
     };
     load();
     const id = setInterval(load, 45000); // live refresh
     return () => { alive = false; clearInterval(id); };
   }, []); // eslint-disable-line
+
+  const shown = useMemo(
+    () => (sort === 'mcap' ? [...toks].sort((a, b) => (b.mcap ?? 0) - (a.mcap ?? 0)) : toks),
+    [toks, sort],
+  );
 
   const copy = (addr: string) => {
     navigator.clipboard?.writeText(addr).then(() => { setCopied(addr); setTimeout(() => setCopied((c) => (c === addr ? null : c)), 1400); }).catch(() => {});
@@ -37,7 +47,11 @@ export function ArcTrending({ onPick }: { onPick?: (t: WarpToken) => void }) {
         <div>
           <div className="kicker">Live · Arc Mainnet</div>
           <h2>Trending on Arc <span className="atr-live"><span className="atr-dot" /> live</span></h2>
-          <p>Real-time momentum from <b>Warp</b> (circlewarp.fun), the active launchpad on Arc mainnet (chain 5042). Tap a contract to copy it, then paste it into Swap. Unofficial data · pre-public chain · DYOR.</p>
+          <p>Real-time data from <b>Warp</b> (circlewarp.fun), the active launchpad on Arc mainnet (chain 5042). Tap a contract to copy it, or hit Trade to load it into Swap. Unofficial · pre-public chain · DYOR.</p>
+        </div>
+        <div className="atr-sort">
+          <button className={sort === 'hot' ? 'on' : ''} onClick={() => setSort('hot')}>Hot</button>
+          <button className={sort === 'mcap' ? 'on' : ''} onClick={() => setSort('mcap')}>Market Cap</button>
         </div>
       </div>
 
@@ -45,7 +59,7 @@ export function ArcTrending({ onPick }: { onPick?: (t: WarpToken) => void }) {
       {err && !toks.length && <div className="msg err">Couldn’t reach the Warp feed right now — it’s a pre-public endpoint and can be flaky. It’ll refresh automatically.</div>}
 
       <div className="atr-grid">
-        {toks.slice(0, 24).map((t, i) => {
+        {shown.slice(0, 24).map((t, i) => {
           const c1 = t.windows['1h']?.change ?? null;
           const c6 = t.windows['6h']?.change ?? t.change24h ?? null;
           const up = (c6 ?? 0) >= 0;
