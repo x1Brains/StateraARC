@@ -9,6 +9,7 @@ import { PremainDetail } from './components/PremainDetail';
 import { TokenPage } from './components/TokenPage';
 import { Watchlist } from './components/Watchlist';
 import { ArcTrending } from './components/ArcTrending';
+import type { WarpToken } from './lib/warp';
 import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
 
@@ -56,6 +57,8 @@ const LAUNCHPAD_LEGEND = [...new Set(Object.values(LAUNCHPADS))].map((l) => ({ l
 export default function App() {
   const [acked, setAcked] = useState<boolean>(() => disclaimerAcked());
   const [page, setPage] = useState<Page>(() => parseHash().page);
+  const [swapPreload, setSwapPreload] = useState<{ address: string; symbol: string; name?: string; price?: number | null } | null>(null);
+  const tradeWarp = (t: WarpToken) => { setSwapPreload({ address: t.address, symbol: t.ticker, name: t.name, price: t.price }); setPage('swap'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const [tokens, setTokens] = useState<Token[]>([]);
   const [market, setMarket] = useState<MarketPx[]>([]);
   const [loading, setLoading] = useState(true);
@@ -231,7 +234,7 @@ export default function App() {
               <div className="wrap ue5-inner">
                 <div className="ue5-badge"><span className="ue5-dot" /> Unreal Engine 5 · Web3 GameFi · In development</div>
                 <h2 className="ue5-h">We’re building <span className="r">X1 City</span> — the first <span className="r">EVM↔SVM</span> game.</h2>
-                <p className="ue5-sub">A full open world in <b>Unreal Engine 5</b>, bridging Circle’s Arc (EVM) with X1 (SVM) in web3 gaming — the first to connect both. Hold <b>$STR</b> and your place in X1 City is guaranteed: the token isn’t just a chart, it’s your seat in a real world we’re building.</p>
+                <p className="ue5-sub">A full open world in <b>Unreal Engine 5</b>, bridging Circle’s Arc (EVM) with X1 (SVM) in web3 gaming — the first to connect both. <b>$STR</b> is the token tied into X1 City — more than a chart, it’s your link to the world we’re building. Exactly how holders plug in is coming as X1 City takes shape.</p>
                 <div className="ue5-feats">
                   <div className="ue5-feat"><b>Open World</b><span>An explorable UE5 city</span></div>
                   <div className="ue5-feat"><b className="r">EVM↔SVM</b><span>First to bridge both</span></div>
@@ -283,7 +286,7 @@ export default function App() {
                 <button className="btn solid" onClick={() => goScreener('all')}>Open Pre-Public Board <span className="arw">→</span></button>
               </div>
             </div>
-            <ArcTrending onPick={(addr) => { navigator.clipboard?.writeText(addr).catch(() => {}); go('swap'); }} />
+            <ArcTrending onPick={tradeWarp} />
           </section></div>
         )}
 
@@ -316,7 +319,7 @@ export default function App() {
                 </div>
               </div>
             )}
-            {net === 'premain' && <ArcTrending onPick={(addr) => { navigator.clipboard?.writeText(addr).catch(() => {}); go('swap'); }} />}
+            {net === 'premain' && <ArcTrending onPick={tradeWarp} />}
             <div className="section-head">
               <div>
                 <div className="kicker">{net === 'premain' ? 'Pre-Public Board' : 'Screener'}</div>
@@ -430,7 +433,7 @@ export default function App() {
         {page === 'watchlist' && <Watchlist net={net === 'mainnet' ? 'mainnet' : 'testnet'} />}
         {page === 'token' && <TokenPage />}
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} />}
-        {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} />}
+        {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} />}
 
         <footer><div className="wrap">
           <span className="fbrand">STATERA · ARC</span>

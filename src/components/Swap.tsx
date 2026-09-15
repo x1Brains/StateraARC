@@ -27,8 +27,13 @@ async function waitReceipt(hash: string, tries = 40): Promise<boolean> {
 
 const SLIPPAGES = [0.5, 1, 3];
 
-export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: string | null; onConnect: () => void }) {
+interface Preload { address: string; symbol: string; name?: string; price?: number | null }
+export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; wallet: string | null; onConnect: () => void; preload?: Preload | null }) {
   const [extra, setExtra] = useState<Token[]>([]);
+  // Warp (Arc mainnet 5042) token USD prices — presence marks a token as "mainnet/Warp": we show a
+  // price-based estimate and gate live execution until mainnet, since these trade on Uniswap v4 and
+  // the public RPC isn't open pre-launch.
+  const [warpPx, setWarpPx] = useState<Record<string, number>>({});
   const universe = useMemo(() => {
     const seen = new Set([USDC.address.toLowerCase()]);
     const list: Token[] = [USDC];
@@ -57,6 +62,19 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
     });
   }, [from?.address, to?.address]); // eslint-disable-line
 
+  // "Trade" from the Arc trending board: load the token in, select it as the buy side, and record
+  // its Warp price so the swap can quote an estimate.
+  useEffect(() => {
+    if (!preload?.address) return;
+    const a = preload.address, k = a.toLowerCase();
+    setExtra((p) => p.some((t) => t.address.toLowerCase() === k) ? p
+      : [{ address: a, name: preload.name || preload.symbol, symbol: preload.symbol, holders: null, totalSupply: null, type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false, isEcosystem: false, price: preload.price ?? null, liq: null, mcap: null }, ...p]);
+    setDec((p) => (p[k] != null ? p : { ...p, [k]: 18 }));
+    if (preload.price != null) setWarpPx((p) => ({ ...p, [k]: preload.price! }));
+    setFromA(USDC.address);
+    setToA(a);
+  }, [preload?.address]); // eslint-disable-line
+
   // wallet balances for the selected tokens (refetched on connect / token change / after a swap)
   const [bal, setBal] = useState<Record<string, bigint>>({});
   const [phaseTick, setPhaseTick] = useState(0);
@@ -71,16 +89,32 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
   }, [wallet, fromA, toA, phaseTick]); // eslint-disable-line
 
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [estimate, setEstimate] = useState<{ out: number } | null>(null);
   const [qErr, setQErr] = useState<string | null>(null);
   const [quoting, setQuoting] = useState(false);
   const qSeq = useRef(0);
   const decIn = from ? dec[from.address.toLowerCase()] : undefined;
   const decOut = to ? dec[to.address.toLowerCase()] : undefined;
 
+  const usdcK = USDC.address.toLowerCase();
+  const pxOf = (k?: string) => (k === usdcK ? 1 : (k ? warpPx[k] : undefined));
+  // A Warp/mainnet token is selected → estimate mode (live execution unlocks at mainnet launch).
+  const warpMode = !!(from && warpPx[from.address.toLowerCase()] != null) || !!(to && warpPx[to.address.toLowerCase()] != null);
+
   useEffect(() => {
     const n = parseFloat(amt);
-    setQuote(null); setQErr(null);
-    if (!from || !to || !n || n <= 0 || decIn == null || decOut == null) return;
+    setQuote(null); setQErr(null); setEstimate(null);
+    if (!from || !to || !n || n <= 0) return;
+
+    // ── Warp / mainnet token → price-based ESTIMATE (no live route pre-launch) ──
+    if (warpMode) {
+      const pf = pxOf(from.address.toLowerCase()), pt = pxOf(to.address.toLowerCase());
+      if (pf && pt) setEstimate({ out: (n * pf) / pt });
+      else setQErr('No Warp price for this pair yet — try trading against USDC.');
+      return;
+    }
+
+    if (decIn == null || decOut == null) return;
     if (!swapReady()) { setQErr('Swaps go live with Arc mainnet on Sept 16.'); return; }
     const seq = ++qSeq.current;
     setQuoting(true);
@@ -93,11 +127,11 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
       setQuote(q);
     }, 450);
     return () => clearTimeout(id);
-  }, [amt, fromA, toA, decIn, decOut]); // eslint-disable-line
+  }, [amt, fromA, toA, decIn, decOut, warpMode]); // eslint-disable-line
 
-  const outHuman = quote && decOut != null ? fromRaw(quote.amountOutRaw, decOut) : null;
+  const outHuman = estimate ? estimate.out : (quote && decOut != null ? fromRaw(quote.amountOutRaw, decOut) : null);
   const minRecv = quote && decOut != null ? fromRaw(minOut(quote.amountOutRaw, slip), decOut) : null;
-  const rate = quote && outHuman && parseFloat(amt) ? outHuman / parseFloat(amt) : null;
+  const rate = outHuman && parseFloat(amt) ? outHuman / parseFloat(amt) : null;
 
   const fromBalRaw = from ? bal[from.address.toLowerCase()] : undefined;
   const toBalRaw = to ? bal[to.address.toLowerCase()] : undefined;
@@ -248,13 +282,27 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
               <div className="sq-row"><span>Route</span><span className="mono">{quote.routerName} · {quote.hops === 1 ? 'direct' : `${quote.hops} hops`}</span></div>
             </div>
           )}
+          {estimate && rate != null && (
+            <div className="swap-quote">
+              <div className="sq-row"><span>Est. rate</span><span className="mono">1 {from?.symbol} ≈ {compact(rate)} {to?.symbol}</span></div>
+              <div className="sq-row"><span>You’d receive</span><span className="mono">≈ {outHuman != null ? compact(outHuman) : '—'} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Route</span><span className="mono">Warp · Uniswap v4</span></div>
+            </div>
+          )}
+          {warpMode && (
+            <div className="swap-warp-note">
+              <b>Arc mainnet token (via Warp).</b> Loaded and ready — this is a live price <b>estimate</b>. On-chain trading unlocks the moment Arc mainnet opens.
+            </div>
+          )}
           {qErr && <div className="swap-info err"><span>{qErr}</span><span /></div>}
 
           {!wallet
             ? <button className="btn solid swap-cta" onClick={onConnect}>Connect Wallet</button>
-            : <button className="btn solid swap-cta" onClick={execute} disabled={!quote || busy}>
-                {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : quote ? `Swap ${from?.symbol} → ${to?.symbol}` : to ? 'Enter an amount' : 'Select a token'}
-              </button>}
+            : warpMode
+              ? <button className="btn solid swap-cta" disabled>Live at mainnet launch</button>
+              : <button className="btn solid swap-cta" onClick={execute} disabled={!quote || busy}>
+                  {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : quote ? `Swap ${from?.symbol} → ${to?.symbol}` : to ? 'Enter an amount' : 'Select a token'}
+                </button>}
 
           {msg && (
             <div className={`swap-status ${phase}`}>

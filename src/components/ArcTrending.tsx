@@ -8,7 +8,7 @@ import { usd, compact } from '../lib/arc';
 const pct = (n: number | null) => (n == null ? '—' : (n >= 0 ? '+' : '') + n.toFixed(0) + '%');
 const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
 
-export function ArcTrending({ onPick }: { onPick?: (addr: string) => void }) {
+export function ArcTrending({ onPick }: { onPick?: (t: WarpToken) => void }) {
   const [toks, setToks] = useState<WarpToken[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(false);
@@ -80,7 +80,7 @@ export function ArcTrending({ onPick }: { onPick?: (addr: string) => void }) {
                 <button className={`atr-copy ${copied === t.address ? 'ok' : ''}`} onClick={() => copy(t.address)} title="Copy contract address">
                   <span className="mono">{short(t.address)}</span>{copied === t.address ? '✓ Copied' : 'Copy ⧉'}
                 </button>
-                {onPick && <button className="atr-trade" onClick={() => onPick(t.address)} title="Send to Swap">Trade</button>}
+                {onPick && <button className="atr-trade" onClick={() => onPick(t)} title="Load into Swap">Trade</button>}
               </div>
             </div>
           );

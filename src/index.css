@@ -815,3 +815,8 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 .chart-box { width: 100%; height: 340px; }
 .chart-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; color: var(--gray); font-size: 13px; line-height: 1.5; background: rgba(8,8,10,.4); }
 .chart-src { font-size: 10.5px; color: var(--gray-2); margin-top: 8px; text-align: right; letter-spacing: .3px; }
+
+/* swap: Arc-mainnet (Warp) token estimate note */
+.swap-warp-note { margin-top: 10px; padding: 11px 13px; border: 1px solid var(--red-dim); border-radius: 10px;
+  background: rgba(255,105,35,.06); font-size: 12px; line-height: 1.5; color: var(--chrome); }
+.swap-warp-note b { color: var(--white); }

@@ -16,7 +16,7 @@ const ROADMAP = [
   { tag: 'Phase 1', title: 'STR goes live on Arc', now: true,
     body: 'The sealed 21M token ships on Arc — instantly tradeable and auto-listed on the StateraArc screener + swap. That’s the whole token: hold it, send it, burn it.' },
   { tag: 'Phase 2', title: 'Perks in X1 City',
-    body: 'X1 City is a full open world being built in Unreal Engine 5 — web3 GameFi, the first EVM↔SVM game on Arc. STR holders get perks in the game as it rolls out.' },
+    body: 'X1 City is a full open world being built in Unreal Engine 5 — web3 GameFi, the first EVM↔SVM game on Arc. STR ties into it as it develops — how holders connect will be shared as it rolls out.' },
   { tag: 'Phase 3', title: 'Omnichain — STR reaches X1',
     body: 'A LayerZero OFT adapter makes STR one token across Arc and X1 with a unified supply — STR as a true cross-chain asset.' },
 ];
@@ -84,8 +84,8 @@ export function TokenPage() {
         <div className="tok-city-bg"><img src="/hero-lava-4.jpg" alt="" /></div>
         <div className="wrap tok-city-inner">
           <div className="kicker">The bigger picture · Web3 GameFi</div>
-          <h2 className="tok-city-h">Hold STR. Stand taller in <span className="r">X1 City</span>.</h2>
-          <p className="tok-city-sub"><b>X1 City is a full open world being built in Unreal Engine 5</b> — web3 GameFi, and the first game to bridge <b>EVM ↔ SVM</b>, on Arc. Hold <b>$STR</b> and your experience in X1 City is guaranteed — your bag isn’t just a chart, it’s your seat in a real world we’re building.</p>
+          <h2 className="tok-city-h">$STR, tied into <span className="r">X1 City</span>.</h2>
+          <p className="tok-city-sub"><b>X1 City is a full open world being built in Unreal Engine 5</b> — web3 GameFi, and the first game to bridge <b>EVM ↔ SVM</b>, on Arc. <b>$STR</b> is the token woven into it — more than a chart, it’s your link to the world we’re building. Exactly how holders plug in is coming as X1 City takes shape.</p>
           <div className="tok-city-actions">
             <div className="tok-city-tag"><span className="tct-dot" /> Unreal Engine 5 · Web3 GameFi · in active development</div>
             <a className="btn solid tok-city-cta" href="https://x1city.io" target="_blank" rel="noreferrer">Explore X1 City <span className="arw">→</span></a>
