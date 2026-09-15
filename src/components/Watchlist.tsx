@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { WATCHLIST, MAINNET_WATCH, WATCH_CATS, fetchWatchStatus, type WatchProject, type WatchCat, type WatchStatus } from '../lib/watchlist';
+import { WATCHLIST, MAINNET_WATCH, fetchWatchStatus, type WatchProject, type WatchCat, type WatchStatus } from '../lib/watchlist';
 import { CHAIN } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 
@@ -10,10 +10,24 @@ const CONF_LABEL: Record<string, string> = {
   'validator': 'Founding validator',
 };
 
+// Filter groups — collapse granular cats into a handful of tabs that fit one clean row.
+const GROUPS: { label: string; cats: WatchCat[] }[] = [
+  { label: 'DEX', cats: ['DEX'] },
+  { label: 'Lending', cats: ['Lending'] },
+  { label: 'Bridge', cats: ['Bridge'] },
+  { label: 'Oracle', cats: ['Oracle'] },
+  { label: 'RWA', cats: ['RWA'] },
+  { label: 'NFT', cats: ['NFT'] },
+  { label: 'Wallet', cats: ['Wallet'] },
+  { label: 'Infra', cats: ['Infra', 'Token', 'Social', 'Stablecoin', 'Payments', 'Exchange', 'MM'] },
+];
+
 export function Watchlist({ net }: { net: 'testnet' | 'mainnet' }) {
-  const [filter, setFilter] = useState<WatchCat | 'all'>('all');
+  const [filter, setFilter] = useState<string>('all'); // 'all' or a group label
   const [status, setStatus] = useState<Record<string, WatchStatus>>({});
   const mainnetMode = net === 'mainnet';
+  const catsFor = (label: string) => GROUPS.find((g) => g.label === label)?.cats ?? [];
+  const inFilter = (p: WatchProject) => filter === 'all' || catsFor(filter).includes(p.cat);
 
   useEffect(() => {
     if (mainnetMode) return;
@@ -30,21 +44,19 @@ export function Watchlist({ net }: { net: 'testnet' | 'mainnet' }) {
     return () => { alive = false; };
   }, [mainnetMode]);
 
-  // counts across both tiers for the category tabs
-  const counts = useMemo(() => {
+  // counts per GROUP across both tiers for the category tabs
+  const groupCounts = useMemo(() => {
+    const all = [...WATCHLIST, ...MAINNET_WATCH];
     const m: Record<string, number> = {};
-    [...WATCHLIST, ...MAINNET_WATCH].forEach((p) => (m[p.cat] = (m[p.cat] || 0) + 1));
+    GROUPS.forEach((g) => (m[g.label] = all.filter((p) => g.cats.includes(p.cat)).length));
     return m;
   }, []);
 
   const liveRows = useMemo(() => {
     const rows = [...WATCHLIST].sort((a, b) => (b.calls ?? 0) - (a.calls ?? 0));
-    return filter === 'all' ? rows : rows.filter((p) => p.cat === filter);
-  }, [filter]);
-  const mainnetRows = useMemo(
-    () => (filter === 'all' ? MAINNET_WATCH : MAINNET_WATCH.filter((p) => p.cat === filter)),
-    [filter],
-  );
+    return rows.filter(inFilter);
+  }, [filter]); // eslint-disable-line
+  const mainnetRows = useMemo(() => MAINNET_WATCH.filter(inFilter), [filter]); // eslint-disable-line
   const maxCalls = useMemo(() => Math.max(1, ...WATCHLIST.map((p) => p.calls ?? 0)), []);
 
   const totalTracked = WATCHLIST.length + MAINNET_WATCH.length;
@@ -69,8 +81,8 @@ export function Watchlist({ net }: { net: 'testnet' | 'mainnet' }) {
       <div className="controls">
         <div className="tabs wl-tabs">
           <button className={filter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>All {totalTracked}</button>
-          {WATCH_CATS.filter((c) => counts[c]).map((c) => (
-            <button key={c} className={filter === c ? 'on' : ''} onClick={() => setFilter(c)}>{c} {counts[c]}</button>
+          {GROUPS.filter((g) => groupCounts[g.label]).map((g) => (
+            <button key={g.label} className={filter === g.label ? 'on' : ''} onClick={() => setFilter(g.label)}>{g.label} {groupCounts[g.label]}</button>
           ))}
         </div>
       </div>
