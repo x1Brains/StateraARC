@@ -39,7 +39,9 @@ const CFG: Record<string, { bases: string[]; routers: { addr: string; name: stri
     ],
   },
   // Mainnet routers unknown until launch — reported as "no route" rather than guessing.
-  mainnet: { bases: [], routers: [] },
+  // Arc mainnet (5042, live). WarpV2 = Warp's own UniV2-style DEX (WARP + graduated tokens).
+  // ⛔ Uniswap-v4 tokens (ARGUS/CRCL/etc.) need a separate v4 router — not covered by this aggregator yet.
+  mainnet: { bases: [USDC], routers: [{ addr: '0xd24227d7cf4b1ad9fba6ea6ae28392690ece47ae', name: 'WarpV2' }] },
 };
 
 export const SWAP_CFG = CFG[NET] || CFG.testnet;
@@ -59,6 +61,22 @@ const UNI_ROUTER_BY_NET: Record<string, string> = {
 };
 export const UNI_ROUTER = UNI_ROUTER_BY_NET[NET] || '';
 
+// ── Mainnet execution override (Warp tokens) ─────────────────────────────────
+// Arc mainnet 5042 is LIVE (rpc.mainnet.arc.io serves 0x13b2), but the app's global NET stays
+// 'testnet' so the Blockscout-backed screener keeps working (the mainnet explorer API isn't
+// Blockscout-compatible yet). When the user trades a Warp/mainnet token, Swap.tsx flips this ON so
+// quotes/reads/simulations/txs target mainnet (rpc.mainnet.arc.io + WarpV2 router + chain 5042)
+// WITHOUT a global flip. Safe because ONLY Swap.tsx imports this module — no other reads are affected.
+const MAINNET_RPC = (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://rpc.mainnet.arc.io';
+export const MAINNET_CHAIN_ID = 5042;
+export const MAINNET_SCAN = 'https://arc-scan.org';
+let ACTIVE_MAINNET = false;
+export function setSwapMainnet(on: boolean) { ACTIVE_MAINNET = on; }
+export const swapMainnetActive = () => ACTIVE_MAINNET;
+export const activeChainId = () => (ACTIVE_MAINNET ? MAINNET_CHAIN_ID : CHAIN.chainId);
+export const activeScan = () => (ACTIVE_MAINNET ? MAINNET_SCAN : CHAIN.scan);
+const activeCfg = () => (ACTIVE_MAINNET ? CFG.mainnet : (CFG[NET] || CFG.testnet));
+
 // Bases the pair adapter recognizes as the "quote" side of a pool.
 const PAIR_BASES = [USDC, WUSDC, EURC];
 // Pool swap fee (bps) keyed by the pool's factory; UniV2 standard is 30 (0.3%).
@@ -73,7 +91,7 @@ export const feeCandidates = (base?: number): number[] => {
 
 // ── low-level rpc (same failover list as arc.ts) ──
 async function rpc(method: string, params: any[]): Promise<any> {
-  for (const url of RPCS) {
+  for (const url of (ACTIVE_MAINNET ? [MAINNET_RPC] : RPCS)) {
     try {
       const r = await fetch(url, {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -134,7 +152,7 @@ export async function allowance(token: string, owner: string, spender: string): 
 function candidatePaths(tin: string, tout: string): string[][] {
   const a = tin.toLowerCase(), b = tout.toLowerCase();
   const paths: string[][] = [[tin, tout]];
-  for (const base of SWAP_CFG.bases) {
+  for (const base of activeCfg().bases) {
     const bl = base.toLowerCase();
     if (bl !== a && bl !== b) paths.push([tin, base, tout]);
   }
@@ -165,10 +183,11 @@ async function getAmountsOut(router: string, amountIn: bigint, path: string[]): 
 
 // Ask every UniV2 router × every candidate path; return the single best fill.
 async function univ2BestQuote(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<Quote | null> {
-  if (!SWAP_CFG.routers.length) return null;
+  const cfg = activeCfg();
+  if (!cfg.routers.length) return null;
   const paths = candidatePaths(tokenIn, tokenOut);
   const jobs: Promise<Quote | null>[] = [];
-  for (const r of SWAP_CFG.routers)
+  for (const r of cfg.routers)
     for (const path of paths)
       jobs.push(
         getAmountsOut(r.addr, amountInRaw, path).then((out) =>
@@ -254,7 +273,9 @@ async function pairRouterQuote(pairs: string[], path: string[], amountIn: bigint
   try { const out = BigInt(r); return out > 0n ? out : null; } catch { return null; }
 }
 async function pairBestQuote(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<Quote | null> {
-  if (!UNI_ROUTER) return null;
+  // Pair discovery reads the testnet Blockscout API (CHAIN.api). It can't see mainnet pools, so in
+  // mainnet mode we rely solely on the WarpV2 UniV2 engine above.
+  if (ACTIVE_MAINNET || !UNI_ROUTER) return null;
   const route = await buildPairRoute(tokenIn, tokenOut);
   if (!route) return null;
   const out = await pairRouterQuote(route.pairs, route.path, amountInRaw, route.feeBps);
@@ -319,7 +340,7 @@ export async function permitInfo(token: string, owner: string): Promise<PermitIn
     ethCall(token, '0x3644e515'),                    // DOMAIN_SEPARATOR() — presence = EIP-2612
   ]);
   if (!name || !version || !nonceHex || !ds) return null;
-  return { name, version, nonce: BigInt(nonceHex), chainId: CHAIN.chainId, token };
+  return { name, version, nonce: BigInt(nonceHex), chainId: activeChainId(), token };
 }
 // Build the eth_signTypedData_v4 payload for an EIP-2612 permit (exact value, given deadline).
 export function buildPermitTypedData(info: PermitInfo, owner: string, spender: string, value: bigint, deadline: bigint) {

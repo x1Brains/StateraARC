@@ -6,17 +6,18 @@ export type Net = 'testnet' | 'mainnet';
 export const NETS: Record<Net, { name: string; chainId: number; scan: string; api: string; rpc: string }> = {
   testnet: { name: 'Arc Testnet', chainId: 5042002, scan: 'https://testnet.arcscan.app', api: 'https://testnet.arcscan.app/api/v2', rpc: 'https://rpc.testnet.arc.io' },
   // ── MAINNET (pre-staged for Sept 16, 2026) ──────────────────────────────────────────────────────
-  // chainId 5042 (0x13b2) is VERIFIED REAL (canonical registry + a live tx's signature recovered for
-  // chainId 5042). scan/api/rpc below are the ANTICIPATED official Circle endpoints — today they're
-  // Cloudflare/auth-gated (private mainnet) and open publicly on launch day.
-  // LAUNCH-DAY CHECKLIST (then flip MAINNET_LIVE = true — the one switch):
-  //   1. Confirm rpc.mainnet.arc.io returns 0x13b2 publicly (or set VITE_ARC_RPC to a builder/partner endpoint).
-  //   2. Confirm the mainnet explorer host + that its API is Blockscout /api/v2 compatible (this app depends on it).
-  //      Candidates to check: explorer.arc.io , arcscan.app , mainnet.arcscan.app. Update scan+api to whichever works.
-  //   3. Repopulate the swap router set (src/lib/swap.ts CFG.mainnet) once Uniswap v4 / Aerodrome / Curve are live.
-  //   4. CCTP: confirm Arc is added to Circle's supported-chains table + its mainnet domain, then bridge (see cctp-bridge.mjs).
+  // chainId 5042 (0x13b2) is VERIFIED REAL. ✅ rpc.mainnet.arc.io is now PUBLIC + returns 0x13b2
+  // (verified 2026-09-15) — the swap engine trades Warp/mainnet tokens against it (see swap.ts
+  // setSwapMainnet), so live mainnet swaps work TODAY while the global NET stays 'testnet'.
+  // STILL PENDING before a full global flip (MAINNET_LIVE = true):
+  //   1. Mainnet explorer API: explorer.arc.io/api/v2 currently 302s and arc-scan.org is NOT Blockscout
+  //      /api/v2 format — this app's screener depends on Blockscout. Until a compatible mainnet explorer
+  //      API exists, mainnet token DATA flows through Warp (src/lib/warp.ts), not CHAIN.api. `scan` below
+  //      = arc-scan.org (working block explorer, for tx/address links only).
+  //   2. CCTP: confirm Arc is added to Circle's supported-chains table + its mainnet domain (Li.Fi/Polymer
+  //      already bridges Ethereum→Arc today; see cctp-bridge.mjs / bridge.js).
   // RPC honors VITE_ARC_RPC / VITE_ARC_RPC_BACKUP overrides, so a trusted endpoint can be swapped in without a code change.
-  mainnet: { name: 'Arc', chainId: 5042, scan: 'https://explorer.arc.io', api: 'https://explorer.arc.io/api/v2', rpc: 'https://rpc.mainnet.arc.io' },
+  mainnet: { name: 'Arc', chainId: 5042, scan: 'https://arc-scan.org', api: 'https://explorer.arc.io/api/v2', rpc: 'https://rpc.mainnet.arc.io' },
 };
 
 // Arc public mainnet — date VERIFIED from arc.io ("Arc Public Mainnet will launch on September 16, 2026").

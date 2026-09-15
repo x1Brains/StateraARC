@@ -4,6 +4,7 @@ import {
   NATIVE_USDC, SWAP_CFG, swapReady, bestQuote, decimalsOf, symbolOf, balanceOf, allowance,
   buildApproveTx, buildSwapTx, simulate, minOut, toRaw, fromRaw, feeCandidates, MAX_UINT256,
   permitInfo, buildPermitTypedData, buildSwapWithPermitTx, type Quote, type TxReq,
+  setSwapMainnet, activeScan, MAINNET_CHAIN_ID,
 } from '../lib/swap';
 import { TokenPicker } from './TokenPicker';
 
@@ -23,6 +24,29 @@ async function waitReceipt(hash: string, tries = 40): Promise<boolean> {
     await new Promise((res) => setTimeout(res, 1500));
   }
   return false;
+}
+
+// Warp tokens live on Arc mainnet (5042). Make sure the wallet is on that chain before a trade.
+async function ensureChain(chainId: number): Promise<boolean> {
+  const hexId = '0x' + chainId.toString(16);
+  try {
+    const cur = await eth().request({ method: 'eth_chainId' });
+    if (typeof cur === 'string' && parseInt(cur, 16) === chainId) return true;
+    await eth().request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hexId }] });
+    return true;
+  } catch (e: any) {
+    if (e?.code === 4902) {
+      try {
+        await eth().request({ method: 'wallet_addEthereumChain', params: [{
+          chainId: hexId, chainName: 'Arc',
+          nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+          rpcUrls: ['https://rpc.mainnet.arc.io'], blockExplorerUrls: ['https://arc-scan.org'],
+        }] });
+        return true;
+      } catch { return false; }
+    }
+    return false;
+  }
 }
 
 const SLIPPAGES = [0.5, 1, 3];
@@ -98,20 +122,35 @@ export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; 
 
   const usdcK = USDC.address.toLowerCase();
   const pxOf = (k?: string) => (k === usdcK ? 1 : (k ? warpPx[k] : undefined));
-  // A Warp/mainnet token is selected → estimate mode (live execution unlocks at mainnet launch).
+  // A Warp/mainnet token is selected. Arc mainnet (5042) is LIVE, so we flip the swap engine to
+  // mainnet (rpc.mainnet.arc.io + WarpV2) and quote/execute for real. Tokens with no WarpV2 route
+  // (e.g. Uniswap-v4-only ARGUS/CRCL) still fall back to a price estimate.
   const warpMode = !!(from && warpPx[from.address.toLowerCase()] != null) || !!(to && warpPx[to.address.toLowerCase()] != null);
+  // Declared BEFORE the quote effect so it commits first — engine is on mainnet when bestQuote runs.
+  useEffect(() => { setSwapMainnet(warpMode); return () => setSwapMainnet(false); }, [warpMode]);
 
   useEffect(() => {
     const n = parseFloat(amt);
     setQuote(null); setQErr(null); setEstimate(null);
     if (!from || !to || !n || n <= 0) return;
 
-    // ── Warp / mainnet token → price-based ESTIMATE (no live route pre-launch) ──
+    // ── Warp / mainnet token → real WarpV2 quote, with a price-estimate fallback ──
     if (warpMode) {
-      const pf = pxOf(from.address.toLowerCase()), pt = pxOf(to.address.toLowerCase());
-      if (pf && pt) setEstimate({ out: (n * pf) / pt });
-      else setQErr('No Warp price for this pair yet — try trading against USDC.');
-      return;
+      if (decIn == null || decOut == null) return;
+      const seq = ++qSeq.current;
+      setQuoting(true);
+      const id = setTimeout(async () => {
+        const amountInRaw = toRaw(n, decIn);
+        const q = await bestQuote(from.address, to.address, amountInRaw); // engine is on mainnet (see flip effect)
+        if (seq !== qSeq.current) return;
+        setQuoting(false);
+        if (q) { setQuote(q); return; }
+        // No WarpV2 route (v4-only token, e.g. ARGUS/CRCL) → show a price estimate, no live execution.
+        const pf = pxOf(from.address.toLowerCase()), pt = pxOf(to.address.toLowerCase());
+        if (pf && pt) setEstimate({ out: (n * pf) / pt });
+        else setQErr('No WarpV2 route for this pair — it may trade only on Uniswap v4 (not yet routable here).');
+      }, 450);
+      return () => clearTimeout(id);
     }
 
     if (decIn == null || decOut == null) return;
@@ -165,6 +204,13 @@ export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; 
     if (!wallet || !quote || !from || decIn == null) return;
     setPhase('idle'); setMsg(null); setHash(null);
     try {
+      // Warp tokens trade on Arc mainnet (5042) — make sure the wallet is on that chain first.
+      if (warpMode) {
+        setMsg('Switch your wallet to Arc mainnet…');
+        const ok = await ensureChain(MAINNET_CHAIN_ID);
+        if (!ok) { setPhase('error'); setMsg('Please switch your wallet to Arc mainnet (chain 5042) to trade.'); return; }
+        setMsg(null);
+      }
       const amountInRaw = quote.amountInRaw;
       const amountOutMinRaw = minOut(quote.amountOutRaw, slip);
       const bal = await balanceOf(from.address, wallet);
@@ -291,15 +337,19 @@ export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; 
           )}
           {warpMode && (
             <div className="swap-warp-note">
-              <b>Arc mainnet token (via Warp).</b> Loaded and ready — this is a live price <b>estimate</b>. On-chain trading unlocks the moment Arc mainnet opens.
+              {quote
+                ? <><b>Arc mainnet · live.</b> Routed through WarpV2 on Arc mainnet (chain 5042). Your wallet will switch to Arc mainnet to trade.</>
+                : <><b>Arc mainnet token (via Warp).</b> This pair has no WarpV2 route yet — the figure shown is a price <b>estimate</b> (it likely trades on Uniswap v4, not routable here yet).</>}
             </div>
           )}
           {qErr && <div className="swap-info err"><span>{qErr}</span><span /></div>}
 
           {!wallet
             ? <button className="btn solid swap-cta" onClick={onConnect}>Connect Wallet</button>
-            : warpMode
-              ? <button className="btn solid swap-cta" disabled>Live at mainnet launch</button>
+            : (warpMode && !quote)
+              ? <button className="btn solid swap-cta" disabled>
+                  {quoting ? 'Finding route…' : estimate ? 'Estimate only — not routable here' : to ? 'Enter an amount' : 'Select a token'}
+                </button>
               : <button className="btn solid swap-cta" onClick={execute} disabled={!quote || busy}>
                   {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : quote ? `Swap ${from?.symbol} → ${to?.symbol}` : to ? 'Enter an amount' : 'Select a token'}
                 </button>}
@@ -307,7 +357,7 @@ export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; 
           {msg && (
             <div className={`swap-status ${phase}`}>
               {msg}
-              {hash && <> · <a href={`${CHAIN.scan}/tx/${hash}`} target="_blank" rel="noreferrer">view tx ↗</a></>}
+              {hash && <> · <a href={`${(warpMode ? activeScan() : CHAIN.scan)}/tx/${hash}`} target="_blank" rel="noreferrer">view tx ↗</a></>}
             </div>
           )}
           <div className="swap-note">Best-fill routing across live Arc DEX liquidity. Paying with USDC or EURC, you just sign once — no gas, no approval tx (EIP-2612 permit). Other tokens: one approval the first time, then single-tx trades. Min-out enforced, dry-run simulated before you sign. Not financial advice — DYOR.</div>
