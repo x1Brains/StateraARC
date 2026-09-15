@@ -15,6 +15,13 @@ export function TokenDetail({ address, price, liq, onBack }: { address: string; 
   const [poolInfo, setPoolInfo] = useState<PoolInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [calc, setCalc] = useState('');
+  const [copied, setCopied] = useState(false);
+  const copyAddr = () => {
+    if (!d) return;
+    navigator.clipboard?.writeText(d.address)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); })
+      .catch(() => {});
+  };
 
   useEffect(() => {
     let alive = true;
@@ -74,6 +81,10 @@ export function TokenDetail({ address, price, liq, onBack }: { address: string; 
               <span className="badge b-gray">ERC-20</span>
               <span className="badge b-gray">{d.decimals} dec</span>
             </div>
+            <button className={`copy-addr ${copied ? 'ok' : ''}`} onClick={copyAddr} title="Copy contract address">
+              <span className="ca-addr">{d.address}</span>
+              <span className="ca-i">{copied ? '✓ Copied' : 'Copy ⧉'}</span>
+            </button>
           </div>
           <div className="td-price">
             <div className="td-px">{tprice(price)}</div>
@@ -165,7 +176,7 @@ export function TokenDetail({ address, price, liq, onBack }: { address: string; 
 
             <div className="panel side-card">
               <h3>Token Info</h3>
-              <Row k="Contract" v={<a className="addr" href={`${CHAIN.scan}/token/${d.address}`} target="_blank" rel="noreferrer">{short(d.address)}</a>} />
+              <Row k="Contract" v={<span className="ir-copy"><a className="addr" href={`${CHAIN.scan}/token/${d.address}`} target="_blank" rel="noreferrer">{short(d.address)}</a><button className="ca-mini" onClick={copyAddr} title="Copy contract address">{copied ? '✓' : '⧉'}</button></span>} />
               <Row k="Creator" v={d.creator ? <a className="addr" href={`${CHAIN.scan}/address/${d.creator}`} target="_blank" rel="noreferrer">{short(d.creator)}</a> : '—'} />
               <Row k="Decimals" v={String(d.decimals)} />
               <Row k="Total Supply" v={compact(d.totalSupply)} />

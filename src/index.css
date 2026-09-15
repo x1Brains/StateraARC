@@ -385,6 +385,20 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .td-name { font-family: var(--disp); font-weight: 700; font-size: 24px; letter-spacing: .5px; }
 .td-sym { color: var(--gray-2); font-size: 16px; }
 .td-flags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+/* copy contract address — header chip */
+.copy-addr { display: inline-flex; align-items: center; gap: 10px; margin-top: 10px; max-width: 100%;
+  padding: 6px 8px 6px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.03);
+  font-family: var(--mono); font-size: 12px; color: var(--gray); cursor: pointer; transition: border-color .15s, color .15s; }
+.copy-addr:hover { border-color: var(--red-dim); color: var(--white); }
+.copy-addr.ok { border-color: rgba(90,200,120,.5); color: #7ad19a; }
+.copy-addr .ca-addr { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copy-addr .ca-i { flex: none; font-family: var(--disp); font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+  padding: 4px 9px; border-radius: 6px; background: var(--red-dim); color: var(--white); }
+.copy-addr.ok .ca-i { background: rgba(90,200,120,.22); color: #7ad19a; }
+/* copy — inline mini button (in the info rows) */
+.ir-copy { display: inline-flex; align-items: center; gap: 8px; }
+.ca-mini { font-family: var(--mono); font-size: 13px; line-height: 1; color: var(--gray); background: none; border: none; cursor: pointer; padding: 2px 4px; border-radius: 5px; }
+.ca-mini:hover { color: var(--white); background: rgba(255,255,255,.06); }
 .td-price { text-align: right; }
 .td-px { font-family: var(--mono); font-weight: 700; font-size: 24px; color: var(--white); }
 .td-px-l { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); margin-top: 3px; }
@@ -635,7 +649,7 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 .tok-warn { border: 1px solid var(--red-dim); background: rgba(255,47,20,.05); border-radius: 12px; padding: 16px 18px; color: var(--gray); font-size: 13px; line-height: 1.6; }
 .tok-warn b { color: var(--white); }
 @media (max-width: 820px) { .tok-x1 { grid-template-columns: 1fr; } }
-.tok-logo { width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.5); }
+.tok-logo { width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.08); }
 @media (max-width: 640px) {
   .tok-logo-wrap { width: 120px; height: 120px; }
   .tok-hero { min-height: 520px; }

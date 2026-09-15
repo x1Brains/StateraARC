@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { compact, CHAIN, type Token } from '../lib/arc';
 import {
   NATIVE_USDC, SWAP_CFG, swapReady, bestQuote, decimalsOf, symbolOf, balanceOf, allowance,
-  buildApproveTx, buildSwapTx, simulate, minOut, toRaw, fromRaw, type Quote, type TxReq,
+  buildApproveTx, buildSwapTx, simulate, minOut, toRaw, fromRaw, feeCandidates, type Quote, type TxReq,
 } from '../lib/swap';
 import { TokenPicker } from './TokenPicker';
 
@@ -141,8 +141,16 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
         const ok = await waitReceipt(ah);
         if (!ok) { setPhase('error'); setMsg('Approval failed.'); return; }
       }
-      const swapTx = buildSwapTx(quote, { amountOutMinRaw, recipient: wallet });
-      const revert = await simulate(swapTx);
+      let swapTx = buildSwapTx(quote, { amountOutMinRaw, recipient: wallet });
+      let revert = await simulate(swapTx);
+      // Pair-router fills: if the pool's real fee differs from our estimate the swap reverts —
+      // walk the fee ladder (post-approval, so the simulated transferFrom succeeds) until one passes.
+      if (revert && quote.kind === 'pair') {
+        for (const fee of feeCandidates(quote.feeBps)) {
+          const tx = buildSwapTx(quote, { amountOutMinRaw, recipient: wallet, feeBpsOverride: fee });
+          if (!(await simulate(tx))) { swapTx = tx; revert = null; break; }
+        }
+      }
       if (revert) { setPhase('error'); setMsg(`Swap would revert: ${revert}`); return; }
       setPhase('swapping'); setMsg('Confirm the swap in your wallet…');
       const sh = await sendTx(swapTx);

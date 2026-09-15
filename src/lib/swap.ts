@@ -15,11 +15,13 @@
 //
 // Proven end-to-end 2026-09-14: approve 0x2911…, swap 0x3857… (0.02 USDC → 103.66 NRLIF,
 // received == quoted). See swap-proof in the repo notes.
-import { NET, RPCS } from './arc';
+import { NET, RPCS, CHAIN, req } from './arc';
 
 export const NATIVE_USDC = '0x3600000000000000000000000000000000000000';
 const USDC = NATIVE_USDC.toLowerCase();
+const WUSDC = '0x911b4000d3422f482f4062a913885f7b035382df'; // wrapped USDC (18-dec, deposit/withdraw)
 const EURC = '0x89b50855aa3be2f677cd6303cec089b5f319d72a';
+const ZERO = '0x0000000000000000000000000000000000000000';   // wrap-hop sentinel in a pair route
 
 // Known decimals (native USDC & EURC are 6-dec as ERC-20s on Arc). Others read from chain.
 const KNOWN_DEC: Record<string, number> = { [USDC]: 6, [EURC]: 6 };
@@ -41,7 +43,32 @@ const CFG: Record<string, { bases: string[]; routers: { addr: string; name: stri
 };
 
 export const SWAP_CFG = CFG[NET] || CFG.testnet;
-export const swapReady = () => SWAP_CFG.routers.length > 0;
+export const swapReady = () => SWAP_CFG.routers.length > 0 || !!UNI_ROUTER;
+
+// ── Universal pair router (DEX-agnostic) ─────────────────────────────────────
+// Stock UniV2 routers only see pools from THEIR OWN factory, so a token whose only
+// liquidity is on a custom AMM (e.g. Axpha) reads as "no route". Our on-chain
+// UniversalPairRouter takes the EXACT pair address for a route, so it swaps through ANY
+// UniV2-style pool regardless of factory — plus an auto WUSDC wrap hop so native USDC
+// pays into WUSDC-quoted pools. Proven on-chain 2026-09-15: 0.02 USDC → 176.86 BILL via
+// Axpha AMM (tx 0x3a0a0a14…), which getAmountsOut can't see. Deployed per net below.
+const UNI_ROUTER_BY_NET: Record<string, string> = {
+  testnet: '0x3b4e88aAbE11e3290f9dc930bd462f953bF8AeE2',
+  mainnet: '', // deploy on launch day, then paste the address here
+};
+export const UNI_ROUTER = UNI_ROUTER_BY_NET[NET] || '';
+
+// Bases the pair adapter recognizes as the "quote" side of a pool.
+const PAIR_BASES = [USDC, WUSDC, EURC];
+// Pool swap fee (bps) keyed by the pool's factory; UniV2 standard is 30 (0.3%).
+const FACTORY_FEE: Record<string, number> = {
+  '0x63830a168bba4bdfc7b83e17b462d1ae86f9ce0a': 50, // Axpha AMM (verified on-chain)
+};
+// Fee ladder for execution-time auto-correction when a pool's real fee is unknown.
+export const feeCandidates = (base?: number): number[] => {
+  const b = base ?? 30;
+  return [b, 30, 50, 100, 25, 60, 15].filter((v, i, a) => v >= b && a.indexOf(v) === i);
+};
 
 // ── low-level rpc (same failover list as arc.ts) ──
 async function rpc(method: string, params: any[]): Promise<any> {
@@ -114,8 +141,11 @@ function candidatePaths(tin: string, tout: string): string[][] {
 }
 
 export interface Quote {
-  router: string; routerName: string; path: string[];
+  kind: 'univ2' | 'pair';           // which engine builds/executes this fill
+  router: string;                   // spender to approve + tx target (a UniV2 router, or our pair router)
+  routerName: string; path: string[];
   amountInRaw: bigint; amountOutRaw: bigint; hops: number;
+  pairs?: string[]; feeBps?: number; // pair-adapter route only (address(0) = a WUSDC wrap hop)
 }
 
 // getAmountsOut(uint256, address[]) = 0xd06ca61f ; decode the LAST array element (final output)
@@ -132,22 +162,118 @@ async function getAmountsOut(router: string, amountIn: bigint, path: string[]): 
   } catch { return null; }
 }
 
-// Ask every router × every candidate path; return the single best fill.
-export async function bestQuote(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<Quote | null> {
-  if (!swapReady() || amountInRaw <= 0n) return null;
-  if (tokenIn.toLowerCase() === tokenOut.toLowerCase()) return null;
+// Ask every UniV2 router × every candidate path; return the single best fill.
+async function univ2BestQuote(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<Quote | null> {
+  if (!SWAP_CFG.routers.length) return null;
   const paths = candidatePaths(tokenIn, tokenOut);
   const jobs: Promise<Quote | null>[] = [];
   for (const r of SWAP_CFG.routers)
     for (const path of paths)
       jobs.push(
         getAmountsOut(r.addr, amountInRaw, path).then((out) =>
-          out ? { router: r.addr, routerName: r.name, path, amountInRaw, amountOutRaw: out, hops: path.length - 1 } : null,
+          out ? { kind: 'univ2', router: r.addr, routerName: r.name, path, amountInRaw, amountOutRaw: out, hops: path.length - 1 } : null,
         ),
       );
   const results = (await Promise.all(jobs)).filter(Boolean) as Quote[];
   if (!results.length) return null;
   return results.reduce((a, b) => (b.amountOutRaw > a.amountOutRaw ? b : a));
+}
+
+// ── pair-adapter: discover a token's pool on ANY factory, route through UniversalPairRouter ──
+const readAddr = async (to: string, sel: string): Promise<string | null> => {
+  const r = await ethCall(to, sel);
+  if (!r || r.length < 66) return null;
+  const a = '0x' + r.slice(-40);
+  return a === '0x0000000000000000000000000000000000000000' ? null : a.toLowerCase();
+};
+// token0()=0x0dfe1681 token1()=0xd21220a7 factory()=0xc45a0155
+const pairCache = new Map<string, { pair: string; base: string; feeBps: number } | null>();
+async function findPair(token: string): Promise<{ pair: string; base: string; feeBps: number } | null> {
+  const key = token.toLowerCase();
+  if (PAIR_BASES.includes(key)) return null; // a base isn't the "token" side of a pool
+  if (pairCache.has(key)) return pairCache.get(key)!;
+  let found: { pair: string; base: string; feeBps: number } | null = null;
+  try {
+    // A token's liquidity pool is one of its largest holders (it custodies the reserves).
+    const j = await req(`${CHAIN.api}/tokens/${token}/holders`);
+    const holders = (j.items || [])
+      .slice(0, 12)
+      .map((h: any) => (h.address?.hash || h.address?.address_hash || h.address || '').toString().toLowerCase())
+      .filter(Boolean);
+    for (const h of holders) {
+      const t0 = await readAddr(h, '0x0dfe1681'); // token0()
+      if (!t0) continue;                            // not a UniV2-style pair
+      const t1 = await readAddr(h, '0xd21220a7'); // token1()
+      if (!t1) continue;
+      const pair = [t0, t1];
+      if (!pair.includes(key)) continue;            // pool must hold our token
+      const base = PAIR_BASES.find((b) => pair.includes(b) && b !== key);
+      if (!base) continue;                          // …paired with a base we can price/route
+      const fac = await readAddr(h, '0xc45a0155');  // factory() → per-DEX fee
+      found = { pair: h, base, feeBps: (fac && FACTORY_FEE[fac]) || 30 };
+      break;
+    }
+  } catch { /* discovery failed — fall through to null */ }
+  pairCache.set(key, found);
+  return found;
+}
+// A hop segment from one base to another (identity, or a 1:1 WUSDC wrap/unwrap).
+function bridge(from: string, to: string): { pairs: string[]; path: string[] } | null {
+  if (from === to) return { pairs: [], path: [from] };
+  if ((from === USDC && to === WUSDC) || (from === WUSDC && to === USDC)) return { pairs: [ZERO], path: [from, to] };
+  return null; // USDC↔EURC etc. would need a base/base pool — left to the UniV2 aggregator
+}
+// Build (pairs[], path[], feeBps) for tokenIn→tokenOut, or null if no pair route exists.
+async function buildPairRoute(tokenIn: string, tokenOut: string): Promise<{ pairs: string[]; path: string[]; feeBps: number } | null> {
+  const a = tokenIn.toLowerCase(), b = tokenOut.toLowerCase();
+  const aBase = PAIR_BASES.includes(a), bBase = PAIR_BASES.includes(b);
+  if (aBase && bBase) return null; // base→base is a wrap, not a trade
+  if (aBase && !bBase) {           // BUY: base → token
+    const info = await findPair(b); if (!info) return null;
+    const br = bridge(a, info.base); if (!br) return null;
+    return { pairs: [...br.pairs, info.pair], path: [...br.path, b], feeBps: info.feeBps };
+  }
+  if (!aBase && bBase) {           // SELL: token → base
+    const info = await findPair(a); if (!info) return null;
+    const br = bridge(info.base, b); if (!br) return null;
+    return { pairs: [info.pair, ...br.pairs], path: [a, ...br.path], feeBps: info.feeBps };
+  }
+  // token → token: only when both pools share a base and the same fee (router uses one feeBps)
+  const [ia, ib] = await Promise.all([findPair(a), findPair(b)]);
+  if (!ia || !ib || ia.base !== ib.base || ia.feeBps !== ib.feeBps) return null;
+  return { pairs: [ia.pair, ib.pair], path: [a, ia.base, b], feeBps: ia.feeBps };
+}
+// quote(address[],address[],uint256,uint256) = 0x69fb7b4c — reads live reserves, view-safe.
+async function pairRouterQuote(pairs: string[], path: string[], amountIn: bigint, feeBps: number): Promise<bigint | null> {
+  const off1 = 128;                                  // 4 head slots × 32
+  const off2 = off1 + (1 + pairs.length) * 32;
+  const data = '0x69fb7b4c' + padU(off1) + padU(off2) + padU(amountIn) + padU(feeBps) + encArr(pairs) + encArr(path);
+  const r = await ethCall(UNI_ROUTER, data);
+  if (!r) return null;
+  try { const out = BigInt(r); return out > 0n ? out : null; } catch { return null; }
+}
+async function pairBestQuote(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<Quote | null> {
+  if (!UNI_ROUTER) return null;
+  const route = await buildPairRoute(tokenIn, tokenOut);
+  if (!route) return null;
+  const out = await pairRouterQuote(route.pairs, route.path, amountInRaw, route.feeBps);
+  if (!out) return null;
+  const hops = route.pairs.filter((p) => p !== ZERO).length;
+  return { kind: 'pair', router: UNI_ROUTER, routerName: 'Statera Router', path: route.path,
+    amountInRaw, amountOutRaw: out, hops, pairs: route.pairs, feeBps: route.feeBps };
+}
+
+// Best fill across BOTH engines (stock UniV2 routers + our universal pair router).
+export async function bestQuote(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<Quote | null> {
+  if (amountInRaw <= 0n) return null;
+  if (tokenIn.toLowerCase() === tokenOut.toLowerCase()) return null;
+  const [uni, pair] = await Promise.all([
+    univ2BestQuote(tokenIn, tokenOut, amountInRaw),
+    pairBestQuote(tokenIn, tokenOut, amountInRaw),
+  ]);
+  const cands = [uni, pair].filter(Boolean) as Quote[];
+  if (!cands.length) return null;
+  return cands.reduce((a, b) => (b.amountOutRaw > a.amountOutRaw ? b : a));
 }
 
 // slippage in % → amountOutMin (integer floor)
@@ -161,9 +287,26 @@ export function buildApproveTx(token: string, spender: string, amountRaw: bigint
   return { to: token, from, value: '0x0', data: '0x095ea7b3' + padA(spender) + padU(amountRaw) };
 }
 
-// swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline) = 0x38ed1739
-export function buildSwapTx(q: Quote, opts: { amountOutMinRaw: bigint; recipient: string; deadlineSec?: number }): TxReq {
+// Build the execution tx for a quote. UniV2 quotes use swapExactTokensForTokens on the router;
+// pair quotes use swap(pairs,path,…) on our universal router (feeBpsOverride lets execution
+// auto-correct an unknown pool fee — see feeCandidates).
+export function buildSwapTx(
+  q: Quote,
+  opts: { amountOutMinRaw: bigint; recipient: string; deadlineSec?: number; feeBpsOverride?: number },
+): TxReq {
   const deadline = BigInt(Math.floor(Date.now() / 1000) + (opts.deadlineSec ?? 600));
+  if (q.kind === 'pair') {
+    // swap(address[],address[],uint256,uint256,address,uint256,uint256) = 0x398a5c95
+    const pairs = q.pairs || [];
+    const feeBps = opts.feeBpsOverride ?? q.feeBps ?? 30;
+    const off1 = 224;                                 // 7 head slots × 32
+    const off2 = off1 + (1 + pairs.length) * 32;
+    const data =
+      '0x398a5c95' + padU(off1) + padU(off2) + padU(q.amountInRaw) + padU(opts.amountOutMinRaw) +
+      padA(opts.recipient) + padU(deadline) + padU(feeBps) + encArr(pairs) + encArr(q.path);
+    return { to: q.router, from: opts.recipient, data, value: '0x0' };
+  }
+  // swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline) = 0x38ed1739
   const data =
     '0x38ed1739' + padU(q.amountInRaw) + padU(opts.amountOutMinRaw) + padU(160) +
     padA(opts.recipient) + padU(deadline) + encArr(q.path);
