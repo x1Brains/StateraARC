@@ -15,10 +15,10 @@ const CORE = [
 const ROADMAP = [
   { tag: 'Phase 1', title: 'STR goes live on Arc', now: true,
     body: 'The sealed 21M token ships on Arc — instantly tradeable and auto-listed on the StateraArc screener + swap. That’s the whole token: hold it, send it, burn it.' },
-  { tag: 'Phase 2', title: 'Holder perks in X1 City',
-    body: 'Hold STR and unlock perks, status and access inside X1 City — the Unreal-Engine world. Your bag is your pass; the more you hold, the more you unlock.' },
+  { tag: 'Phase 2', title: 'Perks in X1 City',
+    body: 'X1 City is a full open world being built in Unreal Engine. STR holders get perks in the game as it rolls out — your bag ties you into the world.' },
   { tag: 'Phase 3', title: 'Omnichain — STR reaches X1',
-    body: 'A LayerZero OFT adapter makes STR one token across Arc and X1 with a unified supply — so STR (and your standing) travels between chains without a second wallet.' },
+    body: 'A LayerZero OFT adapter makes STR one token across Arc and X1 with a unified supply — STR as a true cross-chain asset.' },
 ];
 
 export function TokenPage() {
@@ -33,8 +33,8 @@ export function TokenPage() {
           </div>
           <span className="tok-soon"><span className="tok-soon-dot" /> Not live yet · Coming to Arc</span>
           <h1 className="tok-title">$<span className="r">STR</span></h1>
-          <p className="tok-tag">The token of <b>Statera</b> — and your standing inside <span className="r">X1 City</span>.</p>
-          <p className="tok-lede">A sealed, trust-minimized ERC-20. 21,000,000 fixed supply, no mint, ownerless, burnable — money that stays bulletproof while the perks and cross-chain reach clip on around it.</p>
+          <p className="tok-tag">The token of <b>Statera</b> — tied into <span className="r">X1 City</span>, an Unreal-Engine game in the making.</p>
+          <p className="tok-lede">A sealed, trust-minimized ERC-20: 21,000,000 fixed supply, no mint, ownerless, burnable. Hold it on Arc and you plug into X1 City — the open world we’re building.</p>
           <div className="tok-hero-stats">
             <div className="ths"><b>21,000,000</b><span>Fixed supply</span></div>
             <div className="ths-div" />
@@ -79,35 +79,15 @@ export function TokenPage() {
         </div>
       </section>
 
-      {/* ── THE SHOWPIECE: STR = your rank in X1 City ── */}
+      {/* ── THE SHOWPIECE: STR ties into X1 City, an Unreal Engine game ── */}
       <section className="tok-city">
         <div className="tok-city-bg"><img src="/hero-lava-4.jpg" alt="" /></div>
         <div className="wrap tok-city-inner">
-          <div className="kicker">The bigger picture · why Statera matters</div>
-          <h2 className="tok-city-h">Your STR isn’t a chart.<br />It’s your <span className="r">rank</span> in X1 City.</h2>
-          <p className="tok-city-sub">X1 City is a living, Unreal-Engine metropolis at <b>x1city.io</b>. The STR in your wallet is your key, your status and your reputation inside it — and because STR goes omnichain, the token you buy on Arc <b>is</b> your standing in the city. One asset, two chains, a real world your bag plugs into.</p>
-
-          {/* tier ladder — the more you hold, the higher you stand */}
-          <div className="tok-tiers">
-            {[
-              { t: 'Visitor', h: 34 }, { t: 'Resident', h: 52 }, { t: 'Citizen', h: 70 }, { t: 'Elite', h: 86 }, { t: 'Founder', h: 100, top: true },
-            ].map((x) => (
-              <div className="tt-col" key={x.t}>
-                <div className="tt-bar-wrap"><div className={`tt-bar ${x.top ? 'top' : ''}`} style={{ height: `${x.h}%` }} /></div>
-                <div className="tt-label">{x.t}</div>
-              </div>
-            ))}
-          </div>
-          <div className="tok-tiers-cap">More STR held → higher standing, more of the city unlocked. <span className="dim">(tiers illustrative — the vision, not final)</span></div>
-
-          {/* Arc → X1 flow */}
-          <div className="tok-flow2">
-            <div className="tf2"><span className="tf2-n">1</span><b>Arc</b><span>Buy &amp; hold STR</span></div>
-            <div className="tf2-arw">→</div>
-            <div className="tf2"><span className="tf2-n">2</span><b>Standing</b><span>Perks &amp; access unlock</span></div>
-            <div className="tf2-arw">→</div>
-            <div className="tf2 hot"><span className="tf2-n">3</span><b>X1 City</b><span>Enter the world · Unreal Engine</span></div>
-          </div>
+          <div className="kicker">The bigger picture</div>
+          <h2 className="tok-city-h">Hold STR. Stand taller in <span className="r">X1 City</span>.</h2>
+          <p className="tok-city-sub"><b>X1 City is a full open world being built in Unreal Engine.</b> STR is the token tied into it — hold STR and you’ll get perks in the game as it rolls out. Your bag isn’t just a chart on Arc; it plugs into a real world we’re building.</p>
+          <div className="tok-city-tag"><span className="tct-dot" /> Unreal Engine · in active development</div>
+          <a className="btn solid tok-city-cta" href="https://x1city.io" target="_blank" rel="noreferrer">Explore X1 City <span className="arw">→</span></a>
         </div>
       </section>
 

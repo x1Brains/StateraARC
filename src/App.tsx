@@ -177,7 +177,7 @@ export default function App() {
                   </div>
                   <button className="hero-str-teaser" onClick={() => go('token')}>
                     <span className="hst-tag">New</span>
-                    <span className="hst-txt">$STR — hold it, <b>stand taller in X1 City</b></span>
+                    <span className="hst-txt">$STR — the token behind <b>X1 City</b>, our Unreal-Engine game</span>
                     <span className="hst-arw">→</span>
                   </button>
                   <div className="hero-trust">
