@@ -572,7 +572,7 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 }
 
 /* ── $STR token page ─────────────────────────────────────────────────────── */
-.tok-hero { position: relative; text-align: center; padding: 64px 20px 40px; overflow: hidden; }
+.tok-hero { position: relative; text-align: center; padding: 40px 20px 32px; overflow: hidden; }
 .tok-hero-glow { position: absolute; top: -40%; left: 50%; transform: translateX(-50%); width: 640px; height: 640px; border-radius: 50%; background: radial-gradient(circle, rgba(255,122,30,.16), transparent 62%); filter: blur(20px); pointer-events: none; z-index: 0; }
 .tok-hero > *:not(.tok-hero-glow) { position: relative; z-index: 1; }
 .tok-soon { display: inline-block; margin-bottom: 20px; }
