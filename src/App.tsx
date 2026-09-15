@@ -173,8 +173,8 @@ export default function App() {
           <div className="nav-links">
             {NAV.map((n) => <button key={n.key} className={page === n.key ? 'on' : ''} onClick={() => go(n.key)}>{n.label}</button>)}
           </div>
-          <VisitCounter />
           <div className="spacer" />
+          <VisitCounter />
           <div className="net-toggle" role="group" aria-label="network">
             <button className={net === 'testnet' ? 'on' : ''} onClick={() => switchNet('testnet')}>Testnet</button>
             <button className={net === 'premain' ? 'on' : ''} onClick={() => switchNet('premain')} title="Chain 5042 · unofficial pre-public source">Pre-Public</button>
