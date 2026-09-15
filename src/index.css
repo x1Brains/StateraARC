@@ -82,6 +82,16 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .net-toggle button { font-family: var(--disp); font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; background: transparent; color: var(--gray-2); border: 0; border-radius: 6px; padding: 7px 12px; cursor: pointer; }
 .net-toggle button.on { background: var(--fire); color: #180a03; }
 .net-toggle button:not(.on):hover { color: var(--white); }
+.net-toggle button { white-space: nowrap; }
+@media (max-width: 900px) { .net-toggle button { padding: 7px 9px; font-size: 9.5px; letter-spacing: .5px; } }
+/* pre-public (5042) banner */
+.prepublic-banner { display: flex; gap: 12px; align-items: flex-start; padding: 13px 16px; margin-bottom: 18px; border-radius: 12px;
+  border: 1px solid var(--red-dim); background: linear-gradient(120deg, rgba(255,122,30,.09), transparent 70%), var(--panel); font-size: 12.5px; line-height: 1.55; color: var(--chrome); }
+.prepublic-banner.big { padding: 22px; font-size: 14px; }
+.prepublic-banner b { color: var(--white); }
+.prepublic-banner a { color: var(--red-hi); }
+.prepublic-banner .pp-meta { color: var(--gray-2); }
+.pp-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px var(--red); flex-shrink: 0; margin-top: 4px; animation: pulse 2s infinite; }
 
 /* ============ hero — cinematic lava scene ============ */
 .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); min-height: 640px; }

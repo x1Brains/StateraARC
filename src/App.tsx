@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN, NET, LAUNCHPADS, MAINNET_LAUNCH_ISO, MAINNET_LIVE, type Token, type MarketPx } from './lib/arc';
+import { fetchTokens, fetchPremainTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN, NET, LAUNCHPADS, MAINNET_LAUNCH_ISO, MAINNET_LIVE, type Token, type MarketPx, type PremainMeta } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
 import { Portfolio } from './components/Portfolio';
@@ -47,10 +47,12 @@ export default function App() {
   const [pageNum, setPageNum] = useState(1);
   const [perPage, setPerPage] = useState(100);
   const [selected, setSelected] = useState<string | null>(null);
-  const [net, setNet] = useState<'testnet' | 'mainnet'>(() => {
-    try { return (localStorage.getItem('statera-net') as 'testnet' | 'mainnet') || 'testnet'; } catch { return 'testnet'; }
+  type Net3 = 'testnet' | 'premain' | 'mainnet';
+  const [net, setNet] = useState<Net3>(() => {
+    try { return (localStorage.getItem('statera-net') as Net3) || 'testnet'; } catch { return 'testnet'; }
   });
-  const switchNet = (n: 'testnet' | 'mainnet') => { setNet(n); setSelected(null); try { localStorage.setItem('statera-net', n); } catch {} };
+  const switchNet = (n: Net3) => { setNet(n); setSelected(null); try { localStorage.setItem('statera-net', n); } catch {} };
+  const [premainMetaState, setPremainMetaState] = useState<PremainMeta | null>(null);
   const [wallet, setWallet] = useState<string | null>(null);
   const onConnect = async () => { try { const a = await connectWallet(); if (a) setWallet(a); } catch {} };
   // Cinematic hero: one of the four lava scenes, chosen at random on each fresh load.
@@ -60,12 +62,20 @@ export default function App() {
     setLoading(true); setErr(null);
     fetchMarket().then(setMarket).catch(() => {});
     try {
-      const list = await fetchTokens(500);
-      setTokens(list);
+      if (net === 'premain') {
+        const list = await fetchPremainTokens();
+        setTokens(list);
+        const { premainMeta } = await import('./lib/arc');
+        setPremainMetaState(premainMeta);
+      } else {
+        const list = await fetchTokens(500);
+        setTokens(list);
+      }
     } catch (e: any) { setErr(e.message || 'failed to load'); }
     finally { setLoading(false); }
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [net]); // eslint-disable-line
+  useEffect(() => { if (net === 'premain') setSort('holders'); }, [net]);
 
   const rows = useMemo(() => {
     let r = tokens;
@@ -95,7 +105,10 @@ export default function App() {
   const ecosystem = useMemo(() => [...tokens].filter((t) => t.isEcosystem).sort(byLiq).slice(0, 6), [tokens]);
 
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  const openToken = (addr: string) => { setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const openToken = (addr: string) => {
+    if (net === 'premain') { window.open(`https://arc-scan.org/address/${addr}`, '_blank'); return; } // no internal detail on the unofficial chain
+    setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
   const goScreener = (f: Filter = 'all') => { setFilter(f); setSort('liq'); setPage('screener'); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
   return (
@@ -130,6 +143,7 @@ export default function App() {
           <div className="spacer" />
           <div className="net-toggle" role="group" aria-label="network">
             <button className={net === 'testnet' ? 'on' : ''} onClick={() => switchNet('testnet')}>Testnet</button>
+            <button className={net === 'premain' ? 'on' : ''} onClick={() => switchNet('premain')} title="Chain 5042 · unofficial pre-public source">Pre-Public</button>
             <button className={net === 'mainnet' ? 'on' : ''} onClick={() => switchNet('mainnet')}>Mainnet</button>
           </div>
           {(page === 'portfolio' || page === 'swap') && <button className="connect" onClick={onConnect}>{wallet ? wallet.slice(0, 6) + '…' + wallet.slice(-4) : 'Connect Wallet'}</button>}
@@ -199,6 +213,21 @@ export default function App() {
           </>
         )}
 
+        {/* premain (chain 5042) home — compact intro to the pre-public board */}
+        {page === 'home' && net === 'premain' && (
+          <div className="wrap"><section className="section">
+            <div className="prepublic-banner big">
+              <span className="pp-dot" />
+              <div>
+                <div className="kicker" style={{ marginBottom: 6 }}>Pre-Public · Chain 5042</div>
+                <h2 style={{ margin: '0 0 8px' }}>Arc's live pre-public mainnet</h2>
+                <p style={{ margin: '0 0 14px' }}>The real Arc mainnet chain (5042) is already producing blocks with a live token ecosystem — thousands of holders across stablecoins, wrapped assets and launchpad tokens. This is an <b>unofficial</b> view sourced from an independent indexer (arc-scan.org), <b>not Circle</b>. It becomes the official mainnet view the moment Circle opens the public RPC on Sept 16.</p>
+                <button className="btn solid" onClick={() => goScreener('all')}>Open Pre-Public Board <span className="arw">→</span></button>
+              </div>
+            </div>
+          </section></div>
+        )}
+
         {/* ============ SCREENER ============ */}
         {page === 'screener' && net === 'testnet' && selected && (
           <TokenDetail
@@ -209,23 +238,43 @@ export default function App() {
           />
         )}
 
-        {page === 'screener' && net === 'testnet' && !selected && (
+        {page === 'screener' && (net === 'testnet' || net === 'premain') && !selected && (
           <div className="wrap"><section className="section" id="screener">
+            {net === 'premain' && (
+              <div className="prepublic-banner">
+                <span className="pp-dot" />
+                <div>
+                  <b>PRE-PUBLIC · Arc mainnet (chain 5042)</b> — an <b>unofficial</b> view of the live pre-public chain, sourced from an independent indexer (<a href="https://arc-scan.org" target="_blank" rel="noreferrer">arc-scan.org</a>), not Circle. Ranked by holders. Aggregates are unverified; token symbols are impersonated freely, so lookalikes are flagged — DYOR.
+                  {premainMetaState?.headBlock && <span className="pp-meta"> · block {Number(premainMetaState.headBlock).toLocaleString()} · {premainMetaState.tokenCount} tokens</span>}
+                </div>
+              </div>
+            )}
             <div className="section-head">
               <div>
-                <div className="kicker">Screener</div>
+                <div className="kicker">{net === 'premain' ? 'Pre-Public Board' : 'Screener'}</div>
                 <h2>Arc Tokens</h2>
-                <p>Live prices, liquidity &amp; market cap from on-chain pools. Launchpad tokens flagged from deployer clustering.</p>
+                <p>{net === 'premain'
+                  ? 'The most-held tokens on Arc pre-public mainnet, ranked by holder count. Prices land once the Uniswap v4 quoter is wired. Click a token to view it on arc-scan.org.'
+                  : 'Live prices, liquidity & market cap from on-chain pools. Launchpad tokens flagged from deployer clustering.'}</p>
               </div>
               <button className="btn ghost" onClick={load} disabled={loading} style={{ opacity: loading ? .5 : 1 }}>{loading ? 'Loading' : 'Refresh'}</button>
             </div>
 
-            <div className="stats">
-              <div className="stat"><div className="v">{tokens.length || '—'}</div><div className="l">Tokens Tracked</div></div>
-              <div className="stat"><div className="v">{launchpadCount || '—'}</div><div className="l">Launchpad Tokens</div></div>
-              <div className="stat"><div className="v">{ecoCount || '—'}</div><div className="l">Ecosystem</div></div>
-              <div className="stat"><div className="v">{CHAIN.name.includes('Testnet') ? 'TESTNET' : 'LIVE'}</div><div className="l">Chain {CHAIN.chainId}</div></div>
-            </div>
+            {net === 'premain' ? (
+              <div className="stats">
+                <div className="stat"><div className="v">{tokens.length || '—'}</div><div className="l">Tokens Indexed</div></div>
+                <div className="stat"><div className="v">{tokens[0]?.symbol ?? '—'}</div><div className="l">Most Held</div></div>
+                <div className="stat"><div className="v">{tokens.reduce((s, t) => s + (t.holders || 0), 0).toLocaleString()}</div><div className="l">Total Holders</div></div>
+                <div className="stat"><div className="v r">PRE-PUBLIC</div><div className="l">Chain 5042</div></div>
+              </div>
+            ) : (
+              <div className="stats">
+                <div className="stat"><div className="v">{tokens.length || '—'}</div><div className="l">Tokens Tracked</div></div>
+                <div className="stat"><div className="v">{launchpadCount || '—'}</div><div className="l">Launchpad Tokens</div></div>
+                <div className="stat"><div className="v">{ecoCount || '—'}</div><div className="l">Ecosystem</div></div>
+                <div className="stat"><div className="v">{CHAIN.name.includes('Testnet') ? 'TESTNET' : 'LIVE'}</div><div className="l">Chain {CHAIN.chainId}</div></div>
+              </div>
+            )}
 
             <div className="controls">
               <div className="tabs">
@@ -310,7 +359,7 @@ export default function App() {
           </section></div>
         )}
 
-        {page === 'watchlist' && <Watchlist net={net} />}
+        {page === 'watchlist' && <Watchlist net={net === 'mainnet' ? 'mainnet' : 'testnet'} />}
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} />}
         {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} />}
 

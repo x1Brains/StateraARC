@@ -62,6 +62,9 @@ export interface Token {
   price: number | null;
   liq: number | null;
   mcap: number | null;
+  transfers?: number;      // pre-public (5042): transfer-event count in the scan window
+  flags?: string[];        // pre-public: 'lookalike' | 'dup-symbol' | 'reserved-name'
+  premain?: boolean;       // sourced from the unofficial 5042 index
 }
 
 export const addrOf = (o: any): string =>
@@ -132,6 +135,27 @@ export async function fetchTokens(limit = 500): Promise<Token[]> {
     await sleep(160); // be gentle on the public API
   }
   return out.slice(0, limit);
+}
+
+// ── Pre-public Arc mainnet (chain 5042) token index ──────────────────────────────────────────
+// Reads our baked, spam-filtered 5042 snapshot (source: arc-scan.org, UNOFFICIAL). Ranked by
+// holders. No prices yet (the DEX is Uniswap v4 — pricing lands once we ID the v4 quoter).
+export interface PremainMeta { generated: string; headBlock: string | null; tokenCount: number; source: string; }
+export let premainMeta: PremainMeta | null = null;
+export async function fetchPremainTokens(): Promise<Token[]> {
+  const url = (import.meta.env.VITE_SNAPSHOT_5042_URL as string) || '/tokens-snapshot-5042.json';
+  const r = await fetch(url, { cache: 'default' });
+  if (!r.ok) return [];
+  const snap = await r.json();
+  premainMeta = { generated: snap.generated, headBlock: snap.headBlock ?? null, tokenCount: snap.tokenCount ?? 0, source: snap.source ?? '' };
+  if (!Array.isArray(snap.tokens)) return [];
+  return snap.tokens.map((t: any): Token => ({
+    address: t.address, name: t.name || t.symbol, symbol: t.symbol,
+    holders: t.holders ?? null, totalSupply: t.supply ?? null, type: 'ERC-20',
+    iconUrl: null, launchpad: null, isOurs: false, isEcosystem: false,
+    price: null, liq: null, mcap: null,
+    transfers: t.transfers ?? undefined, flags: Array.isArray(t.flags) ? t.flags : [], premain: true,
+  }));
 }
 
 // Fetch a token's deployer and tag it if the deployer is a known launchpad. Called sparingly
