@@ -6,9 +6,10 @@ import { Portfolio } from './components/Portfolio';
 import { Swap } from './components/Swap';
 import { Dropdown } from './components/Dropdown';
 import { PremainDetail } from './components/PremainDetail';
+import { TokenPage } from './components/TokenPage';
 import { Watchlist } from './components/Watchlist';
 
-type Page = 'home' | 'screener' | 'watchlist' | 'portfolio' | 'swap';
+type Page = 'home' | 'screener' | 'watchlist' | 'portfolio' | 'swap' | 'token';
 type Filter = 'all' | 'new' | 'eco';
 type SortKey = 'liq' | 'mcap' | 'holders' | 'price' | 'name';
 
@@ -16,6 +17,7 @@ const NAV: { key: Page; label: string }[] = [
   { key: 'home', label: 'Home' },
   { key: 'screener', label: 'Screener' },
   { key: 'watchlist', label: 'Watchlist' },
+  { key: 'token', label: '$STR' },
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'swap', label: 'Swap' },
 ];
@@ -168,11 +170,16 @@ export default function App() {
                 <div className="hero-copy">
                   <span className="eyebrow"><span className="dot" /> Live · {CHAIN.name}</span>
                   <h1>Track any <span className="r">launch</span><br />on Arc.</h1>
-                  <p className="lede">The token screener for Circle's Arc chain. Every token, every launchpad, every pool — tracked in real time so you spot the plays before the crowd.</p>
+                  <p className="lede">The Statera hub for Circle's Arc chain — screen, swap, and track it all. Home of <span className="r">$STR</span> and the road to <span className="r">X1 City</span>.</p>
                   <div className="hero-cta">
                     <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <span className="arw">→</span></button>
                     <button className="btn ghost" onClick={() => goScreener('new')}>New Launches</button>
                   </div>
+                  <button className="hero-str-teaser" onClick={() => go('token')}>
+                    <span className="hst-tag">New</span>
+                    <span className="hst-txt">$STR — the token behind <b>X1 City</b>, our Unreal-Engine game</span>
+                    <span className="hst-arw">→</span>
+                  </button>
                   <div className="hero-trust">
                     <div className="ht"><b>{tokens.length || '500'}</b><span>Tokens Tracked</span></div>
                     <div className="div" />
@@ -366,6 +373,7 @@ export default function App() {
         )}
 
         {page === 'watchlist' && <Watchlist net={net === 'mainnet' ? 'mainnet' : 'testnet'} />}
+        {page === 'token' && <TokenPage />}
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} />}
         {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} />}
 
