@@ -52,8 +52,9 @@ export const swapReady = () => SWAP_CFG.routers.length > 0 || !!UNI_ROUTER;
 // UniV2-style pool regardless of factory — plus an auto WUSDC wrap hop so native USDC
 // pays into WUSDC-quoted pools. Proven on-chain 2026-09-15: 0.02 USDC → 176.86 BILL via
 // Axpha AMM (tx 0x3a0a0a14…), which getAmountsOut can't see. Deployed per net below.
+// V2 adds swapWithPermit() — EIP-2612 gasless-approval swaps (see permit helpers below).
 const UNI_ROUTER_BY_NET: Record<string, string> = {
-  testnet: '0x3b4e88aAbE11e3290f9dc930bd462f953bF8AeE2',
+  testnet: '0xc680832437E23cdfce9A4D5B1193d77DA12Ae7eC',
   mainnet: '', // deploy on launch day, then paste the address here
 };
 export const UNI_ROUTER = UNI_ROUTER_BY_NET[NET] || '';
@@ -290,6 +291,77 @@ export const MAX_UINT256 = (1n << 256n) - 1n;
 // approve(spender, amount) = 0x095ea7b3
 export function buildApproveTx(token: string, spender: string, amountRaw: bigint, from: string): TxReq {
   return { to: token, from, value: '0x0', data: '0x095ea7b3' + padA(spender) + padU(amountRaw) };
+}
+
+// ── EIP-2612 permit (gasless approval) ───────────────────────────────────────
+// A token that implements permit (Arc native USDC & EURC do — verified on-chain, domain
+// name/version read from the token) can be authorized by a SIGNATURE instead of an approval
+// tx. Combined with the pair router's swapWithPermit(), that's one signature + one tx, no
+// standing allowance — the closest EVM gets to the SVM (no-approval) feel.
+async function readString(token: string, sel: string): Promise<string | null> {
+  const r = await ethCall(token, sel);
+  if (!r || r === '0x' || r.length < 130) return null;
+  try {
+    const len = Number(BigInt('0x' + r.slice(66, 130)));
+    if (!len) return null;
+    return hexToStr(r.slice(130, 130 + len * 2)) || null;
+  } catch { return null; }
+}
+export interface PermitInfo { name: string; version: string; nonce: bigint; chainId: number; token: string; }
+// Returns the EIP-712 permit parameters for a token, or null if it doesn't support permit.
+// We require name() AND version() getters so the domain is deterministic (no local keccak
+// needed to match DOMAIN_SEPARATOR) — the wallet computes the digest from the typed data.
+export async function permitInfo(token: string, owner: string): Promise<PermitInfo | null> {
+  const [name, version, nonceHex, ds] = await Promise.all([
+    readString(token, '0x06fdde03'),                 // name()
+    readString(token, '0x54fd4d50'),                 // version()
+    ethCall(token, '0x7ecebe00' + padA(owner)),      // nonces(owner)
+    ethCall(token, '0x3644e515'),                    // DOMAIN_SEPARATOR() — presence = EIP-2612
+  ]);
+  if (!name || !version || !nonceHex || !ds) return null;
+  return { name, version, nonce: BigInt(nonceHex), chainId: CHAIN.chainId, token };
+}
+// Build the eth_signTypedData_v4 payload for an EIP-2612 permit (exact value, given deadline).
+export function buildPermitTypedData(info: PermitInfo, owner: string, spender: string, value: bigint, deadline: bigint) {
+  return {
+    types: {
+      EIP712Domain: [
+        { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
+        { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
+      ],
+      Permit: [
+        { name: 'owner', type: 'address' }, { name: 'spender', type: 'address' },
+        { name: 'value', type: 'uint256' }, { name: 'nonce', type: 'uint256' }, { name: 'deadline', type: 'uint256' },
+      ],
+    },
+    primaryType: 'Permit',
+    domain: { name: info.name, version: info.version, chainId: info.chainId, verifyingContract: info.token },
+    message: { owner, spender, value: value.toString(), nonce: info.nonce.toString(), deadline: deadline.toString() },
+  };
+}
+// Split a 65-byte signature into { v, r, s }.
+function splitSig(sig: string): { v: number; r: string; s: string } {
+  const h = sig.replace('0x', '');
+  const r = h.slice(0, 64), s = h.slice(64, 128);
+  let v = parseInt(h.slice(128, 130), 16);
+  if (v < 27) v += 27; // some wallets return 0/1
+  return { v, r, s };
+}
+// swapWithPermit(address[],address[],uint256,uint256,address,uint256,uint256,uint8,bytes32,bytes32) = 0x00b88335
+// The permit was signed for exactly amountIn with THIS deadline (contract enforces both equal).
+export function buildSwapWithPermitTx(
+  q: Quote,
+  opts: { amountOutMinRaw: bigint; recipient: string; deadline: bigint; feeBpsOverride?: number; sig: string },
+): TxReq {
+  const pairs = q.pairs || [];
+  const feeBps = opts.feeBpsOverride ?? q.feeBps ?? 30;
+  const { v, r, s } = splitSig(opts.sig);
+  const off1 = 320;                                  // 10 head slots × 32
+  const off2 = off1 + (1 + pairs.length) * 32;
+  const data =
+    '0x00b88335' + padU(off1) + padU(off2) + padU(q.amountInRaw) + padU(opts.amountOutMinRaw) +
+    padA(opts.recipient) + padU(opts.deadline) + padU(feeBps) + padU(v) + r + s + encArr(pairs) + encArr(q.path);
+  return { to: q.router, from: opts.recipient, data, value: '0x0' };
 }
 
 // Build the execution tx for a quote. UniV2 quotes use swapExactTokensForTokens on the router;
