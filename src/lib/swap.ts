@@ -282,6 +282,11 @@ export const minOut = (out: bigint, slippagePct: number): bigint =>
 
 export interface TxReq { to: string; from: string; data: string; value: string }
 
+// Max uint256 — a one-time "unlimited" approval so a token is approved ONCE per spender,
+// not per trade (mirrors the SVM feel). Our pair router is immutable + ownerless + holds no
+// funds, so an unlimited allowance to it can only ever be used mid-swap, and is revocable.
+export const MAX_UINT256 = (1n << 256n) - 1n;
+
 // approve(spender, amount) = 0x095ea7b3
 export function buildApproveTx(token: string, spender: string, amountRaw: bigint, from: string): TxReq {
   return { to: token, from, value: '0x0', data: '0x095ea7b3' + padA(spender) + padU(amountRaw) };

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { compact, CHAIN, type Token } from '../lib/arc';
 import {
   NATIVE_USDC, SWAP_CFG, swapReady, bestQuote, decimalsOf, symbolOf, balanceOf, allowance,
-  buildApproveTx, buildSwapTx, simulate, minOut, toRaw, fromRaw, feeCandidates, type Quote, type TxReq,
+  buildApproveTx, buildSwapTx, simulate, minOut, toRaw, fromRaw, feeCandidates, MAX_UINT256, type Quote, type TxReq,
 } from '../lib/swap';
 import { TokenPicker } from './TokenPicker';
 
@@ -136,8 +136,9 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
       if (bal < amountInRaw) { setPhase('error'); setMsg(`Insufficient ${from.symbol} balance.`); return; }
       const allow = await allowance(from.address, wallet, quote.router);
       if (allow < amountInRaw) {
-        setPhase('approving'); setMsg(`Approve ${from.symbol} for the router…`);
-        const ah = await sendTx(buildApproveTx(from.address, quote.router, amountInRaw, wallet));
+        // One-time unlimited approval per token — after this, every future swap of it is a single tx.
+        setPhase('approving'); setMsg(`One-time approval for ${from.symbol} (only needed once)…`);
+        const ah = await sendTx(buildApproveTx(from.address, quote.router, MAX_UINT256, wallet));
         const ok = await waitReceipt(ah);
         if (!ok) { setPhase('error'); setMsg('Approval failed.'); return; }
       }
@@ -232,7 +233,7 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
               {hash && <> · <a href={`${CHAIN.scan}/tx/${hash}`} target="_blank" rel="noreferrer">view tx ↗</a></>}
             </div>
           )}
-          <div className="swap-note">Best-fill routing across live Arc DEX routers. Execution is on-chain: approve → swap, min-out enforced, dry-run simulated before you sign. Not financial advice — DYOR.</div>
+          <div className="swap-note">Best-fill routing across live Arc DEX liquidity. The first time you trade a token you approve it once (an EVM requirement) — every trade after is a single transaction. Min-out enforced, dry-run simulated before you sign. Not financial advice — DYOR.</div>
         </div>
 
         <aside className="swap-side">
