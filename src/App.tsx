@@ -5,6 +5,7 @@ import { TokenDetail } from './components/TokenDetail';
 import { Portfolio } from './components/Portfolio';
 import { Swap } from './components/Swap';
 import { Dropdown } from './components/Dropdown';
+import { PremainDetail } from './components/PremainDetail';
 import { Watchlist } from './components/Watchlist';
 
 type Page = 'home' | 'screener' | 'watchlist' | 'portfolio' | 'swap';
@@ -105,10 +106,7 @@ export default function App() {
   const ecosystem = useMemo(() => [...tokens].filter((t) => t.isEcosystem).sort(byLiq).slice(0, 6), [tokens]);
 
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  const openToken = (addr: string) => {
-    if (net === 'premain') { window.open(`https://arc-scan.org/address/${addr}`, '_blank'); return; } // no internal detail on the unofficial chain
-    setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  const openToken = (addr: string) => { setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const goScreener = (f: Filter = 'all') => { setFilter(f); setSort('liq'); setPage('screener'); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
   return (
@@ -234,6 +232,14 @@ export default function App() {
             address={selected}
             price={tokens.find((t) => t.address === selected)?.price ?? null}
             liq={tokens.find((t) => t.address === selected)?.liq ?? null}
+            onBack={() => setSelected(null)}
+          />
+        )}
+
+        {page === 'screener' && net === 'premain' && selected && (
+          <PremainDetail
+            address={selected}
+            seed={tokens.find((t) => t.address === selected)}
             onBack={() => setSelected(null)}
           />
         )}

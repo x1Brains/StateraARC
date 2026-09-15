@@ -6,3 +6,4 @@ dist
 # dev screenshots (root only)
 /*.png
 scripts/intel-wide.json
+STATERA_ARCHITECTURE.md
