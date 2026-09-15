@@ -711,3 +711,68 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 .tok-city-tag { display: inline-flex; align-items: center; gap: 9px; font: 700 10px var(--disp); letter-spacing: 1.5px; text-transform: uppercase; color: var(--chrome); padding: 9px 16px; border: 1px solid var(--line-2); border-radius: 999px; background: rgba(6,10,14,.6); }
 .tct-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px var(--red); animation: pulse 2s infinite; }
 .tok-city-cta { display: inline-flex; }
+
+/* ── first-visit disclaimer gate ── */
+.dsc-overlay { position: fixed; inset: 0; z-index: 9000; display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(0,0,0,.82); backdrop-filter: blur(8px); animation: dscFade .25s ease; }
+@keyframes dscFade { from { opacity: 0; } to { opacity: 1; } }
+.dsc-card { width: min(600px, 100%); max-height: 92vh; overflow-y: auto; background: #0b0b0d; border: 1px solid var(--line);
+  border-radius: 18px; padding: 26px 26px 22px; box-shadow: 0 30px 90px rgba(0,0,0,.7), 0 0 0 1px rgba(255,105,35,.12); }
+.dsc-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.dsc-warn { flex: none; width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; font: 800 22px var(--disp);
+  color: #fff; background: var(--fire); box-shadow: 0 6px 24px rgba(255,105,35,.4); }
+.dsc-head h2 { margin: 2px 0 0; font-size: 24px; }
+.dsc-lede { color: var(--chrome); font-size: 14px; line-height: 1.6; margin: 0 0 16px; }
+.dsc-points { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.dsc-point { border: 1px solid var(--line); border-radius: 11px; padding: 11px 13px; background: rgba(255,255,255,.02); }
+.dsc-point-h { font: 700 12.5px var(--disp); letter-spacing: .3px; color: var(--white); margin-bottom: 3px; }
+.dsc-point-h::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--red); margin-right: 8px; vertical-align: middle; }
+.dsc-point-b { color: var(--gray); font-size: 12.5px; line-height: 1.55; }
+.dsc-agree { display: flex; gap: 11px; align-items: flex-start; padding: 12px 13px; border: 1px solid var(--red-dim); border-radius: 11px;
+  background: rgba(255,105,35,.05); margin-bottom: 16px; cursor: pointer; }
+.dsc-agree input { margin-top: 2px; width: 17px; height: 17px; accent-color: #ff7a2f; flex: none; cursor: pointer; }
+.dsc-agree span { font-size: 12.5px; line-height: 1.55; color: var(--chrome); }
+.dsc-agree b { color: var(--white); }
+.dsc-cta { width: 100%; justify-content: center; font-size: 15px; padding: 13px; }
+.dsc-cta:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.4); }
+.dsc-foot { text-align: center; color: var(--gray-2); font-size: 11px; margin-top: 12px; letter-spacing: .3px; }
+
+/* ── visit counter (nav) ── */
+.visits { display: inline-flex; align-items: center; gap: 7px; margin-left: 14px; padding: 6px 11px; border: 1px solid var(--line);
+  border-radius: 999px; font: 600 12px var(--mono); color: var(--chrome); background: rgba(255,255,255,.02); white-space: nowrap; }
+.visits-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); box-shadow: 0 0 8px var(--red); animation: pulse 2s infinite; }
+.visits-l { color: var(--gray-2); }
+@media (max-width: 900px) { .visits { display: none; } }
+
+/* ── Arc trending (Warp live) ── */
+.atr-live { display: inline-flex; align-items: center; gap: 6px; font: 700 10px var(--disp); letter-spacing: 1.5px; text-transform: uppercase;
+  color: #5ad18a; vertical-align: middle; margin-left: 8px; }
+.atr-dot { width: 7px; height: 7px; border-radius: 50%; background: #5ad18a; box-shadow: 0 0 10px #5ad18a; animation: pulse 2s infinite; }
+.atr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.atr-card { padding: 14px; border-radius: 14px; }
+.atr-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.atr-rank { flex: none; font: 700 12px var(--mono); color: var(--gray-2); width: 18px; }
+.atr-logo { flex: none; width: 38px; height: 38px; border-radius: 10px; object-fit: cover; background: #17171b; }
+.atr-logo.mono { display: grid; place-items: center; font: 700 12px var(--disp); color: var(--chrome); }
+.atr-id { flex: 1; min-width: 0; }
+.atr-tick { font: 700 15px var(--disp); color: var(--white); }
+.atr-name { font-size: 11.5px; color: var(--gray); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atr-chg { flex: none; font: 700 16px var(--mono); text-align: right; }
+.atr-chg-l { display: block; font: 600 9px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
+.atr-chg.up, .up { color: #5ad18a; } .atr-chg.down, .down { color: #ff5a5a; }
+.atr-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 10px; margin-bottom: 12px; }
+.atr-stats > div { display: flex; flex-direction: column; gap: 1px; }
+.atr-stats span { font: 600 9px var(--disp); letter-spacing: .8px; text-transform: uppercase; color: var(--gray-2); }
+.atr-stats b { font: 600 13px var(--mono); color: var(--white); }
+.atr-prog { position: relative; height: 20px; border-radius: 6px; background: rgba(255,255,255,.05); overflow: hidden; margin-bottom: 12px; }
+.atr-prog-bar { position: absolute; inset: 0 auto 0 0; background: var(--fire); opacity: .5; }
+.atr-prog span { position: relative; display: block; text-align: center; font: 600 10px var(--mono); line-height: 20px; color: var(--white); }
+.atr-grad { text-align: center; font: 700 10px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: #5ad18a;
+  border: 1px solid rgba(90,209,138,.4); border-radius: 6px; padding: 5px; margin-bottom: 12px; }
+.atr-actions { display: flex; gap: 8px; }
+.atr-copy { flex: 1; display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 11px; border: 1px solid var(--line);
+  border-radius: 9px; background: rgba(255,255,255,.03); font: 600 11px var(--mono); color: var(--gray); cursor: pointer; transition: border-color .15s, color .15s; }
+.atr-copy:hover { border-color: var(--red-dim); color: var(--white); }
+.atr-copy.ok { border-color: rgba(90,209,138,.5); color: #5ad18a; }
+.atr-trade { flex: none; padding: 8px 15px; border: none; border-radius: 9px; background: var(--fire); color: #fff; font: 700 12px var(--disp); letter-spacing: .5px; cursor: pointer; }
+.atr-trade:hover { filter: brightness(1.08); }

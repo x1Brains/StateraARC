@@ -8,6 +8,9 @@ import { Dropdown } from './components/Dropdown';
 import { PremainDetail } from './components/PremainDetail';
 import { TokenPage } from './components/TokenPage';
 import { Watchlist } from './components/Watchlist';
+import { ArcTrending } from './components/ArcTrending';
+import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
+import { VisitCounter } from './components/VisitCounter';
 
 type Page = 'home' | 'screener' | 'watchlist' | 'portfolio' | 'swap' | 'token';
 type Filter = 'all' | 'new' | 'eco';
@@ -51,6 +54,7 @@ const LP_DESC: Record<string, string> = {
 const LAUNCHPAD_LEGEND = [...new Set(Object.values(LAUNCHPADS))].map((l) => ({ label: l, desc: LP_DESC[l] || `Tokens minted by the ${l} contract on Arc.` }));
 
 export default function App() {
+  const [acked, setAcked] = useState<boolean>(() => disclaimerAcked());
   const [page, setPage] = useState<Page>(() => parseHash().page);
   const [tokens, setTokens] = useState<Token[]>([]);
   const [market, setMarket] = useState<MarketPx[]>([]);
@@ -141,6 +145,7 @@ export default function App() {
 
   return (
     <>
+      {!acked && <Disclaimer onAccept={() => setAcked(true)} />}
       <div className="backdrop" />
       <div className="shell">
         {/* ticker — scrolling marquee */}
@@ -168,6 +173,7 @@ export default function App() {
           <div className="nav-links">
             {NAV.map((n) => <button key={n.key} className={page === n.key ? 'on' : ''} onClick={() => go(n.key)}>{n.label}</button>)}
           </div>
+          <VisitCounter />
           <div className="spacer" />
           <div className="net-toggle" role="group" aria-label="network">
             <button className={net === 'testnet' ? 'on' : ''} onClick={() => switchNet('testnet')}>Testnet</button>
@@ -258,6 +264,7 @@ export default function App() {
                 <button className="btn solid" onClick={() => goScreener('all')}>Open Pre-Public Board <span className="arw">→</span></button>
               </div>
             </div>
+            <ArcTrending onPick={(addr) => { navigator.clipboard?.writeText(addr).catch(() => {}); go('swap'); }} />
           </section></div>
         )}
 
@@ -290,6 +297,7 @@ export default function App() {
                 </div>
               </div>
             )}
+            {net === 'premain' && <ArcTrending onPick={(addr) => { navigator.clipboard?.writeText(addr).catch(() => {}); go('swap'); }} />}
             <div className="section-head">
               <div>
                 <div className="kicker">{net === 'premain' ? 'Pre-Public Board' : 'Screener'}</div>

@@ -7,6 +7,8 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/xdex': { target: 'https://api.xdex.xyz', changeOrigin: true, rewrite: (p) => p.replace(/^\/api\/xdex/, '') },
+      // Warp launchpad API (Arc mainnet 5042 live token data) — no CORS, so proxy it.
+      '/api/warp': { target: 'https://warp-arc-production.up.railway.app/api', changeOrigin: true, rewrite: (p) => p.replace(/^\/api\/warp/, '') },
     },
   },
 });
