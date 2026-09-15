@@ -15,10 +15,8 @@ const CORE = [
 const ROADMAP = [
   { tag: 'Phase 1', title: 'STR goes live on Arc', now: true,
     body: 'The sealed 21M token ships on Arc — instantly tradeable and auto-listed on the StateraArc screener + swap. That’s the whole token: hold it, send it, burn it.' },
-  { tag: 'Phase 2', title: 'Perks in X1 City',
+  { tag: 'Phase 2', title: 'Tied into X1 City',
     body: 'X1 City is a full open world being built in Unreal Engine 5 — web3 GameFi, the first EVM↔SVM game on Arc. STR is the token tied into it.' },
-  { tag: 'Phase 3', title: 'Omnichain — STR reaches X1',
-    body: 'A LayerZero OFT adapter makes STR one token across Arc and X1 with a unified supply — STR as a true cross-chain asset.' },
 ];
 
 export function TokenPage() {

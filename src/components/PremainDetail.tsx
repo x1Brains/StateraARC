@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
+import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice } from '../lib/arc';
 import type { Token } from '../lib/arc';
@@ -77,7 +78,7 @@ export function PremainDetail({ address, seed, onBack }: { address: string; seed
       </div>
 
       <div className="td-head">
-        <TokenLogo symbol={sym} seed={address} url={null} />
+        <TokenLogo symbol={sym} seed={address} url={warp?.image ?? null} />
         <div className="td-id">
           <div className="td-name">{name || sym}
             {d?.lookalike && <span className="wl-note" style={{ marginLeft: 8 }}>Lookalike</span>}
@@ -110,8 +111,13 @@ export function PremainDetail({ address, seed, onBack }: { address: string; seed
         <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{d?.decimals ?? '—'}</span></div>
         {d?.creator && <div className="ir"><span className="ir-k">Creator</span><span className="ir-v mono">{d.creator.slice(0, 10)}…{d.creator.slice(-6)}</span></div>}
         {d?.size != null && <div className="ir"><span className="ir-k">Bytecode</span><span className="ir-v">{d.size.toLocaleString()} bytes</span></div>}
+        {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
+        {warp?.topHolderBps != null && <div className="ir"><span className="ir-k">Top holder</span><span className="ir-v">{(warp.topHolderBps / 100).toFixed(1)}%</span></div>}
+        {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
         {d?.reservedCheck && <div className="ir"><span className="ir-k">Reserved-name check</span><span className="ir-v">{d.reservedCheck}</span></div>}
       </div>
+
+      <TokenLinks address={address} scanBase="https://arc-scan.org" warp />
 
       <div className="td-disc" style={{ marginTop: 16 }}>
         Price, chart &amp; market data are sourced from the Warp launchpad (circlewarp.fun) on Arc mainnet (chain 5042) — Uniswap v4 pools. Contract &amp; holder data are from an independent indexer (arc-scan.org). All unofficial, not Circle. Not an endorsement; unverified; DYOR.

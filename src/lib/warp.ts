@@ -20,6 +20,10 @@ export interface WarpToken {
   graduated: boolean;
   amm: string | null;        // e.g. warp bonding curve / uniswap-v4 after graduation
   v4: boolean;
+  fee: number | null;        // pool fee (raw, e.g. 100000 = 10% in v4 hundredths-of-a-bip)
+  pool: string | null;       // v4 poolId (bytes32) or pool address
+  topHolderBps: number | null; // top holder concentration, basis points
+  createdAt: number | null;  // ms epoch
   windows: { '1h'?: WarpWindow; '6h'?: WarpWindow };
 }
 
@@ -39,6 +43,10 @@ function norm(t: any): WarpToken {
     graduated: !!t.graduated,
     amm: t.amm || null,
     v4: !!t.v4,
+    fee: num(t.fee),
+    pool: t.pool || null,
+    topHolderBps: t.topHolderBps != null ? Number(t.topHolderBps) : null,
+    createdAt: num(t.createdAt),
     windows: t.windows || {},
   };
 }
