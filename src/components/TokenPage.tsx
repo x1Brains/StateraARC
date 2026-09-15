@@ -85,7 +85,7 @@ export function TokenPage() {
         <div className="wrap tok-city-inner">
           <div className="kicker">The bigger picture</div>
           <h2 className="tok-city-h">Hold STR. Stand taller in <span className="r">X1 City</span>.</h2>
-          <p className="tok-city-sub"><b>X1 City is a full open world being built in Unreal Engine.</b> STR is the token tied into it — hold STR and you’ll get perks in the game as it rolls out. Your bag isn’t just a chart on Arc; it plugs into a real world we’re building.</p>
+          <p className="tok-city-sub"><b>X1 City is a full open world being built in Unreal Engine.</b> Hold <b>$STR</b> and your web3 Unreal-Engine experience in X1 City is guaranteed — your bag isn’t just a chart on Arc, it’s your seat in a real world we’re building.</p>
           <div className="tok-city-actions">
             <div className="tok-city-tag"><span className="tct-dot" /> Unreal Engine · in active development</div>
             <a className="btn solid tok-city-cta" href="https://x1city.io" target="_blank" rel="noreferrer">Explore X1 City <span className="arw">→</span></a>
