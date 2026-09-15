@@ -23,18 +23,29 @@ const ROADMAP = [
 
 export function TokenPage() {
   return (
-    <div className="wrap">
-      {/* hero */}
+    <>
+      {/* ── cinematic hero (full-bleed, lava) ── */}
       <section className="tok-hero">
-        <div className="tok-hero-glow" />
-        <img className="tok-logo" src="/str-logo.jpg" alt="Statera Arc" />
-        <span className="badge b-red tok-soon">Not live yet · Coming to Arc</span>
-        <h1 className="tok-title">$<span className="r">STR</span></h1>
-        <p className="tok-tag">The token of <b>Statera</b> — and your standing inside <b>X1 City</b>.</p>
-        <p className="tok-lede">A sealed, trust-minimized ERC-20: 21,000,000 supply, no mint, ownerless, burnable. The money stays minimal and bulletproof — the perks and cross-chain reach clip on around it, never inside it.</p>
-        <div className="tok-supply-badge"><span className="tsb-n">21,000,000</span><span className="tsb-l">STR · fixed forever</span></div>
+        <div className="tok-hero-bg"><img src="/hero-lava-2.jpg" alt="" /></div>
+        <div className="tok-hero-inner">
+          <div className="tok-logo-wrap">
+            <img className="tok-logo" src="/str-logo.jpg" alt="Statera Arc" />
+          </div>
+          <span className="tok-soon"><span className="tok-soon-dot" /> Not live yet · Coming to Arc</span>
+          <h1 className="tok-title">$<span className="r">STR</span></h1>
+          <p className="tok-tag">The token of <b>Statera</b> — and your standing inside <span className="r">X1 City</span>.</p>
+          <p className="tok-lede">A sealed, trust-minimized ERC-20. 21,000,000 fixed supply, no mint, ownerless, burnable — money that stays bulletproof while the perks and cross-chain reach clip on around it.</p>
+          <div className="tok-hero-stats">
+            <div className="ths"><b>21,000,000</b><span>Fixed supply</span></div>
+            <div className="ths-div" />
+            <div className="ths"><b className="r">0</b><span>Mint · ever</span></div>
+            <div className="ths-div" />
+            <div className="ths"><b>Arc</b><span>USDC-gas L1</span></div>
+          </div>
+        </div>
       </section>
 
+      <div className="wrap">
       {/* core token features */}
       <section className="section">
         <div className="section-head"><div><div className="kicker">The Token</div><h2>Built to be bulletproof</h2>
@@ -103,6 +114,7 @@ export function TokenPage() {
           be announced here on StateraArc. Not financial advice — DYOR.
         </div>
       </section>
-    </div>
+      </div>
+    </>
   );
 }
