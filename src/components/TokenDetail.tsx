@@ -5,6 +5,7 @@ import {
   type TokenDetail as TD, type HolderRow, type PoolInfo,
 } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
+import { PriceChart } from './PriceChart';
 
 const short = (a: string) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '—');
 
@@ -101,6 +102,8 @@ export function TokenDetail({ address, price, liq, onBack }: { address: string; 
           <div className="stat"><div className="v">{compact(d.totalSupply)}</div><div className="l">Total Supply</div></div>
           <div className="stat"><div className="v">{compact(d.transfersCount)}</div><div className="l">Transfers</div></div>
         </div>
+
+        <PriceChart address={d.address} symbol={d.symbol} />
 
         <div className="td-grid">
           {/* trades */}

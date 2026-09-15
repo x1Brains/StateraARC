@@ -59,6 +59,25 @@ export async function fetchWarpTrending(): Promise<WarpToken[]> {
   } catch { return []; }
 }
 
+// Single token's full detail from Warp (price, mcap, liquidity, volume, holders, graduated…).
+export async function fetchWarpToken(address: string): Promise<WarpToken | null> {
+  try { const j = await get(`/tokens/${address}`); return j && (j.address || j.id) ? norm(j) : null; } catch { return null; }
+}
+
+// OHLC candles for a token — Warp serves real candlesticks at 1m / 5m / 1h.
+// Shape matches TradingView lightweight-charts: { time: unix-seconds, open, high, low, close }.
+export interface Candle { time: number; open: number; high: number; low: number; close: number }
+export async function fetchWarpCandles(address: string, interval = '5m'): Promise<Candle[]> {
+  try {
+    const j = await get(`/tokens/${address}/candles?interval=${encodeURIComponent(interval)}`);
+    const arr = Array.isArray(j) ? j : (j.candles || j.data || []);
+    return arr
+      .map((c: any) => ({ time: Number(c.time), open: +c.open, high: +c.high, low: +c.low, close: +c.close }))
+      .filter((c: Candle) => Number.isFinite(c.time) && Number.isFinite(c.close) && c.close > 0)
+      .sort((a: Candle, b: Candle) => a.time - b.time);
+  } catch { return []; }
+}
+
 // Top tokens by a sort key ('volume' | 'mcap' | 'new'...). Warp defaults are fine.
 export async function fetchWarpTokens(sort = 'volume', limit = 30): Promise<WarpToken[]> {
   try {

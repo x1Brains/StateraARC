@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { TokenLogo } from './TokenLogo';
+import { PriceChart } from './PriceChart';
+import { fetchWarpToken, type WarpToken } from '../lib/warp';
+import { usd, tprice } from '../lib/arc';
 import type { Token } from '../lib/arc';
 
 // Pre-public (chain 5042) token detail. Source: arc-scan.org REST /tokens/{a} (UNOFFICIAL indexer,
@@ -16,8 +19,16 @@ interface Detail {
 
 export function PremainDetail({ address, seed, onBack }: { address: string; seed?: Token; onBack: () => void }) {
   const [d, setD] = useState<Detail | null>(null);
+  const [warp, setWarp] = useState<WarpToken | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Warp (chain 5042) price/mcap + it backs the candlestick chart below.
+  useEffect(() => {
+    let alive = true; setWarp(null);
+    fetchWarpToken(address).then((w) => { if (alive) setWarp(w); });
+    return () => { alive = false; };
+  }, [address]);
 
   useEffect(() => {
     let alive = true;
@@ -80,10 +91,16 @@ export function PremainDetail({ address, seed, onBack }: { address: string; seed
       {err && <div className="msg err">Indexer error: {err}. The pre-public source (arc-scan.org) is flaky — try again.</div>}
 
       <div className="stats" style={{ marginTop: 16 }}>
-        <div className="stat"><div className="v">{fmtNum(d?.holders ?? null)}</div><div className="l">Holders</div></div>
+        <div className="stat"><div className="v r">{warp?.price != null ? tprice(warp.price) : '—'}</div><div className="l">Price</div></div>
+        <div className="stat"><div className="v">{warp?.mcap != null ? usd(warp.mcap) : '—'}</div><div className="l">Market Cap</div></div>
+        <div className="stat"><div className="v">{warp?.volume24h != null ? usd(warp.volume24h) : '—'}</div><div className="l">Vol 24h</div></div>
+        <div className="stat"><div className="v">{warp?.liquidity != null ? usd(warp.liquidity) : '—'}</div><div className="l">Liquidity</div></div>
+        <div className="stat"><div className="v">{fmtNum(warp?.holders ?? d?.holders ?? null)}</div><div className="l">Holders</div></div>
         <div className="stat"><div className="v">{fmtSupply(d?.supply ?? null)}</div><div className="l">Total Supply</div></div>
-        <div className="stat"><div className="v">{d?.transfers24h != null ? fmtNum(d.transfers24h) : '—'}</div><div className="l">Transfers 24h</div></div>
-        <div className="stat"><div className="v r">—</div><div className="l">Price (v4 pending)</div></div>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <PriceChart address={address} symbol={sym} />
       </div>
 
       <div className="panel side-card" style={{ marginTop: 16 }}>
@@ -97,7 +114,7 @@ export function PremainDetail({ address, seed, onBack }: { address: string; seed
       </div>
 
       <div className="td-disc" style={{ marginTop: 16 }}>
-        Prices land once the Uniswap v4 quoter is wired (5042's DEX is Uniswap v4, not the testnet stack). No on-chain trade history here yet — this is a discovery view of the pre-public chain. Not an endorsement; unverified indexer data; DYOR.
+        Price, chart &amp; market data are sourced from the Warp launchpad (circlewarp.fun) on Arc mainnet (chain 5042) — Uniswap v4 pools. Contract &amp; holder data are from an independent indexer (arc-scan.org). All unofficial, not Circle. Not an endorsement; unverified; DYOR.
       </div>
     </section></div>
   );
