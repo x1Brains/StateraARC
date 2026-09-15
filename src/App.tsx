@@ -170,7 +170,7 @@ export default function App() {
                 <div className="hero-copy">
                   <span className="eyebrow"><span className="dot" /> Live · {CHAIN.name}</span>
                   <h1>Track any <span className="r">launch</span><br />on Arc.</h1>
-                  <p className="lede">The token screener for Circle's Arc chain. Every token, every launchpad, every pool — tracked in real time so you spot the plays before the crowd.</p>
+                  <p className="lede">The Statera hub for Circle's Arc chain — screen, swap, and track it all. Home of <span className="r">$STR</span> and the road to <span className="r">X1 City</span>.</p>
                   <div className="hero-cta">
                     <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <span className="arw">→</span></button>
                     <button className="btn ghost" onClick={() => goScreener('new')}>New Launches</button>
