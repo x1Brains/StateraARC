@@ -88,7 +88,7 @@ export function Swap({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: s
       const q = await bestQuote(from.address, to.address, amountInRaw);
       if (seq !== qSeq.current) return;
       setQuoting(false);
-      if (!q) { setQErr('No liquidity route on Arc for this pair yet.'); return; }
+      if (!q) { setQErr('No route via our supported DEXes — this token’s pool may be on a DEX we don’t aggregate yet (e.g. a custom launchpad AMM).'); return; }
       setQuote(q);
     }, 450);
     return () => clearTimeout(id);
