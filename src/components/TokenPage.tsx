@@ -33,7 +33,7 @@ export function TokenPage() {
           </div>
           <span className="tok-soon"><span className="tok-soon-dot" /> Not live yet · Coming to Arc</span>
           <h1 className="tok-title">$<span className="r">STR</span></h1>
-          <p className="tok-tag">The token of <b>Statera</b> — tied into <span className="r">X1 City</span>, an Unreal-Engine game in the making.</p>
+          <p className="tok-tag">The token of <b>Statera</b> — tied into <span className="r">X1 City</span>, an Unreal-Engine game in development.</p>
           <p className="tok-lede">A sealed, trust-minimized ERC-20: 21,000,000 fixed supply, no mint, ownerless, burnable. Hold it on Arc and you plug into X1 City — the open world we’re building.</p>
           <div className="tok-hero-stats">
             <div className="ths"><b>21,000,000</b><span>Fixed supply</span></div>
