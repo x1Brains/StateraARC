@@ -5,15 +5,33 @@ export type Net = 'testnet' | 'mainnet';
 
 export const NETS: Record<Net, { name: string; chainId: number; scan: string; api: string; rpc: string }> = {
   testnet: { name: 'Arc Testnet', chainId: 5042002, scan: 'https://testnet.arcscan.app', api: 'https://testnet.arcscan.app/api/v2', rpc: 'https://rpc.testnet.arc.io' },
-  // ⛔ MAINNET STUB — fill chainId/scan/api/rpc with arc.io's official mainnet values on launch day
-  // (Sept 16, 2026), then flip MAINNET_LIVE = true. That single change turns the countdown gate into
-  // live mainnet data.
-  mainnet: { name: 'Arc', chainId: 0, scan: '', api: '', rpc: '' },
+  // ── MAINNET (pre-staged for Sept 16, 2026) ──────────────────────────────────────────────────────
+  // chainId 5042 (0x13b2) is VERIFIED REAL (canonical registry + a live tx's signature recovered for
+  // chainId 5042). scan/api/rpc below are the ANTICIPATED official Circle endpoints — today they're
+  // Cloudflare/auth-gated (private mainnet) and open publicly on launch day.
+  // LAUNCH-DAY CHECKLIST (then flip MAINNET_LIVE = true — the one switch):
+  //   1. Confirm rpc.mainnet.arc.io returns 0x13b2 publicly (or set VITE_ARC_RPC to a builder/partner endpoint).
+  //   2. Confirm the mainnet explorer host + that its API is Blockscout /api/v2 compatible (this app depends on it).
+  //      Candidates to check: explorer.arc.io , arcscan.app , mainnet.arcscan.app. Update scan+api to whichever works.
+  //   3. Repopulate the swap router set (src/lib/swap.ts CFG.mainnet) once Uniswap v4 / Aerodrome / Curve are live.
+  //   4. CCTP: confirm Arc is added to Circle's supported-chains table + its mainnet domain, then bridge (see cctp-bridge.mjs).
+  // RPC honors VITE_ARC_RPC / VITE_ARC_RPC_BACKUP overrides, so a trusted endpoint can be swapped in without a code change.
+  mainnet: { name: 'Arc', chainId: 5042, scan: 'https://explorer.arc.io', api: 'https://explorer.arc.io/api/v2', rpc: 'https://rpc.mainnet.arc.io' },
 };
 
 // Arc public mainnet — date VERIFIED from arc.io ("Arc Public Mainnet will launch on September 16, 2026").
 export const MAINNET_LAUNCH_ISO = '2026-09-16T00:00:00Z';
-export const MAINNET_LIVE = false; // flip to true once NETS.mainnet is populated with real values
+export const MAINNET_LIVE = false; // flip to true on launch day AFTER the checklist above passes
+
+// Mainnet reference facts (verified 2026-09-14) for the launch-day flip + CCTP onboarding.
+export const MAINNET_INFO = {
+  chainId: 5042,
+  chainIdHex: '0x13b2',
+  nativeUsdc: '0x3600000000000000000000000000000000000000', // same precompile address as testnet; gas token, 6-dec ERC-20 face
+  attestationHost: 'https://iris-api.circle.com',           // Circle PROD attestation (testnet uses iris-api-sandbox)
+  cctpDomain: null as number | null,                         // ⛔ TBD — Arc not yet in Circle's CCTP supported-chains table
+  officialBridge: 'https://bridge.usdc.com',                 // Circle's hosted USDC bridge (verified)
+};
 
 export const NET: Net = (import.meta.env.VITE_ARC_NET as Net) || 'testnet';
 export const CHAIN = NETS[NET];
