@@ -271,6 +271,38 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .legend-item .badge { flex-shrink: 0; }
 .legend-foot { color: var(--gray-2); font-size: 12.5px; border-top: 1px solid var(--line-soft); padding-top: 14px; }
 .legend-foot b { color: var(--white); }
+
+/* ============ ecosystem watchlist ============ */
+.wl-scan { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; margin-bottom: 18px; font-family: var(--disp); font-size: 12px; letter-spacing: .3px; }
+.wl-scan.live { border: 1px solid rgba(60,224,140,.28); background: rgba(60,224,140,.06); color: #cfe9dd; }
+.wl-scan.armed { border: 1px solid var(--line-2); background: linear-gradient(120deg, rgba(255,90,25,.08), transparent), var(--panel); color: var(--chrome); }
+.wl-scan b { color: var(--white); }
+.wl-scan .wl-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; animation: pulse 2s infinite; }
+.wl-scan.live .wl-dot { background: #3ce08c; box-shadow: 0 0 10px #3ce08c; }
+.wl-scan.armed .wl-dot { background: var(--red); box-shadow: 0 0 10px var(--red); }
+.wl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.wl-card { padding: 16px; display: flex; flex-direction: column; gap: 10px; transition: transform .15s, border-color .15s; }
+.wl-card:hover { transform: translateY(-2px); border-color: var(--line-2); }
+.wl-top { display: flex; align-items: center; gap: 11px; }
+.wl-top .tlogo, .wl-top .tmono { width: 38px; height: 38px; font-size: 15px; }
+.wl-id { min-width: 0; }
+.wl-name { font-family: var(--disp); font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wl-note { font-family: var(--disp); font-size: 8.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--red-hi); background: rgba(255,43,43,.12); border: 1px solid rgba(255,43,43,.3); padding: 2px 6px; border-radius: 4px; }
+.wl-cat { font-family: var(--disp); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); margin-top: 2px; }
+.wl-desc { color: var(--gray); font-size: 13px; line-height: 1.5; margin: 0; flex: 1; }
+.wl-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wl-stat { font-family: var(--mono); font-size: 12px; color: var(--gray-2); }
+.wl-stat b { color: var(--white); }
+.wl-badge { font-family: var(--disp); font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--line-2); color: var(--gray-2); white-space: nowrap; }
+.wl-badge.ok { color: #59e0a0; background: rgba(60,224,140,.12); border-color: rgba(60,224,140,.3); }
+.wl-badge.armed { color: var(--red-hi); background: rgba(255,43,43,.1); border-color: rgba(255,43,43,.3); }
+.wl-badge.dim { color: var(--gray-3); }
+.wl-links { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line-soft); padding-top: 11px; }
+.wl-link { font-family: var(--disp); font-size: 11px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; color: var(--gray); padding: 6px 11px; border: 1px solid var(--line-2); border-radius: 7px; }
+.wl-link:hover { color: var(--white); border-color: var(--gray-2); }
+.wl-link.x { color: var(--red-hi); border-color: rgba(255,43,43,.3); }
+.wl-link.dim { color: var(--gray-3); border-style: dashed; }
+@media (max-width: 640px) { .wl-grid { grid-template-columns: 1fr; } }
 @media (max-width: 640px) {
   .legend-grid { grid-template-columns: 1fr; }
   /* countdown: fill width evenly, drop the colons, tighter card */

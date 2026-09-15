@@ -4,14 +4,16 @@ import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
 import { Portfolio } from './components/Portfolio';
 import { Swap } from './components/Swap';
+import { Watchlist } from './components/Watchlist';
 
-type Page = 'home' | 'screener' | 'portfolio' | 'swap';
+type Page = 'home' | 'screener' | 'watchlist' | 'portfolio' | 'swap';
 type Filter = 'all' | 'new' | 'eco';
 type SortKey = 'liq' | 'mcap' | 'holders' | 'price' | 'name';
 
 const NAV: { key: Page; label: string }[] = [
   { key: 'home', label: 'Home' },
   { key: 'screener', label: 'Screener' },
+  { key: 'watchlist', label: 'Watchlist' },
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'swap', label: 'Swap' },
 ];
@@ -307,6 +309,7 @@ export default function App() {
           </section></div>
         )}
 
+        {page === 'watchlist' && <Watchlist net={net} />}
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} />}
         {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} />}
 
