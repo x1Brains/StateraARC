@@ -95,8 +95,9 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 
 /* ============ hero — cinematic lava scene ============ */
 .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); min-height: 640px; }
-.hero-bg { position: absolute; top: 0; right: 0; bottom: 0; width: 60%; z-index: 0; display: flex; justify-content: flex-end; }
-.hero-bg img { height: 100%; width: auto; max-width: none; display: block; animation: heroFade .6s ease; }
+.hero-bg { position: absolute; top: 0; right: 0; bottom: 0; width: 60%; z-index: 0; display: flex; justify-content: flex-end; align-items: center; }
+/* cap height under 100% + vertical-center so the S's top/bottom spikes never clip on any of the 4 renders */
+.hero-bg img { height: auto; max-height: 90%; width: auto; max-width: 100%; display: block; animation: heroFade .6s ease; }
 @keyframes heroFade { from { opacity: 0; } to { opacity: 1; } }
 .hero-bg::after { content: ''; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(90deg, var(--bg) 1%, rgba(0,0,0,.74) 24%, rgba(0,0,0,.28) 46%, transparent 62%); }
