@@ -6,9 +6,10 @@ import { Portfolio } from './components/Portfolio';
 import { Swap } from './components/Swap';
 import { Dropdown } from './components/Dropdown';
 import { PremainDetail } from './components/PremainDetail';
+import { TokenPage } from './components/TokenPage';
 import { Watchlist } from './components/Watchlist';
 
-type Page = 'home' | 'screener' | 'watchlist' | 'portfolio' | 'swap';
+type Page = 'home' | 'screener' | 'watchlist' | 'portfolio' | 'swap' | 'token';
 type Filter = 'all' | 'new' | 'eco';
 type SortKey = 'liq' | 'mcap' | 'holders' | 'price' | 'name';
 
@@ -16,6 +17,7 @@ const NAV: { key: Page; label: string }[] = [
   { key: 'home', label: 'Home' },
   { key: 'screener', label: 'Screener' },
   { key: 'watchlist', label: 'Watchlist' },
+  { key: 'token', label: '$STR' },
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'swap', label: 'Swap' },
 ];
@@ -366,6 +368,7 @@ export default function App() {
         )}
 
         {page === 'watchlist' && <Watchlist net={net === 'mainnet' ? 'mainnet' : 'testnet'} />}
+        {page === 'token' && <TokenPage />}
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} />}
         {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} />}
 
