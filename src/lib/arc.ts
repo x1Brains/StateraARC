@@ -330,7 +330,7 @@ export const isAddress = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
 // ── wallet (EIP-1193 injected, e.g. MetaMask) ──
 export async function connectWallet(): Promise<string | null> {
   const eth = (window as any).ethereum;
-  if (!eth) { alert('No EVM wallet found — install MetaMask (or any injected wallet) to connect.'); return null; }
+  if (!eth) { window.open('https://rabby.io', '_blank'); return null; } // no injected wallet — send them to get one
   const accts = await eth.request({ method: 'eth_requestAccounts' });
   const hexId = '0x' + CHAIN.chainId.toString(16);
   try { await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hexId }] }); }

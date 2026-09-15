@@ -4,6 +4,7 @@ import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
 import { Portfolio } from './components/Portfolio';
 import { Swap } from './components/Swap';
+import { Dropdown } from './components/Dropdown';
 import { Watchlist } from './components/Watchlist';
 
 type Page = 'home' | 'screener' | 'watchlist' | 'portfolio' | 'swap';
@@ -233,13 +234,13 @@ export default function App() {
               <input className="search" placeholder="Search name, symbol, or address" value={q} onChange={(e) => setQ(e.target.value)} />
               <div className="sortby">
                 <span className="sortby-l">Sort</span>
-                <select className="sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-                  <option value="liq">Liquidity</option>
-                  <option value="mcap">Market Cap</option>
-                  <option value="holders">Holders</option>
-                  <option value="price">Price</option>
-                  <option value="name">Name</option>
-                </select>
+                <Dropdown value={sort} onChange={setSort} align="right" options={[
+                  { value: 'liq', label: 'Liquidity' },
+                  { value: 'mcap', label: 'Market Cap' },
+                  { value: 'holders', label: 'Holders' },
+                  { value: 'price', label: 'Price' },
+                  { value: 'name', label: 'Name' },
+                ]} />
               </div>
             </div>
 

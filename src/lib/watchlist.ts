@@ -44,6 +44,24 @@ export const WATCHLIST: WatchProject[] = [
     desc: 'On-chain gm / social posting app.' },
   { name: 'Arclings', cat: 'NFT', contract: null, calls: 0,
     desc: 'Day-one mainnet PFP mint (6,283 supply). GTD 6 / FCFS 7 / Public 9 USDC.', site: 'https://arclings.art', x: 'ArclingsNFT', note: 'Mainnet Sept 16' },
+
+  // ── Confirmed mainnet DeFi (from Circle pressroom + arc.io/ecosystem). These are what the
+  //    screener & swap will route through at launch. Uniswap v4 is the only DEX Circle confirmed
+  //    "at launch"; the rest are live on private mainnet and expected day-one.
+  { name: 'Uniswap', cat: 'DEX', contract: null, calls: 0,
+    desc: 'Uniswap v4 (hooks) — the only DEX Circle confirmed live AT LAUNCH. Deepest USDC-pair liquidity expected day one.', site: 'https://uniswap.org', x: 'Uniswap', note: 'Mainnet · confirmed at launch' },
+  { name: 'Aave', cat: 'DEX', contract: null, calls: 0,
+    desc: 'Lending / borrowing money-market. Present on Arc private mainnet — likely day-one.', site: 'https://aave.com', x: 'aave', note: 'Mainnet · private mainnet' },
+  { name: 'Aerodrome', cat: 'DEX', contract: null, calls: 0,
+    desc: 've(3,3) AMM & liquidity hub. Present on Arc private mainnet — likely day-one DEX liquidity.', site: 'https://aerodrome.finance', x: 'aerodromefi', note: 'Mainnet · private mainnet' },
+  { name: 'Curve Finance', cat: 'DEX', contract: null, calls: 0,
+    desc: 'Stableswap AMM — USDC/EURC/RWA stable pairs. A Circle-named integration.', site: 'https://curve.finance', x: 'CurveFinance', note: 'Mainnet · confirmed partner' },
+  { name: 'Morpho', cat: 'DEX', contract: null, calls: 0,
+    desc: 'Lending optimizer / credit markets. Circle-named DeFi integration.', site: 'https://morpho.org', x: 'MorphoLabs', note: 'Mainnet · confirmed partner' },
+  { name: 'Fluid', cat: 'DEX', contract: null, calls: 0,
+    desc: 'Lending + DEX liquidity layer. Circle-named DeFi integration.', site: 'https://fluid.io', x: '0xfluid', note: 'Mainnet · confirmed partner' },
+  { name: 'BlackRock BUIDL', cat: 'Token', contract: null, calls: 0,
+    desc: 'BlackRock USD Institutional Digital Liquidity Fund — CONFIRMED to deploy on Arc so institutions subscribe/redeem in native USDC. Highest-signal institutional launch.', site: 'https://securitize.io', x: 'BlackRock', note: 'Mainnet · confirmed deploy' },
 ];
 
 export const WATCH_CATS: WatchCat[] = ['DEX', 'Bridge', 'NFT', 'Token', 'Social', 'Infra'];
