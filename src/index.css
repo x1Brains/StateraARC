@@ -324,10 +324,12 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .wl-tier-head h3 { font-family: var(--disp); font-size: 15px; letter-spacing: .5px; text-transform: uppercase; color: var(--white); margin: 0; }
 .wl-tier-head.mt h3 { background: var(--fire); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .wl-tier-sub { font-size: 11.5px; color: var(--gray-2); }
-/* category filter: one clean scrollable row (swipe on mobile), never a wrapped pile */
-.wl-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; width: 100%; min-width: 0; -webkit-mask-image: linear-gradient(90deg, #000 96%, transparent); mask-image: linear-gradient(90deg, #000 96%, transparent); }
+/* category filter: one clean scrollable row (swipe on mobile), never a wrapped pile.
+   No fade mask — it was making the last chip unreadable. */
+.wl-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; width: 100%; min-width: 0; scroll-padding-inline: 8px; }
 .wl-tabs::-webkit-scrollbar { display: none; }
 .wl-tabs button { flex: 0 0 auto; white-space: nowrap; }
+.wl-tabs button:last-child { margin-right: 6px; }
 /* rank chip */
 .wl-rank { font-family: var(--disp); font-weight: 700; font-size: 12px; color: var(--red-hi); background: rgba(255,122,30,.1); border: 1px solid var(--red-dim); border-radius: 6px; padding: 3px 7px; flex-shrink: 0; }
 /* activity bar */
