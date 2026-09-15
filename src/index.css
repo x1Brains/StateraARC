@@ -271,7 +271,25 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .legend-item .badge { flex-shrink: 0; }
 .legend-foot { color: var(--gray-2); font-size: 12.5px; border-top: 1px solid var(--line-soft); padding-top: 14px; }
 .legend-foot b { color: var(--white); }
-@media (max-width: 640px) { .cd-cell { min-width: 62px; padding: 11px 6px; } .cd-v { font-size: 27px; } .legend-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+  .legend-grid { grid-template-columns: 1fr; }
+  /* countdown: fill width evenly, drop the colons, tighter card */
+  .soon { padding: 44px 18px; }
+  .soon h2 { font-size: 23px; letter-spacing: 1px; }
+  .soon p { font-size: 13px; }
+  .cd { display: flex; gap: 8px; width: 100%; margin: 20px 0; }
+  .cd-sep { display: none; }
+  .cd-cell { flex: 1; min-width: 0; padding: 13px 4px; }
+  .cd-v { font-size: 26px; }
+  .cd-l { letter-spacing: 1px; }
+  /* stat + info tiles: centered & clean on mobile */
+  .stat { text-align: center; }
+  .stat::after { left: 50%; transform: translateX(-50%); }
+  .stat::before { display: none; }
+  .stat .v { font-size: 24px; }
+  .section-head { text-align: center; justify-content: center; }
+  .section-head > div { width: 100%; }
+}
 
 /* ============ token detail ============ */
 .back { background: transparent; border: 1px solid var(--line); color: var(--gray); font: 600 12px var(--disp); letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; border-radius: 8px; cursor: pointer; margin-bottom: 20px; }
