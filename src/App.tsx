@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTokens, fetchPremainTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN, NET, LAUNCHPADS, MAINNET_LAUNCH_ISO, MAINNET_LIVE, type Token, type MarketPx, type PremainMeta } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
@@ -12,6 +12,18 @@ import { Watchlist } from './components/Watchlist';
 type Page = 'home' | 'screener' | 'watchlist' | 'portfolio' | 'swap' | 'token';
 type Filter = 'all' | 'new' | 'eco';
 type SortKey = 'liq' | 'mcap' | 'holders' | 'price' | 'name';
+
+// ── deep-linkable URLs (hash routing — shareable, refresh-safe, needs no server config) ──
+const PATHS: Record<Page, string> = { home: '/', screener: '/screener', watchlist: '/watchlist', token: '/str', portfolio: '/portfolio', swap: '/swap' };
+const hashFor = (pg: Page, sel: string | null): string =>
+  pg === 'screener' && sel && /^0x[0-9a-fA-F]{40}$/.test(sel) ? `#/token/${sel}` : `#${PATHS[pg] || '/'}`;
+function parseHash(): { page: Page; selected: string | null } {
+  const h = (window.location.hash.replace(/^#/, '') || '/').toLowerCase();
+  const m = h.match(/^\/token\/(0x[0-9a-f]{40})/);
+  if (m) return { page: 'screener', selected: m[1] };
+  const found = (Object.keys(PATHS) as Page[]).find((k) => PATHS[k] === h);
+  return { page: found || 'home', selected: null };
+}
 
 const NAV: { key: Page; label: string }[] = [
   { key: 'home', label: 'Home' },
@@ -39,7 +51,7 @@ const LP_DESC: Record<string, string> = {
 const LAUNCHPAD_LEGEND = [...new Set(Object.values(LAUNCHPADS))].map((l) => ({ label: l, desc: LP_DESC[l] || `Tokens minted by the ${l} contract on Arc.` }));
 
 export default function App() {
-  const [page, setPage] = useState<Page>('home');
+  const [page, setPage] = useState<Page>(() => parseHash().page);
   const [tokens, setTokens] = useState<Token[]>([]);
   const [market, setMarket] = useState<MarketPx[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +61,7 @@ export default function App() {
   const [sort, setSort] = useState<SortKey>('liq');
   const [pageNum, setPageNum] = useState(1);
   const [perPage, setPerPage] = useState(100);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => parseHash().selected);
   type Net3 = 'testnet' | 'premain' | 'mainnet';
   const [net, setNet] = useState<Net3>(() => {
     try { return (localStorage.getItem('statera-net') as Net3) || 'testnet'; } catch { return 'testnet'; }
@@ -110,6 +122,22 @@ export default function App() {
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const openToken = (addr: string) => { setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const goScreener = (f: Filter = 'all') => { setFilter(f); setSort('liq'); setPage('screener'); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+
+  // URL <-> state: back/forward + direct-load sync, and push a shareable hash on navigation.
+  useEffect(() => {
+    const apply = () => { const s = parseHash(); setPage(s.page); setSelected(s.selected); };
+    window.addEventListener('popstate', apply);
+    window.addEventListener('hashchange', apply);
+    return () => { window.removeEventListener('popstate', apply); window.removeEventListener('hashchange', apply); };
+  }, []);
+  const navReady = useRef(false);
+  useEffect(() => {
+    const want = hashFor(page, selected);
+    const cur = window.location.hash || '#/';
+    if (cur === want) { navReady.current = true; return; }
+    if (navReady.current) window.history.pushState(null, '', want);
+    else { window.history.replaceState(null, '', want); navReady.current = true; }
+  }, [page, selected]);
 
   return (
     <>
