@@ -196,16 +196,16 @@ export default function App() {
               <div className="hero-bg"><img src={`/hero-lava-${heroVariant}.jpg`} alt="Statera" /></div>
               <div className="wrap">
                 <div className="hero-copy">
-                  <span className="eyebrow"><span className="dot" /> Live · {CHAIN.name}</span>
+                  <span className="eyebrow"><span className="dot" /> Arc Hub · Web3 GameFi</span>
                   <h1>Track any <span className="r">launch</span><br />on Arc.</h1>
-                  <p className="lede">The Statera hub for Circle's Arc chain — screen, swap, and track it all. Home of <span className="r">$STR</span> and the road to <span className="r">X1 City</span>.</p>
+                  <p className="lede">The Statera hub for Circle's Arc chain — screener, portfolio &amp; swap. And the studio building <span className="r">X1 City</span>: web3 <span className="r">GameFi</span> in Unreal Engine 5 — the first EVM↔SVM game on Arc.</p>
                   <div className="hero-cta">
                     <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <span className="arw">→</span></button>
                     <button className="btn ghost" onClick={() => goScreener('new')}>New Launches</button>
                   </div>
                   <button className="hero-str-teaser" onClick={() => go('token')}>
                     <span className="hst-tag">New</span>
-                    <span className="hst-txt">$STR — the token behind <b>X1 City</b>, our Unreal-Engine game</span>
+                    <span className="hst-txt">$STR — the token behind <b>X1 City</b>, our web3 GameFi world in UE5</span>
                     <span className="hst-arw">→</span>
                   </button>
                   <div className="hero-trust">
