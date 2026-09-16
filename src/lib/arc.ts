@@ -217,6 +217,41 @@ export async function fetchRadarPortfolio(addr: string): Promise<{ total: number
   } catch { return { total: null, holdings: [] }; }
 }
 
+// ── DEX-style token detail + holders (RadarDEX) ───────────────────────────────────────────────
+export interface RadarTokenDetail {
+  burnedPct: number | null; buys24: number | null; sells24: number | null; traders24: number | null;
+  txns24: number | null; volume24: number | null; change5m: number | null; change1h: number | null;
+  change6h: number | null; change24h: number | null; verified: boolean; deployer: string | null;
+  bondingProgress: number | null; fdv: number | null; decimals: number;
+  website: string | null; twitter: string | null; telegram: string | null; discord: string | null;
+}
+export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDetail | null> {
+  try {
+    const t = await radarGet(`/token/${addr.toLowerCase()}`);
+    if (!t || !t.address) return null;
+    return {
+      burnedPct: rnum(t.burnedPct), buys24: rnum(t.buys24), sells24: rnum(t.sells24), traders24: rnum(t.traders24),
+      txns24: rnum(t.txns24), volume24: rnum(t.volume24), change5m: rnum(t.change5m), change1h: rnum(t.change1h),
+      change6h: rnum(t.change6h), change24h: rnum(t.change24h), verified: !!t.verified, deployer: t.deployer || null,
+      bondingProgress: rnum(t.bondingProgress), fdv: rnum(t.fdv), decimals: t.decimals ?? 18,
+      website: t.website || null, twitter: t.twitter || null, telegram: t.telegram || null, discord: t.discord || null,
+    };
+  } catch { return null; }
+}
+export interface RadarHolder { rank: number; address: string; amount: number; percent: number | null; isPool: boolean; isDeployer: boolean; }
+export async function fetchRadarHolders(addr: string, decimals = 18, limit = 50): Promise<{ holderCount: number | null; holders: RadarHolder[] }> {
+  try {
+    const j = await radarGet(`/token/${addr.toLowerCase()}/holders`);
+    const arr: any[] = Array.isArray(j.holders) ? j.holders : [];
+    const holders: RadarHolder[] = arr.slice(0, limit).map((h) => ({
+      rank: Number(h.rank), address: (h.address || '').toLowerCase(),
+      amount: (() => { try { return Number(BigInt(h.balance)) / 10 ** decimals; } catch { return Number(h.balance) / 10 ** decimals; } })(),
+      percent: rnum(h.percent), isPool: !!h.isPool, isDeployer: !!h.isDeployer,
+    })).filter((h) => h.address);
+    return { holderCount: rnum(j.holderCount), holders };
+  } catch { return { holderCount: null, holders: [] }; }
+}
+
 // ── Wallet activity feed (arc-scan REST) — the connected wallet's recent transactions ─────────────
 export interface WalletTx { hash: string; ts: number; method: string; value: number | null; symbol: string | null; status: boolean; to: string | null; from: string | null; }
 export async function fetchAddressTxs(addr: string, limit = 12): Promise<WalletTx[]> {

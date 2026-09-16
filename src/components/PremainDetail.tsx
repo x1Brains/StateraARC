@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenHolders, fetchTokenTransfers, type Holder, type TokenTransfer } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, type TokenTransfer, type RadarTokenDetail, type RadarHolder } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy } from './icons';
 
@@ -24,7 +24,9 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [warp, setWarp] = useState<WarpToken | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [holders, setHolders] = useState<Holder[] | null>(null);
+  const [rd, setRd] = useState<RadarTokenDetail | null>(null);
+  const [holders, setHolders] = useState<RadarHolder[] | null>(null);
+  const [holderCount, setHolderCount] = useState<number | null>(null);
   const [txs, setTxs] = useState<TokenTransfer[] | null>(null);
 
   // Warp (chain 5042) price/mcap + it backs the candlestick chart below.
@@ -34,10 +36,16 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
     return () => { alive = false; };
   }, [address]);
 
-  // Top holders (arc-scan) + recent on-chain transfers (mainnet RPC) — for the sections below.
+  // DEX-style detail: RadarDEX token stats (buys/sells/burned/change) + rich holders (with pool/dev
+  // flags + accurate %), plus recent on-chain transfers (mainnet RPC).
   useEffect(() => {
-    let alive = true; setHolders(null); setTxs(null);
-    fetchTokenHolders(address, 20).then((h) => { if (alive) setHolders(h); }).catch(() => { if (alive) setHolders([]); });
+    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null);
+    (async () => {
+      const detail = await fetchRadarTokenDetail(address).catch(() => null);
+      if (alive) setRd(detail);
+      const dec = detail?.decimals ?? 18;
+      fetchRadarHolders(address, dec, 50).then((h) => { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
+    })();
     fetchTokenTransfers(address, 18, 15).then((t) => { if (alive) setTxs(t); }).catch(() => { if (alive) setTxs([]); });
     return () => { alive = false; };
   }, [address]);
@@ -70,11 +78,6 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
 
   const copy = () => { navigator.clipboard?.writeText(address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {}); };
   const fmtNum = (n: number | null) => (n == null ? '—' : n.toLocaleString());
-  const fmtSupply = (s: string | null) => {
-    if (!s) return '—';
-    const n = Number(s); if (!isFinite(n)) return s;
-    return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n.toLocaleString();
-  };
 
   const sym = d?.symbol || seed?.symbol || '?';
   const name = d?.name || seed?.name || '';
@@ -85,7 +88,19 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const px = seed?.price ?? warp?.price ?? null;
   const liq = seed?.liq ?? warp?.liquidity ?? null;
   const mc = seed?.mcap ?? warp?.mcap ?? (px != null && supplyNum ? px * supplyNum : null);
-  const vol = seed?.volume24h ?? warp?.volume24h ?? null;
+  const vol = rd?.volume24 ?? seed?.volume24h ?? warp?.volume24h ?? null;
+  const chg = rd?.change24h ?? seed?.change24h ?? null;
+  const holdersTotal = holderCount ?? seed?.holders ?? warp?.holders ?? d?.holders ?? null;
+  // Buy/sell pressure (24h) + top-10 concentration for the DEX-style panels.
+  const buys = rd?.buys24 ?? null, sells = rd?.sells24 ?? null;
+  const buyPct = buys != null && sells != null && buys + sells > 0 ? (buys / (buys + sells)) * 100 : null;
+  const top10 = holders && holders.length ? holders.slice(0, 10).reduce((s, h) => s + (h.percent ?? 0), 0) : null;
+  const socials = [
+    { k: 'Website', u: rd?.website }, { k: 'Twitter', u: rd?.twitter },
+    { k: 'Telegram', u: rd?.telegram }, { k: 'Discord', u: rd?.discord },
+  ].filter((s) => s.u) as { k: string; u: string }[];
+  const chgClass = (v: number | null) => (v == null ? '' : v >= 0 ? 'up' : 'down');
+  const chgTxt = (v: number | null) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(v <= -100 || v >= 100 ? 0 : 1)}%`);
   // The chart pulls Warp candles (same wrong scale as warp.price for non-18-dec tokens). Rescale them
   // to the correct price using the ratio of the trusted seed price to Warp's price (=1 when they agree).
   const chartScale = (warp?.price != null && warp.price > 0 && seed?.price != null && seed.price > 0)
@@ -121,16 +136,48 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
 
       <div className="stats td-stats" style={{ marginTop: 16 }}>
         <div className="stat"><div className="v r">{px != null ? tprice(px) : '—'}</div><div className="l">Price</div></div>
+        <div className="stat"><div className={`v chg ${chgClass(chg)}`}>{chgTxt(chg)}</div><div className="l">24h</div></div>
         <div className="stat"><div className="v">{mc != null ? usd(mc) : '—'}</div><div className="l">Market Cap</div></div>
-        <div className="stat"><div className="v">{vol != null ? usd(vol) : '—'}</div><div className="l">Vol 24h</div></div>
         <div className="stat"><div className="v">{liq != null ? usd(liq) : '—'}</div><div className="l">Liquidity</div></div>
-        <div className="stat"><div className="v">{fmtNum(warp?.holders ?? d?.holders ?? seed?.holders ?? null)}</div><div className="l">Holders</div></div>
-        <div className="stat"><div className="v">{fmtSupply(d?.supply ?? null)}</div><div className="l">Total Supply</div></div>
+        <div className="stat"><div className="v">{vol != null ? usd(vol) : '—'}</div><div className="l">Vol 24h</div></div>
+        <div className="stat"><div className="v">{fmtNum(holdersTotal)}</div><div className="l">Holders</div></div>
       </div>
+
+      {/* Change over multiple timeframes (DEX-style) */}
+      {rd && (rd.change5m != null || rd.change1h != null || rd.change6h != null || rd.change24h != null) && (
+        <div className="chg-bar">
+          {([['5m', rd.change5m], ['1h', rd.change1h], ['6h', rd.change6h], ['24h', rd.change24h]] as const).map(([l, v]) => (
+            <div className="chg-cell" key={l}><span className="chg-l">{l}</span><span className={`chg-v chg ${chgClass(v)}`}>{chgTxt(v)}</span></div>
+          ))}
+        </div>
+      )}
 
       <div style={{ marginTop: 16 }}>
         <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? 18} priceScale={chartScale} />
       </div>
+
+      {/* Trade activity (24h) — buy/sell pressure, traders, txns (RadarDEX) */}
+      {rd && (buys != null || sells != null || rd.txns24 != null) && (
+        <div className="panel side-card" style={{ marginTop: 16 }}>
+          <h3>Trade Activity · 24h</h3>
+          {buyPct != null && (
+            <div className="bs-bar" title={`Buys ${buys} · Sells ${sells}`}>
+              <div className="bs-buy" style={{ width: `${buyPct}%` }} />
+              <div className="bs-sell" style={{ width: `${100 - buyPct}%` }} />
+            </div>
+          )}
+          <div className="bs-legend">
+            <span className="bs-b">Buys {buys != null ? buys.toLocaleString() : '—'}</span>
+            <span className="bs-s">Sells {sells != null ? sells.toLocaleString() : '—'}</span>
+          </div>
+          <div className="ta-grid">
+            <div className="ta-cell"><div className="ta-v">{rd.txns24 != null ? rd.txns24.toLocaleString() : '—'}</div><div className="ta-l">Txns</div></div>
+            <div className="ta-cell"><div className="ta-v">{rd.traders24 != null ? rd.traders24.toLocaleString() : '—'}</div><div className="ta-l">Traders</div></div>
+            <div className="ta-cell"><div className="ta-v">{rd.burnedPct != null ? rd.burnedPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Burned</div></div>
+            <div className="ta-cell"><div className="ta-v">{top10 != null ? top10.toFixed(1) + '%' : '—'}</div><div className="ta-l">Top 10</div></div>
+          </div>
+        </div>
+      )}
 
       <div className="panel side-card" style={{ marginTop: 16 }}>
         <h3>Token info</h3>
@@ -142,21 +189,35 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
         {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
         {warp?.topHolderBps != null && <div className="ir"><span className="ir-k">Top holder</span><span className="ir-v">{(warp.topHolderBps / 100).toFixed(1)}%</span></div>}
         {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
+        {rd?.burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{rd.burnedPct.toFixed(2)}%</span></div>}
+        {rd?.verified && <div className="ir"><span className="ir-k">Verified</span><span className="ir-v" style={{ color: '#4ecb71' }}>Yes</span></div>}
+        {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
         {d?.reservedCheck && <div className="ir"><span className="ir-k">Reserved-name check</span><span className="ir-v">{d.reservedCheck}</span></div>}
+        {!!socials.length && (
+          <div className="ir"><span className="ir-k">Links</span><span className="ir-v td-socials">
+            {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
+          </span></div>
+        )}
       </div>
 
-      {/* Top holders (arc-scan) */}
+      {/* Top holders (RadarDEX) — % bars, pool/deployer tags, concentration */}
       <div className="panel side-card" style={{ marginTop: 16 }}>
-        <h3>Top Holders{holders && holders.length ? ` · ${holders.length}` : ''}</h3>
+        <div className="sp-head">
+          <h3>Top Holders{holdersTotal != null ? ` · ${holdersTotal.toLocaleString()} total` : ''}</h3>
+          {top10 != null && <span className="hl-conc">Top 10 hold {top10.toFixed(1)}%</span>}
+        </div>
         {holders == null ? <div className="side-note">Loading holders…</div>
           : !holders.length ? <div className="side-note">No holder data available from the indexer.</div>
           : <div className="hl-list">
-              {holders.map((h) => (
+              {holders.slice(0, 20).map((h) => (
                 <div className="hl-row" key={h.address}>
                   <span className="hl-rank">{h.rank}</span>
-                  <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer">{h.address.slice(0, 8)}…{h.address.slice(-6)}{h.isContract ? ' · pool/contract' : ''}</a>
-                  <span className="hl-bal">{compact(h.balance)}</span>
-                  <span className="hl-share">{h.share != null ? h.share.toFixed(2) + '%' : '—'}</span>
+                  <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer">{h.address.slice(0, 8)}…{h.address.slice(-6)}</a>
+                  {h.isPool && <span className="hl-tag pool">POOL</span>}
+                  {h.isDeployer && <span className="hl-tag dev">DEV</span>}
+                  <span className="hl-barwrap"><span className="hl-bar" style={{ width: `${Math.min(100, h.percent ?? 0)}%` }} /></span>
+                  <span className="hl-bal">{compact(h.amount)}</span>
+                  <span className="hl-share">{h.percent != null ? h.percent.toFixed(2) + '%' : '—'}</span>
                 </div>
               ))}
             </div>}

@@ -913,13 +913,44 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 
 /* ── token detail: holders + transactions ── */
 .hl-list, .tx-list { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
-.hl-row { display: grid; grid-template-columns: 26px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 6px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.hl-row { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
 .hl-row:last-child { border-bottom: 0; }
-.hl-rank { color: var(--gray-2); font-family: var(--mono); font-size: 12px; text-align: center; }
-.hl-addr { color: var(--red-hi); text-decoration: none; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hl-rank { color: var(--gray-2); font-family: var(--mono); font-size: 12px; width: 22px; flex: 0 0 22px; text-align: center; }
+.hl-addr { color: var(--red-hi); text-decoration: none; font-size: 12px; white-space: nowrap; flex: 0 0 auto; }
 .hl-addr:hover { text-decoration: underline; }
-.hl-bal { color: var(--white); font-family: var(--mono); font-size: 12px; text-align: right; }
-.hl-share { color: var(--gray); font-family: var(--mono); font-size: 12px; text-align: right; min-width: 54px; }
+.hl-tag { font: 700 8px var(--disp); letter-spacing: .5px; padding: 1px 4px; border-radius: 3px; flex: 0 0 auto; }
+.hl-tag.pool { color: #6ea8ff; background: rgba(110,168,255,.12); border: 1px solid rgba(110,168,255,.3); }
+.hl-tag.dev { color: #d6a44b; background: rgba(214,164,75,.12); border: 1px solid rgba(214,164,75,.3); }
+.hl-barwrap { flex: 1 1 auto; min-width: 24px; height: 5px; background: rgba(255,255,255,.06); border-radius: 3px; overflow: hidden; }
+.hl-bar { display: block; height: 100%; background: linear-gradient(90deg, var(--red-dim), var(--red-hi)); border-radius: 3px; }
+.hl-bal { color: var(--gray); font-family: var(--mono); font-size: 11.5px; text-align: right; flex: 0 0 auto; }
+.hl-share { color: var(--white); font-family: var(--mono); font-size: 12px; text-align: right; flex: 0 0 52px; }
+.hl-conc { font: 600 11px var(--mono); color: var(--gray-2); }
+@media (max-width: 560px) { .hl-bal { display: none; } }
+
+/* Multi-timeframe change bar */
+.chg-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.chg-cell { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.chg-l { font: 700 9px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
+.chg-v { font: 700 13px var(--mono); }
+.v.chg.up, .chg-v.up, .chg.up { color: #4ecb71; }
+.v.chg.down, .chg-v.down, .chg.down { color: #ff5a5a; }
+
+/* Buy/sell pressure + trade-activity grid */
+.bs-bar { display: flex; height: 8px; border-radius: 5px; overflow: hidden; margin: 4px 0 8px; background: rgba(255,255,255,.05); }
+.bs-buy { background: #3ec46f; }
+.bs-sell { background: #ff5a5a; }
+.bs-legend { display: flex; justify-content: space-between; font: 600 11.5px var(--mono); margin-bottom: 12px; }
+.bs-b { color: #4ecb71; }
+.bs-s { color: #ff5a5a; }
+.ta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.ta-cell { text-align: center; padding: 8px 4px; background: #060a0e; border: 1px solid var(--line); border-radius: 10px; }
+.ta-v { font: 700 15px var(--disp); color: var(--white); }
+.ta-l { font: 700 8.5px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); margin-top: 2px; }
+@media (max-width: 400px) { .ta-grid { grid-template-columns: repeat(2, 1fr); } }
+.td-socials { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+.td-socials a { color: var(--red-hi); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; }
+.td-socials a:hover { text-decoration: underline; }
 .tx-row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 8px 6px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
 .tx-row:last-child { border-bottom: 0; }
 .tx-amt { color: var(--white); font-family: var(--mono); font-size: 12px; }
