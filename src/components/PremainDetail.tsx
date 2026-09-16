@@ -28,7 +28,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [holders, setHolders] = useState<RadarHolder[] | null>(null);
   const [holderCount, setHolderCount] = useState<number | null>(null);
   const [txs, setTxs] = useState<TokenTransfer[] | null>(null);
-  const [tab, setTab] = useState<'txns' | 'holders' | 'info'>('txns');
+  const [tab, setTab] = useState<'txns' | 'holders'>('txns');
 
   // Warp (chain 5042) price/mcap + it backs the candlestick chart below.
   useEffect(() => {
@@ -185,12 +185,30 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
         </div>
       )}
 
-      {/* Compact tabbed section — Transactions / Holders / Info (scrolls inside itself, not the page) */}
+      {/* Info — its own always-visible section (contract, market details, links) */}
+      <div className="panel side-card td-info" style={{ marginTop: 16 }}>
+        <h3>Info</h3>
+        <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
+        <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
+        <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{d?.decimals ?? '—'}</span></div>
+        {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
+        {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
+        {rd?.burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{rd.burnedPct.toFixed(2)}%</span></div>}
+        {rd?.verified && <div className="ir"><span className="ir-k">Verified</span><span className="ir-v" style={{ color: '#4ecb71' }}>Yes</span></div>}
+        {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
+        {!!socials.length && (
+          <div className="ir"><span className="ir-k">Links</span><span className="ir-v td-socials">
+            {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
+          </span></div>
+        )}
+        <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" warp /></div>
+      </div>
+
+      {/* Compact tabbed section — Transactions / Holders (scrolls inside itself, not the page) */}
       <div className="panel td-tabpanel" style={{ marginTop: 16 }}>
         <div className="td-tabs">
           <button className={tab === 'txns' ? 'on' : ''} onClick={() => setTab('txns')}>Transactions</button>
           <button className={tab === 'holders' ? 'on' : ''} onClick={() => setTab('holders')}>Holders{holdersTotal != null ? ` · ${fmtNum(holdersTotal)}` : ''}</button>
-          <button className={tab === 'info' ? 'on' : ''} onClick={() => setTab('info')}>Info</button>
         </div>
 
         {tab === 'txns' && (
@@ -230,29 +248,10 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                 </div>}
           </div>
         )}
+      </div>
 
-        {tab === 'info' && (
-          <div className="td-tabbody">
-            <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
-            <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
-            <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{d?.decimals ?? '—'}</span></div>
-            {d?.creator && <div className="ir"><span className="ir-k">Creator</span><span className="ir-v mono">{d.creator.slice(0, 10)}…{d.creator.slice(-6)}</span></div>}
-            {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
-            {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
-            {rd?.burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{rd.burnedPct.toFixed(2)}%</span></div>}
-            {rd?.verified && <div className="ir"><span className="ir-k">Verified</span><span className="ir-v" style={{ color: '#4ecb71' }}>Yes</span></div>}
-            {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
-            {!!socials.length && (
-              <div className="ir"><span className="ir-k">Links</span><span className="ir-v td-socials">
-                {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
-              </span></div>
-            )}
-            <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" warp /></div>
-            <div className="td-disc" style={{ marginTop: 12 }}>
-              Price, chart &amp; market data via Warp (circlewarp.fun) &amp; RadarDEX on Arc mainnet (chain 5042). Contract/holder data from independent indexers. All unofficial, not Circle. Unverified; DYOR.
-            </div>
-          </div>
-        )}
+      <div className="td-disc" style={{ marginTop: 16 }}>
+        Price, chart &amp; market data via Warp (circlewarp.fun) &amp; RadarDEX on Arc mainnet (chain 5042). Contract/holder data from independent indexers. All unofficial, not Circle. Unverified; DYOR.
       </div>
     </section></div>
   );
