@@ -374,7 +374,6 @@ export async function fetchHoldings(addr: string): Promise<Holding[]> {
 // isn't Blockscout), so we scan a curated + board candidate set ON-CHAIN via the mainnet RPC. Not
 // exhaustive, but returns REAL balances for the tokens that matter (WARP, watchlist, stablecoins).
 const MAINNET_RPC = (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://rpc.mainnet.arc.io';
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // rpc.mainnet.arc.io rate-limits bursts (HTTP 429), so retry with backoff on failure/429.
 async function mrpc(method: string, params: any[], tries = 4): Promise<any> {
   for (let i = 0; i < tries; i++) {
