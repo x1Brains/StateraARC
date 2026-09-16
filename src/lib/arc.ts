@@ -483,18 +483,21 @@ export async function priceMainnet(addrs: string[]): Promise<Record<string, numb
   return out;
 }
 
-// Combined price + USD liquidity for every tracked mainnet pool (one throttled on-chain pass).
-async function mainnetStats(): Promise<Record<string, { price: number | null; liq: number | null }>> {
-  const out: Record<string, { price: number | null; liq: number | null }> = {};
+// Combined price + USD liquidity + market cap for every tracked mainnet pool (one throttled pass).
+// mcap = price × total supply (all these tokens are 18-dec).
+async function mainnetStats(): Promise<Record<string, { price: number | null; liq: number | null; mcap: number | null }>> {
+  const out: Record<string, { price: number | null; liq: number | null; mcap: number | null }> = {};
   const balOf = (token: string, who: string) => mCall(token, '0x70a08231000000000000000000000000' + who.slice(2).toLowerCase());
   await runLimited(Object.entries(MAINNET_POOL).map(([token, pool]) => async () => {
-    const [uHex, bHex] = await Promise.all([balOf(NATIVE_USDC_ADDR, pool), balOf(token, pool)]);
-    if (!uHex || uHex === '0x') { out[token] = { price: null, liq: null }; return; }
+    const [uHex, bHex, supHex] = await Promise.all([balOf(NATIVE_USDC_ADDR, pool), balOf(token, pool), mCall(token, '0x18160ddd')]); // + totalSupply()
+    if (!uHex || uHex === '0x') { out[token] = { price: null, liq: null, mcap: null }; return; }
     try {
       const usdc = Number(BigInt(uHex)) / 1e6;
       const toks = bHex && bHex !== '0x' ? Number(BigInt(bHex)) / 1e18 : 0;
-      out[token] = { price: toks > 0 ? usdc / toks : null, liq: usdc * 2 }; // full pool ≈ 2× the USDC side
-    } catch { out[token] = { price: null, liq: null }; }
+      const price = toks > 0 ? usdc / toks : null;
+      const supply = supHex && supHex !== '0x' ? Number(BigInt(supHex)) / 1e18 : null;
+      out[token] = { price, liq: usdc * 2, mcap: price != null && supply ? price * supply : null };
+    } catch { out[token] = { price: null, liq: null, mcap: null }; }
   }), 4);
   return out;
 }
@@ -507,6 +510,8 @@ const ECOSYSTEM_TOKENS: { address: string; name: string; symbol: string; price: 
   { address: '0x26d1ffbbb8b310b090ee0536748b4adfc88ae644', name: 'Animus Wirex Reward', symbol: 'AWORP', price: null, holders: 14773 },
   { address: '0x7ce5e3fb080545c8912cf93297d93441911e9e4d', name: 'Animus BTC', symbol: 'ABTC', price: null, holders: 5566 },
 ];
+// Ecosystem is decided by ADDRESS, never symbol — a fake "USDC" lookalike must NOT be tagged ECO.
+const ECOSYSTEM_ADDRS = new Set<string>([NATIVE_USDC_ADDR.toLowerCase(), ...ECOSYSTEM_TOKENS.map((e) => e.address.toLowerCase())]);
 
 // The FULL mainnet token universe for the screener + home cards. Merges every source we have so the
 // screener shows pages of tokens with price/liquidity/holders — like before:
@@ -534,7 +539,7 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
     const warp = await fetchWarpTokens('liquidity', 800);
     for (const w of warp) if (w.address) set(mk({
       address: w.address, name: w.name, symbol: w.ticker, holders: w.holders, iconUrl: w.image,
-      launchpad: w.migrated ? null : 'Warp', isEcosystem: /^(usdc|eurc|usyc|wusdc|usdt|dusdt|ausd|aeur)$/i.test(w.ticker),
+      launchpad: w.migrated ? null : 'Warp', isEcosystem: ECOSYSTEM_ADDRS.has(w.address.toLowerCase()),
       price: w.price, liq: w.liquidity, mcap: w.mcap,
     }));
   } catch { /* Warp optional */ }
@@ -542,14 +547,15 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
   // 3) arc-scan holder snapshot — adds non-Warp tokens (holders known, price/liq land from pools if tracked)
   try { for (const t of await fetchPremainTokens()) set(t); } catch { /* snapshot optional */ }
 
-  // 4) tracked deep pools — overwrite with accurate on-chain price + liquidity
-  const stats = await mainnetStats().catch(() => ({} as Record<string, { price: number | null; liq: number | null }>));
+  // 4) tracked deep pools — overwrite with accurate on-chain price + liquidity + market cap
+  const stats = await mainnetStats().catch(() => ({} as Record<string, { price: number | null; liq: number | null; mcap: number | null }>));
   for (const addr of Object.keys(MAINNET_POOL)) {
-    const s = stats[addr] || { price: null, liq: null }; const cur = map.get(addr); const m = coreMeta[addr];
+    const s = stats[addr] || { price: null, liq: null, mcap: null }; const cur = map.get(addr); const m = coreMeta[addr];
     set(mk({
       address: addr, name: m?.name || cur?.name || addr.slice(0, 10), symbol: m?.symbol || cur?.symbol || '?',
       holders: cur?.holders ?? null, iconUrl: cur?.iconUrl ?? null, launchpad: cur?.launchpad ?? null,
-      price: s.price ?? cur?.price ?? null, liq: s.liq ?? cur?.liq ?? null, mcap: cur?.mcap ?? null,
+      isEcosystem: ECOSYSTEM_ADDRS.has(addr),
+      price: s.price ?? cur?.price ?? null, liq: s.liq ?? cur?.liq ?? null, mcap: s.mcap ?? cur?.mcap ?? null,
     }), true);
   }
   return [...map.values()];

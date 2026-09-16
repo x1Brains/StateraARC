@@ -71,16 +71,19 @@ export default function App() {
 
   // StateraArc is mainnet-only (Arc chain 5042). Tokens = tracked deep pools (real on-chain price +
   // liquidity) merged with live Warp launchpad tokens.
-  async function load() {
-    setLoading(true); setErr(null);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
+    setErr(null);
     fetchMarket().then(setMarket).catch(() => {});
     try {
       const list = await fetchMainnetTokens();
       setTokens(list);
-    } catch (e: any) { setErr(e.message || 'failed to load'); }
-    finally { setLoading(false); }
+    } catch (e: any) { if (!silent) setErr(e.message || 'failed to load'); }
+    finally { if (!silent) setLoading(false); }
   }
   useEffect(() => { load(); }, []); // eslint-disable-line
+  // Live-ish: silently refresh prices/mcap/liquidity every 60s (no loading flicker).
+  useEffect(() => { const id = setInterval(() => load(true), 60000); return () => clearInterval(id); }, []); // eslint-disable-line
 
   const rows = useMemo(() => {
     let r = tokens;
@@ -107,7 +110,15 @@ export default function App() {
   // Home preview lists.
   const trending = useMemo(() => [...tokens].filter((t) => t.liq != null).sort(byLiq).slice(0, 6), [tokens]);
   const launches = useMemo(() => [...tokens].filter((t) => t.launchpad).sort(byLiq).slice(0, 6), [tokens]);
-  const ecosystem = useMemo(() => [...tokens].filter((t) => t.isEcosystem).sort((a, b) => (b.holders ?? -1) - (a.holders ?? -1)).slice(0, 6), [tokens]);
+  // Ecosystem card: USDC (the native gas token) is always first, then the rest by holders.
+  const ecosystem = useMemo(() => {
+    const USDC_ADDR = '0x3600000000000000000000000000000000000000';
+    return [...tokens].filter((t) => t.isEcosystem).sort((a, b) => {
+      const au = a.address.toLowerCase() === USDC_ADDR, bu = b.address.toLowerCase() === USDC_ADDR;
+      if (au !== bu) return au ? -1 : 1;
+      return (b.holders ?? -1) - (a.holders ?? -1);
+    }).slice(0, 6);
+  }, [tokens]);
 
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const openToken = (addr: string) => { setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -251,7 +262,7 @@ export default function App() {
                 <h2>Arc Tokens</h2>
                 <p>Live prices, liquidity &amp; market cap from Arc mainnet pools (chain 5042) — WarpV2, Uniswap V3/V4 and Warp launchpad tokens. Click a token for its chart, holders &amp; trades.</p>
               </div>
-              <button className="btn ghost" onClick={load} disabled={loading} style={{ opacity: loading ? .5 : 1 }}>{loading ? 'Loading' : 'Refresh'}</button>
+              <button className="btn ghost" onClick={() => load()} disabled={loading} style={{ opacity: loading ? .5 : 1 }}>{loading ? 'Loading' : 'Refresh'}</button>
             </div>
 
             <div className="stats">
