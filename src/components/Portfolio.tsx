@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchHoldings, fetchHoldingsMainnet, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding } from '../lib/arc';
+import { fetchHoldings, fetchHoldingsMainnet, fetchRadarPortfolio, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding } from '../lib/arc';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
 
@@ -26,31 +26,49 @@ export function Portfolio({ tokens, wallet, onConnect, mainnet = false }: { toke
 
   useEffect(() => {
     if (!addr || !isAddress(addr)) return;
-    setLoading(true); setErr(null); setHoldings([]);
-    // Mainnet has no indexer for wallet holdings, so we scan token contracts on-chain (one balanceOf each).
-    // Scanning all 500+ board tokens is slow and rate-limits the RPC — only scan the ones that matter
-    // (priced/liquid/ecosystem). The curated MAINNET_CORE set is always scanned inside the function.
-    const scan = tokens.filter((t) => t.price != null || t.liq != null || t.isEcosystem || t.launchpad);
-    const p = mainnet
-      ? fetchHoldingsMainnet(addr, scan.map((t) => ({ address: t.address, name: t.name, symbol: t.symbol })))
-      : fetchHoldings(addr);
-    p.then((h) => {
-      setHoldings(h);
-      if (!mainnet) return;
-      // 1) on-chain pool prices; 2) Warp API fallback for whatever's left (curve/graduated Warp tokens).
-      priceMainnet(h.map((x) => x.address)).then(async (px) => {
-        setLivePx(px);
-        const usdcK = '0x3600000000000000000000000000000000000000';
-        const missing = h.filter((x) => px[x.address] == null && x.address !== usdcK).slice(0, 14);
-        const got = await Promise.all(missing.map((x) =>
-          fetchWarpToken(x.address).then((w) => [x.address, w?.price ?? null] as const).catch(() => null)));
-        const add: Record<string, number> = {};
-        for (const r of got) if (r && r[1] != null) add[r[0]] = r[1];
-        if (Object.keys(add).length) setLivePx((prev) => ({ ...prev, ...add }));
-      }).catch(() => {});
-    })
-      .catch((e) => setErr(e.message || 'failed to load'))
-      .finally(() => setLoading(false));
+    let alive = true;
+    setLoading(true); setErr(null); setHoldings([]); setLivePx({});
+    (async () => {
+      // FAST PATH (mainnet): RadarDEX indexes every wallet's holdings + value + icons in one call — instant.
+      if (mainnet) {
+        try {
+          const pf = await fetchRadarPortfolio(addr);
+          if (!alive) return;
+          if (pf.holdings.length) {
+            setHoldings(pf.holdings.map((h) => ({ address: h.address, name: h.name, symbol: h.symbol, decimals: h.decimals, balance: h.amount, iconUrl: h.icon })));
+            const px: Record<string, number> = {};
+            for (const h of pf.holdings) if (h.price != null) px[h.address] = h.price;
+            setLivePx(px);
+            setLoading(false);
+            return;
+          }
+        } catch { /* fall through to on-chain scan */ }
+        if (!alive) return;
+      }
+      // FALLBACK: on-chain balanceOf scan of the priced/liquid/ecosystem token set (RPC).
+      try {
+        const scan = tokens.filter((t) => t.price != null || t.liq != null || t.isEcosystem || t.launchpad);
+        const h = mainnet
+          ? await fetchHoldingsMainnet(addr, scan.map((t) => ({ address: t.address, name: t.name, symbol: t.symbol })))
+          : await fetchHoldings(addr);
+        if (!alive) return;
+        setHoldings(h);
+        if (mainnet) {
+          const px = await priceMainnet(h.map((x) => x.address)).catch(() => ({} as Record<string, number>));
+          if (!alive) return;
+          setLivePx(px);
+          const usdcK = '0x3600000000000000000000000000000000000000';
+          const missing = h.filter((x) => px[x.address] == null && x.address !== usdcK).slice(0, 14);
+          const got = await Promise.all(missing.map((x) =>
+            fetchWarpToken(x.address).then((w) => [x.address, w?.price ?? null] as const).catch(() => null)));
+          const add: Record<string, number> = {};
+          for (const r of got) if (r && r[1] != null) add[r[0]] = r[1];
+          if (alive && Object.keys(add).length) setLivePx((prev) => ({ ...prev, ...add }));
+        }
+      } catch (e: any) { if (alive) setErr(e.message || 'failed to load'); }
+      finally { if (alive) setLoading(false); }
+    })();
+    return () => { alive = false; };
   }, [addr, mainnet]); // eslint-disable-line
 
   const rows = useMemo(() => {

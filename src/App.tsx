@@ -109,7 +109,9 @@ export default function App() {
 
   // Home preview lists.
   const trending = useMemo(() => [...tokens].filter((t) => t.liq != null).sort(byLiq).slice(0, 6), [tokens]);
-  const launches = useMemo(() => [...tokens].filter((t) => t.launchpad).sort(byLiq).slice(0, 6), [tokens]);
+  // Recent launches across ALL launchpads (Argus, Tolly, Long, DYOR, O1, Warp…) — newest first.
+  const launches = useMemo(() => [...tokens].filter((t) => t.launchpad && t.createdAt != null)
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).slice(0, 6), [tokens]);
   // Ecosystem card: USDC (the native gas token) is always first, then the rest by holders.
   const ecosystem = useMemo(() => {
     const USDC_ADDR = '0x3600000000000000000000000000000000000000';

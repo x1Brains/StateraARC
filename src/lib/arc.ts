@@ -69,6 +69,8 @@ export interface Token {
   transfers?: number;      // pre-public (5042): transfer-event count in the scan window
   flags?: string[];        // pre-public: 'lookalike' | 'dup-symbol' | 'reserved-name'
   premain?: boolean;       // sourced from the unofficial 5042 index
+  createdAt?: number | null; // ms epoch the token was deployed (for "recent launches" sorting)
+  volume24h?: number | null; // 24h USDC volume (RadarDEX aggregate)
 }
 
 export const addrOf = (o: any): string =>
@@ -160,6 +162,58 @@ export async function fetchPremainTokens(): Promise<Token[]> {
     price: null, liq: null, mcap: null,
     transfers: t.transfers ?? undefined, flags: Array.isArray(t.flags) ? t.flags : [], premain: true,
   }));
+}
+
+// ── RadarDEX aggregator (api.radardex.pro via /api/radar proxy) ─────────────────────────────────
+// The one source that indexes EVERY Arc launchpad + DEX (argus/tolly/long/dyor/o1/warp/…): 500 tokens
+// with real token ICONS, price, mcap, liquidity, 24h volume, holders and deploy time — all in human
+// USDC units (verified: TOLLY mcap $10.2M, WARP liq $39k). This is what powers the screener coverage,
+// the "recent launches from all launchpads" card, and the logos everywhere.
+const RADAR = '/api/radar';
+async function radarGet(path: string): Promise<any> {
+  const r = await fetch(`${RADAR}${path}`, { headers: { accept: 'application/json' } });
+  if (!r.ok) throw new Error(`radar ${r.status}`);
+  return r.json();
+}
+const rnum = (v: any): number | null => (v == null || isNaN(Number(v)) ? null : Number(v));
+// Launchpad display names (radar uses lowercase slugs). Falls back to a capitalized slug.
+const RADAR_LP: Record<string, string> = {
+  argus: 'Argus', tolly: 'Tolly', long: 'LONG', dyor: 'DYOR', o1: 'O1', warp: 'Warp',
+  synthra: 'Synthra', ayoo: 'Ayoo', poolstrade: 'PoolsTrade', archemist: 'Archemist', noxa: 'Noxa',
+  lotus: 'Lotus', arcfun: 'Arc.fun', arcorigin: 'ArcOrigin', basedpad: 'BasedPad', rwarc: 'RWArc',
+  sharc: 'Sharc', pegd: 'PEGD', cusp: 'Cusp', klik: 'Klik', cambo: 'Cambo', dagg: 'Dagg',
+};
+export async function fetchRadarTokens(limit = 500): Promise<Token[]> {
+  try {
+    const j = await radarGet(`/tokens?limit=${limit}`);
+    const arr: any[] = j.tokens || j || [];
+    return arr.map((t): Token => {
+      const lp = t.launchpad ? (RADAR_LP[t.launchpad] || (t.launchpad[0].toUpperCase() + t.launchpad.slice(1))) : null;
+      const deploy = rnum(t.deployTs ?? t.firstSeen);
+      return {
+        address: (t.address || '').toLowerCase(), name: t.name || t.symbol || '?', symbol: t.symbol || '?',
+        holders: t.holderCount != null ? Number(t.holderCount) : null, totalSupply: null, type: 'ERC-20',
+        iconUrl: t.icon || null, launchpad: lp, isOurs: false, isEcosystem: false,
+        price: rnum(t.price), liq: rnum(t.liquidityUsdc), mcap: rnum(t.mcap),
+        volume24h: rnum(t.volume24 ?? t.volume24hFixed),
+        createdAt: deploy != null ? deploy * 1000 : null,
+      };
+    }).filter((t) => /^0x[0-9a-f]{40}$/.test(t.address));
+  } catch { return []; }
+}
+
+export interface RadarHolding { address: string; symbol: string; name: string; decimals: number; icon: string | null; price: number | null; amount: number; usd: number | null; }
+// One-call wallet holdings with value + icons — makes the portfolio tracker instant (no on-chain scan).
+export async function fetchRadarPortfolio(addr: string): Promise<{ total: number | null; holdings: RadarHolding[] }> {
+  try {
+    const j = await radarGet(`/portfolio/${addr.toLowerCase()}`);
+    const holdings: RadarHolding[] = (Array.isArray(j.holdings) ? j.holdings : []).map((h: any) => ({
+      address: (h.address || '').toLowerCase(), symbol: h.symbol || '?', name: h.name || h.symbol || '?',
+      decimals: h.decimals ?? 18, icon: h.icon || null, price: rnum(h.price),
+      amount: Number(h.amount ?? h.balance ?? 0), usd: rnum(h.usd ?? h.value),
+    })).filter((h: RadarHolding) => h.address && h.amount > 0);
+    return { total: rnum(j.total), holdings };
+  } catch { return { total: null, holdings: [] }; }
 }
 
 // Fetch a token's deployer and tag it if the deployer is a known launchpad. Called sparingly
@@ -376,17 +430,23 @@ export async function fetchHoldings(addr: string): Promise<Holding[]> {
 // No indexer lists a wallet's mainnet tokens (arc-scan's /address/{a}/tokens 500s, explorer.arc.io
 // isn't Blockscout), so we scan a curated + board candidate set ON-CHAIN via the mainnet RPC. Not
 // exhaustive, but returns REAL balances for the tokens that matter (WARP, watchlist, stablecoins).
-const MAINNET_RPC = (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://rpc.mainnet.arc.io';
-// rpc.mainnet.arc.io rate-limits bursts (HTTP 429), so retry with backoff on failure/429.
+// Multiple public Arc-mainnet RPCs. PublicNode (Allnodes) is first — it's a free, reliable endpoint
+// that doesn't burst-429 like rpc.mainnet.arc.io. We rotate through them on 429/5xx so a rate-limited
+// node fails over instead of just backing off. An env override, if set, takes priority.
+const MAINNET_RPCS = [
+  (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://arc-rpc.publicnode.com',
+  'https://rpc.mainnet.arc.io',
+].filter((v, i, a) => v && a.indexOf(v) === i);
 async function mrpc(method: string, params: any[], tries = 4): Promise<any> {
   for (let i = 0; i < tries; i++) {
+    const url = MAINNET_RPCS[i % MAINNET_RPCS.length];
     try {
-      const r = await fetch(MAINNET_RPC, { method: 'POST', headers: { 'content-type': 'application/json' },
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
-      if (r.status === 429 || r.status >= 500) { await sleep(200 * (i + 1) + Math.random() * 200); continue; }
+      if (r.status === 429 || r.status >= 500) { await sleep(150 * (i + 1) + Math.random() * 200); continue; }
       const j = await r.json();
       return j.error ? null : j.result;
-    } catch { await sleep(200 * (i + 1)); }
+    } catch { await sleep(150 * (i + 1)); }
   }
   return null;
 }
@@ -530,35 +590,59 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
     holders: null, totalSupply: null, type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false,
     isEcosystem: false, price: null, liq: null, mcap: null, ...o, address: o.address.toLowerCase(),
   });
-  const set = (t: Token, overwrite = false) => { const k = t.address.toLowerCase(); if (!map.has(k) || overwrite) map.set(k, t); };
+  // Field-merge upsert. 'fill' (default) only fills fields the existing row is missing (keeps the first
+  // real logo/mcap we saw); 'over' overwrites with any non-null incoming field (for the accurate
+  // on-chain pool pass). Never wipes a real value to null. isEcosystem/isOurs are OR-ed (sticky true).
+  const NEVER_NULL = new Set(['address', 'name', 'symbol', 'type']);
+  const set = (t: Token, mode: 'fill' | 'over' = 'fill') => {
+    const k = t.address.toLowerCase();
+    const cur = map.get(k);
+    if (!cur) { map.set(k, { ...t, address: k }); return; }
+    const merged: any = { ...cur };
+    for (const key of Object.keys(t) as (keyof Token)[]) {
+      const nv = (t as any)[key];
+      if (nv == null && !NEVER_NULL.has(key)) continue;
+      if (mode === 'over' || (cur as any)[key] == null) merged[key] = nv;
+    }
+    merged.isEcosystem = cur.isEcosystem || t.isEcosystem;
+    merged.isOurs = cur.isOurs || t.isOurs;
+    map.set(k, merged);
+  };
 
   // 1) USDC + Animus ecosystem
   set(mk({ address: NATIVE_USDC_ADDR, name: 'USD Coin', symbol: 'USDC', iconUrl: '/coins/USDC.svg', isEcosystem: true, price: 1 }));
   for (const e of ECOSYSTEM_TOKENS) set(mk({ address: e.address, name: e.name, symbol: e.symbol, holders: e.holders, isEcosystem: true, price: e.price }));
 
-  // 2) every Warp token (full data)
+  // 2) RadarDEX aggregate — EVERY launchpad (500 tokens) with icons + price/mcap/liq/vol/holders/deployTs.
+  //    This is the primary coverage + logo + market-cap source for the whole screener.
+  try {
+    for (const t of await fetchRadarTokens(500)) set(mk({ ...t, isEcosystem: ECOSYSTEM_ADDRS.has(t.address) }));
+  } catch { /* radar optional */ }
+
+  // 3) every Warp token (adds any Warp-only tokens + Warp's own image; fills gaps radar missed)
   try {
     const warp = await fetchWarpTokens('liquidity', 800);
     for (const w of warp) if (w.address) set(mk({
       address: w.address, name: w.name, symbol: w.ticker, holders: w.holders, iconUrl: w.image,
       launchpad: w.migrated ? null : 'Warp', isEcosystem: ECOSYSTEM_ADDRS.has(w.address.toLowerCase()),
-      price: w.price, liq: w.liquidity, mcap: w.mcap,
+      price: w.price, liq: w.liquidity, mcap: w.mcap, createdAt: w.createdAt ?? null, volume24h: w.volume24h ?? null,
     }));
   } catch { /* Warp optional */ }
 
-  // 3) arc-scan holder snapshot — adds non-Warp tokens (holders known, price/liq land from pools if tracked)
+  // 4) arc-scan holder snapshot — adds non-Warp tokens (holders known, price/liq land from pools if tracked)
   try { for (const t of await fetchPremainTokens()) set(t); } catch { /* snapshot optional */ }
 
-  // 4) tracked deep pools — overwrite with accurate on-chain price + liquidity + market cap
+  // 5) tracked deep pools — overwrite with accurate on-chain price + liquidity + market cap (the ones
+  //    Radar/Warp may lag on). 'over' only replaces the price/liq/mcap fields we pass (non-null), so
+  //    the radar icon/holders/launchpad/createdAt survive.
   const stats = await mainnetStats().catch(() => ({} as Record<string, { price: number | null; liq: number | null; mcap: number | null }>));
   for (const addr of Object.keys(MAINNET_POOL)) {
-    const s = stats[addr] || { price: null, liq: null, mcap: null }; const cur = map.get(addr); const m = coreMeta[addr];
+    const s = stats[addr]; if (!s) continue; const cur = map.get(addr); const m = coreMeta[addr];
     set(mk({
       address: addr, name: m?.name || cur?.name || addr.slice(0, 10), symbol: m?.symbol || cur?.symbol || '?',
-      holders: cur?.holders ?? null, iconUrl: cur?.iconUrl ?? null, launchpad: cur?.launchpad ?? null,
       isEcosystem: ECOSYSTEM_ADDRS.has(addr),
-      price: s.price ?? cur?.price ?? null, liq: s.liq ?? cur?.liq ?? null, mcap: s.mcap ?? cur?.mcap ?? null,
-    }), true);
+      price: s.price, liq: s.liq, mcap: s.mcap,
+    }), 'over');
   }
   return [...map.values()];
 }
