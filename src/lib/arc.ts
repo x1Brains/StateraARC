@@ -430,6 +430,39 @@ export async function fetchHoldingsMainnet(addr: string, extra: { address: strin
   }
   return out.sort((a, b) => b.balance - a.balance);
 }
+
+// USDC pools (token→pool) discovered on-chain 2026-09-16. Live spot price = pool's native-USDC
+// balance ÷ pool's token balance (verified consistent with the WarpV2 getAmountsOut quote for WARP;
+// Warp's own API price lagged live). All these tokens are 18-dec. No pool = not priced (CRCL/ARCX10).
+const MAINNET_POOL: Record<string, string> = {
+  '0x384c60f98ecd4c26345499345c03d677e40f115e': '0x507a494fde26960cb36d50912cab83c71ecc7ea7', // WARP (WarpV2)
+  '0xece5ca8bf9220718e5727754026757512212cb3c': '0x6a3bacaa6493734c1ac221ebf42cf530a96c1e02', // ARGUS
+  '0x8bcb94279fc2c984ec34e0c1f2192df8c69ea4f0': '0x0069cb6f70e2f848405f4483f232274c720ce6f9', // Architects
+  '0xbc43ce8dec648ea298c4275559b81d6261c90b67': '0x162df51c504e7b8321e07387932f333d9be16a72', // TOLLY
+  '0xf3715bf5c2de299f08b81180ffb739a8372a175f': '0x6d8db35396b5eb98dee495e32b8cca992682316d', // ARCANINE
+  '0x07704b06981ea962b87296362a1281484d160000': '0xcf924acee7eb1f169a922bf19b0a732810971985', // ARCAT
+  '0xeb64987643db71c76b2a2be7e723decc995e5b37': '0x40732e01ba7a829dea44f51a10e7c58cd9f37765', // COOL
+  '0x0bffa97f774824e9da843699aedd2835cb1b8022': '0x7dbcec05f12b14e21a79a0dc15ea9859322a4ab2', // ARCASH
+  '0xbe0cad585ea2d13de2f4e36376be755c0afd8b97': '0x482a249eb473b7de0ca8357b5496ccb7c55dfb72', // ARCBAT
+};
+// Live USD prices for mainnet tokens, read straight from each token's USDC pool reserves.
+export async function priceMainnet(addrs: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  const uniq = [...new Set(addrs.map((a) => a.toLowerCase()))];
+  await Promise.all(uniq.map(async (a) => {
+    if (a === NATIVE_USDC_ADDR.toLowerCase()) { out[a] = 1; return; }
+    const pool = MAINNET_POOL[a]; if (!pool) return;
+    const [u, b] = await Promise.all([
+      mrpc('eth_getBalance', [pool, 'latest']),
+      mCall(a, '0x70a08231000000000000000000000000' + pool.slice(2).toLowerCase()),
+    ]);
+    if (!u || !b || b === '0x') return;
+    let usdc: number, toks: number;
+    try { usdc = Number(BigInt(u)) / 1e18; toks = Number(BigInt(b)) / 1e18; } catch { return; }
+    if (usdc > 0 && toks > 0) out[a] = usdc / toks;
+  }));
+  return out;
+}
 export const isAddress = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
 
 // ── wallet (EIP-1193 injected, e.g. MetaMask) ──

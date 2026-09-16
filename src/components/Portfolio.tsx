@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchHoldings, fetchHoldingsMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding } from '../lib/arc';
+import { fetchHoldings, fetchHoldingsMainnet, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 
 const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
@@ -10,13 +10,15 @@ export function Portfolio({ tokens, wallet, onConnect, mainnet = false }: { toke
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [livePx, setLivePx] = useState<Record<string, number>>({}); // mainnet: live pool prices
 
-  // Price lookup by token address.
+  // Price lookup by token address (board prices + live mainnet pool prices).
   const priceMap = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of tokens) if (t.price != null) m.set(t.address.toLowerCase(), t.price);
+    for (const [a, p] of Object.entries(livePx)) m.set(a, p);
     return m;
-  }, [tokens]);
+  }, [tokens, livePx]);
 
   // When a wallet connects, track it automatically.
   useEffect(() => { if (wallet) setAddr(wallet); }, [wallet]);
@@ -28,7 +30,10 @@ export function Portfolio({ tokens, wallet, onConnect, mainnet = false }: { toke
     const p = mainnet
       ? fetchHoldingsMainnet(addr, tokens.map((t) => ({ address: t.address, name: t.name, symbol: t.symbol })))
       : fetchHoldings(addr);
-    p.then(setHoldings)
+    p.then((h) => {
+      setHoldings(h);
+      if (mainnet) priceMainnet(h.map((x) => x.address)).then(setLivePx).catch(() => {});
+    })
       .catch((e) => setErr(e.message || 'failed to load'))
       .finally(() => setLoading(false));
   }, [addr, mainnet]); // eslint-disable-line
