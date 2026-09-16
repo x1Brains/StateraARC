@@ -31,7 +31,7 @@ export function TokenLinks({ address, scanBase, pool, warp }: {
         <span className="sep">·</span>
         <a href="https://radardex.pro" target="_blank" rel="noreferrer">RadarDEX</a>
         <span className="sep">·</span>
-        <a href="https://www.arcexplorer.org" target="_blank" rel="noreferrer">ArcExplorer</a>
+        <a href="https://explorer.arc.io" target="_blank" rel="noreferrer">ArcExplorer</a>
       </div>
     </div>
   );

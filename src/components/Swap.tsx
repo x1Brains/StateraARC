@@ -44,7 +44,7 @@ async function ensureChain(chainId: number): Promise<boolean> {
         await eth().request({ method: 'wallet_addEthereumChain', params: [{
           chainId: hexId, chainName: 'Arc',
           nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-          rpcUrls: ['https://arc-rpc.publicnode.com', 'https://rpc.mainnet.arc.io'], blockExplorerUrls: ['https://www.arcexplorer.org'],
+          rpcUrls: ['https://arc-rpc.publicnode.com', 'https://rpc.mainnet.arc.io'], blockExplorerUrls: ['https://explorer.arc.io'],
         }] });
         return true;
       } catch { return false; }
@@ -654,7 +654,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               : !acts.length ? <div className="side-note">No recent transactions found on Arc.</div>
               : <div className="sp-acts">
                   {acts.map((t) => (
-                    <a className="sp-act" key={t.hash} href={`https://www.arcexplorer.org/tx/${t.hash}`} target="_blank" rel="noreferrer">
+                    <a className="sp-act" key={t.hash} href={`https://explorer.arc.io/tx/${t.hash}`} target="_blank" rel="noreferrer">
                       <span className={`sp-a-m ${t.status ? '' : 'fail'}`}>{t.method}</span>
                       <span className="sp-a-v">{t.value != null && t.value > 0 ? `${compact(t.value)} ${t.symbol || ''}` : ''}</span>
                       <span className="sp-a-t">{timeAgo(t.ts)}</span>

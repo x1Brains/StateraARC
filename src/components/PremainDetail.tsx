@@ -110,7 +110,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
           <button className="addr" onClick={copy} title="copy address">{address.slice(0, 10)}…{address.slice(-8)} {copied ? '✓ copied' : '⧉'}</button>
         </div>
         {onTrade && (
-          <button className="btn solid td-trade" onClick={() => onTrade({ address, symbol: sym, name, price: warp?.price ?? seed?.price ?? null })}>
+          <button className="btn solid td-trade" onClick={() => onTrade({ address, symbol: sym, name, price: px })}>
             Trade {sym} <span className="arw">→</span>
           </button>
         )}
@@ -153,7 +153,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
               {holders.map((h) => (
                 <div className="hl-row" key={h.address}>
                   <span className="hl-rank">{h.rank}</span>
-                  <a className="hl-addr mono" href={`https://www.arcexplorer.org/address/${h.address}`} target="_blank" rel="noreferrer">{h.address.slice(0, 8)}…{h.address.slice(-6)}{h.isContract ? ' · pool/contract' : ''}</a>
+                  <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer">{h.address.slice(0, 8)}…{h.address.slice(-6)}{h.isContract ? ' · pool/contract' : ''}</a>
                   <span className="hl-bal">{compact(h.balance)}</span>
                   <span className="hl-share">{h.share != null ? h.share.toFixed(2) + '%' : '—'}</span>
                 </div>
@@ -171,13 +171,13 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                 <div className="tx-row" key={t.tx + i}>
                   <span className="tx-amt">{compact(t.amount)} <span className="tx-sym">{sym}</span></span>
                   <span className="tx-ft mono">{t.from.slice(0, 6)}…{t.from.slice(-4)} → {t.to.slice(0, 6)}…{t.to.slice(-4)}</span>
-                  <a className="tx-link" href={`https://www.arcexplorer.org/tx/${t.tx}`} target="_blank" rel="noreferrer">view ↗</a>
+                  <a className="tx-link" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer">view ↗</a>
                 </div>
               ))}
             </div>}
       </div>
 
-      <TokenLinks address={address} scanBase="https://www.arcexplorer.org" warp />
+      <TokenLinks address={address} scanBase="https://explorer.arc.io" warp />
 
       <div className="td-disc" style={{ marginTop: 16 }}>
         Price, chart &amp; market data are sourced from the Warp launchpad (circlewarp.fun) on Arc mainnet (chain 5042) — Uniswap v4 pools. Contract &amp; holder data are from an independent indexer (arc-scan.org). All unofficial, not Circle. Not an endorsement; unverified; DYOR.
