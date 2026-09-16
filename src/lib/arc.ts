@@ -374,13 +374,28 @@ export async function fetchHoldings(addr: string): Promise<Holding[]> {
 // isn't Blockscout), so we scan a curated + board candidate set ON-CHAIN via the mainnet RPC. Not
 // exhaustive, but returns REAL balances for the tokens that matter (WARP, watchlist, stablecoins).
 const MAINNET_RPC = (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://rpc.mainnet.arc.io';
-async function mrpc(method: string, params: any[]): Promise<any> {
-  try {
-    const r = await fetch(MAINNET_RPC, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
-    const j = await r.json();
-    return j.error ? null : j.result;
-  } catch { return null; }
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// rpc.mainnet.arc.io rate-limits bursts (HTTP 429), so retry with backoff on failure/429.
+async function mrpc(method: string, params: any[], tries = 4): Promise<any> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(MAINNET_RPC, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+      if (r.status === 429 || r.status >= 500) { await sleep(200 * (i + 1) + Math.random() * 200); continue; }
+      const j = await r.json();
+      return j.error ? null : j.result;
+    } catch { await sleep(200 * (i + 1)); }
+  }
+  return null;
+}
+// Run async tasks with bounded concurrency (keeps us under the RPC's rate limit).
+async function runLimited<T>(tasks: (() => Promise<T>)[], limit = 4): Promise<T[]> {
+  const out: T[] = new Array(tasks.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+    while (i < tasks.length) { const idx = i++; out[idx] = await tasks[idx](); }
+  }));
+  return out;
 }
 const mCall = (to: string, data: string) => mrpc('eth_call', [{ to, data }, 'latest']);
 const mHexToStr = (hex: string) => { let s = ''; for (let i = 0; i + 1 < hex.length; i += 2) { const c = parseInt(hex.substr(i, 2), 16); if (c) s += String.fromCharCode(c); } return s; };
@@ -413,21 +428,18 @@ export async function fetchHoldingsMainnet(addr: string, extra: { address: strin
   const nb = await mrpc('eth_getBalance', [addr, 'latest']);
   if (nb) { const bal = Number(BigInt(nb)) / 1e18; if (bal > 0) out.push({ address: NATIVE_USDC_ADDR, name: 'USD Coin', symbol: 'USDC', decimals: 6, balance: bal, iconUrl: null }); }
   const balSel = '0x70a08231000000000000000000000000' + addr.slice(2).toLowerCase();
-  const CH = 12;
-  for (let i = 0; i < cands.length; i += CH) {
-    await Promise.all(cands.slice(i, i + CH).map(async (t) => {
-      const r = await mCall(t.address, balSel);
-      if (!r || r === '0x') return;
-      let raw: bigint; try { raw = BigInt(r); } catch { return; }
-      if (raw <= 0n) return;
-      const dec = t.decimals ?? Number(BigInt((await mCall(t.address, '0x313ce567')) || '0x12'));
-      const bal = Number(raw) / 10 ** dec;
-      if (bal <= 0) return;
-      const sym = t.symbol || (await mReadStr(t.address, '0x95d89b41')) || '?';
-      const name = t.name || (await mReadStr(t.address, '0x06fdde03')) || sym;
-      out.push({ address: t.address.toLowerCase(), name, symbol: sym, decimals: dec, balance: bal, iconUrl: null });
-    }));
-  }
+  await runLimited(cands.map((t) => async () => {
+    const r = await mCall(t.address, balSel);
+    if (!r || r === '0x') return;
+    let raw: bigint; try { raw = BigInt(r); } catch { return; }
+    if (raw <= 0n) return;
+    const dec = t.decimals ?? Number(BigInt((await mCall(t.address, '0x313ce567')) || '0x12'));
+    const bal = Number(raw) / 10 ** dec;
+    if (bal <= 0) return;
+    const sym = t.symbol || (await mReadStr(t.address, '0x95d89b41')) || '?';
+    const name = t.name || (await mReadStr(t.address, '0x06fdde03')) || sym;
+    out.push({ address: t.address.toLowerCase(), name, symbol: sym, decimals: dec, balance: bal, iconUrl: null });
+  }), 4);
   return out.sort((a, b) => b.balance - a.balance);
 }
 
@@ -451,19 +463,18 @@ const MAINNET_POOL: Record<string, string> = {
 // Live USD prices for mainnet tokens, read straight from each token's USDC pool reserves.
 export async function priceMainnet(addrs: string[]): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
-  const uniq = [...new Set(addrs.map((a) => a.toLowerCase()))];
-  await Promise.all(uniq.map(async (a) => {
+  const uniq = [...new Set(addrs.map((a) => a.toLowerCase()))].filter((a) => a === NATIVE_USDC_ADDR.toLowerCase() || MAINNET_POOL[a]);
+  const balOf = (token: string, who: string) => mCall(token, '0x70a08231000000000000000000000000' + who.slice(2).toLowerCase());
+  await runLimited(uniq.map((a) => async () => {
     if (a === NATIVE_USDC_ADDR.toLowerCase()) { out[a] = 1; return; }
-    const pool = MAINNET_POOL[a]; if (!pool) return;
-    const [u, b] = await Promise.all([
-      mrpc('eth_getBalance', [pool, 'latest']),
-      mCall(a, '0x70a08231000000000000000000000000' + pool.slice(2).toLowerCase()),
-    ]);
-    if (!u || !b || b === '0x') return;
+    const pool = MAINNET_POOL[a];
+    // Both sides via ERC-20 balanceOf so calls are uniform + retryable: USDC face is 6-dec, token 18-dec.
+    const [uHex, bHex] = await Promise.all([balOf(NATIVE_USDC_ADDR, pool), balOf(a, pool)]);
+    if (!uHex || !bHex || bHex === '0x' || uHex === '0x') return;
     let usdc: number, toks: number;
-    try { usdc = Number(BigInt(u)) / 1e18; toks = Number(BigInt(b)) / 1e18; } catch { return; }
+    try { usdc = Number(BigInt(uHex)) / 1e6; toks = Number(BigInt(bHex)) / 1e18; } catch { return; }
     if (usdc > 0 && toks > 0) out[a] = usdc / toks;
-  }));
+  }), 4);
   return out;
 }
 export const isAddress = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
