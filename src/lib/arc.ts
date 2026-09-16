@@ -1,6 +1,6 @@
 // StateraArc — Arc chain data layer. Reads Blockscout's public API (no key, client-side).
 // Flip NET to 'mainnet' when Arc mainnet + its explorer go live (Sept 16, 2026).
-import { fetchWarpTokens } from './warp';
+import { fetchWarpTokens, type Candle } from './warp';
 
 export type Net = 'testnet' | 'mainnet';
 
@@ -570,6 +570,52 @@ export async function fetchTokenHolders(address: string, limit = 20): Promise<Ho
       isContract: !!h.address?.is_contract,
     })).filter((h: Holder) => h.address);
   } catch { return []; }
+}
+
+// Build OHLC candles for a mainnet pooled token straight from its Uniswap-V3 pool Swap events.
+// (Warp tokens use Warp's candles; the deep V3 tokens — ARGUS/TOLLY/LONG/COOL… — aren't on Warp,
+// so we chart them from chain.) Price is read from each swap's sqrtPriceX96; timestamps are
+// approximated from block height (blocks are ~sub-second on Arc), which is fine for a chart.
+const SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number): Promise<Candle[]> {
+  const pool = MAINNET_POOL[token.toLowerCase()]; if (!pool) return [];
+  const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]); // token0(), head
+  if (!t0hex || !headHex) return [];
+  const usdcIsToken0 = ('0x' + t0hex.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
+  const head = BigInt(headHex);
+  const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
+  const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
+  const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+  const spanBlocks = Math.min(120000, Math.ceil((intervalSec * 120) / blockTime)); // ~120 candles of history
+  const dexp = 10 ** (decimals - 6); // USDC is 6-dec, the token `decimals`-dec
+  const swaps: { ts: number; price: number }[] = [];
+  const CH = 2500n;
+  for (let from = head - BigInt(spanBlocks); from < head && swaps.length < 4000; from += CH) {
+    const to = from + CH > head ? head : from + CH;
+    const logs = await mrpc('eth_getLogs', [{ address: pool, topics: [SWAP_TOPIC], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }]);
+    if (!Array.isArray(logs)) continue;
+    for (const l of logs) {
+      try {
+        const sqrtP = BigInt('0x' + l.data.slice(2).slice(128, 192)); // 3rd word of Swap data = sqrtPriceX96
+        if (sqrtP <= 0n) continue;
+        const ratio = (Number(sqrtP) / 2 ** 96) ** 2; // token1_raw / token0_raw
+        if (!isFinite(ratio) || ratio <= 0) continue;
+        const price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp;
+        if (!isFinite(price) || price <= 0) continue;
+        swaps.push({ ts: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime), price });
+      } catch { /* skip */ }
+    }
+  }
+  if (!swaps.length) return [];
+  swaps.sort((a, b) => a.ts - b.ts);
+  const buckets = new Map<number, { o: number; h: number; l: number; c: number }>();
+  for (const s of swaps) {
+    const b = Math.floor(s.ts / intervalSec) * intervalSec;
+    const cur = buckets.get(b);
+    if (!cur) buckets.set(b, { o: s.price, h: s.price, l: s.price, c: s.price });
+    else { cur.h = Math.max(cur.h, s.price); cur.l = Math.min(cur.l, s.price); cur.c = s.price; }
+  }
+  return [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([time, v]) => ({ time, open: v.o, high: v.h, low: v.l, close: v.c }));
 }
 
 // Recent on-chain Transfer events for a token (mainnet RPC eth_getLogs) — works for ANY token.

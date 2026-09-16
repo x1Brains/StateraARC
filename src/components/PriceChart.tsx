@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, type IChartApi, type ISeriesApi } from 'lightweight-charts';
 import { fetchWarpCandles, type Candle } from '../lib/warp';
+import { fetchPoolCandles } from '../lib/arc';
 
 // TradingView-style candlestick chart for an Arc token. Data = Warp's OHLC candles (chain 5042),
 // which powers both the pre-public and mainnet views. Testnet tokens aren't on Warp, so the chart
@@ -13,7 +14,7 @@ const priceFmt = (p: number) =>
   : p >= 0.001 ? '$' + p.toFixed(5)
   : '$' + p.toExponential(2);
 
-export function PriceChart({ address, symbol }: { address: string; symbol?: string }) {
+export function PriceChart({ address, symbol, decimals }: { address: string; symbol?: string; decimals?: number }) {
   const [tf, setTf] = useState('5m');
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,7 +26,15 @@ export function PriceChart({ address, symbol }: { address: string; symbol?: stri
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    fetchWarpCandles(address, tf).then((c) => { if (alive) { setCandles(c); setLoading(false); } });
+    (async () => {
+      let c = await fetchWarpCandles(address, tf).catch(() => [] as Candle[]);
+      // Not on Warp (deep V3 tokens like ARGUS) → build candles from the pool's on-chain swaps.
+      if ((!c || c.length === 0)) {
+        const sec = tf === '1m' ? 60 : tf === '1h' ? 3600 : 300;
+        c = await fetchPoolCandles(address, decimals ?? 18, sec).catch(() => [] as Candle[]);
+      }
+      if (alive) { setCandles(c); setLoading(false); }
+    })();
     return () => { alive = false; };
   }, [address, tf]);
 
@@ -82,11 +91,11 @@ export function PriceChart({ address, symbol }: { address: string; symbol?: stri
         <div className="chart-box" ref={boxRef} />
         {(loading || empty) && (
           <div className="chart-overlay">
-            {loading ? <div className="spinner" /> : <span>No price history yet — this token isn’t indexed by Warp (charts are live for Arc mainnet tokens).</span>}
+            {loading ? <div className="spinner" /> : <span>No trades yet on this pool — the chart fills in as it trades.</span>}
           </div>
         )}
       </div>
-      <div className="chart-src">Chart: Warp · Arc (chain 5042) · unofficial · DYOR</div>
+      <div className="chart-src">Chart: Warp candles or on-chain pool swaps · Arc mainnet (5042) · unofficial · DYOR</div>
     </div>
   );
 }

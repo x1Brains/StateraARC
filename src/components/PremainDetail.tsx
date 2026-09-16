@@ -77,6 +77,13 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
 
   const sym = d?.symbol || seed?.symbol || '?';
   const name = d?.name || seed?.name || '';
+  // Price/liq/mcap: Warp for Warp-launched tokens, else the on-chain pool data from the screener seed
+  // (deep V3/WarpV2 tokens like ARGUS aren't on Warp). Market cap = price × total supply when needed.
+  const supplyNum = d?.supply ? Number(d.supply) : (seed?.totalSupply != null ? Number(seed.totalSupply) : null);
+  const px = warp?.price ?? seed?.price ?? null;
+  const liq = warp?.liquidity ?? seed?.liq ?? null;
+  const mc = warp?.mcap ?? seed?.mcap ?? (px != null && supplyNum ? px * supplyNum : null);
+  const vol = warp?.volume24h ?? null;
 
   return (
     <div className="wrap"><section className="section">
@@ -107,16 +114,16 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       {err && <div className="msg err">Indexer error: {err}. The indexer source (arc-scan.org) is flaky — try again.</div>}
 
       <div className="stats" style={{ marginTop: 16 }}>
-        <div className="stat"><div className="v r">{warp?.price != null ? tprice(warp.price) : '—'}</div><div className="l">Price</div></div>
-        <div className="stat"><div className="v">{warp?.mcap != null ? usd(warp.mcap) : '—'}</div><div className="l">Market Cap</div></div>
-        <div className="stat"><div className="v">{warp?.volume24h != null ? usd(warp.volume24h) : '—'}</div><div className="l">Vol 24h</div></div>
-        <div className="stat"><div className="v">{warp?.liquidity != null ? usd(warp.liquidity) : '—'}</div><div className="l">Liquidity</div></div>
-        <div className="stat"><div className="v">{fmtNum(warp?.holders ?? d?.holders ?? null)}</div><div className="l">Holders</div></div>
+        <div className="stat"><div className="v r">{px != null ? tprice(px) : '—'}</div><div className="l">Price</div></div>
+        <div className="stat"><div className="v">{mc != null ? usd(mc) : '—'}</div><div className="l">Market Cap</div></div>
+        <div className="stat"><div className="v">{vol != null ? usd(vol) : '—'}</div><div className="l">Vol 24h</div></div>
+        <div className="stat"><div className="v">{liq != null ? usd(liq) : '—'}</div><div className="l">Liquidity</div></div>
+        <div className="stat"><div className="v">{fmtNum(warp?.holders ?? d?.holders ?? seed?.holders ?? null)}</div><div className="l">Holders</div></div>
         <div className="stat"><div className="v">{fmtSupply(d?.supply ?? null)}</div><div className="l">Total Supply</div></div>
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <PriceChart address={address} symbol={sym} />
+        <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? 18} />
       </div>
 
       <div className="panel side-card" style={{ marginTop: 16 }}>
