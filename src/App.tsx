@@ -6,8 +6,6 @@ import { Swap } from './components/Swap';
 import { Dropdown } from './components/Dropdown';
 import { PremainDetail } from './components/PremainDetail';
 import { TokenPage } from './components/TokenPage';
-import { ArcTrending } from './components/ArcTrending';
-import type { WarpToken } from './lib/warp';
 import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
 
@@ -55,7 +53,7 @@ export default function App() {
   const [acked, setAcked] = useState<boolean>(() => disclaimerAcked());
   const [page, setPage] = useState<Page>(() => parseHash().page);
   const [swapPreload, setSwapPreload] = useState<{ address: string; symbol: string; name?: string; price?: number | null } | null>(null);
-  const tradeWarp = (t: WarpToken) => { setSwapPreload({ address: t.address, symbol: t.ticker, name: t.name, price: t.price }); setPage('swap'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const tradeToken = (t: { address: string; symbol: string; name?: string; price?: number | null }) => { setSwapPreload({ address: t.address, symbol: t.symbol, name: t.name, price: t.price }); setPage('swap'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const [tokens, setTokens] = useState<Token[]>([]);
   const [market, setMarket] = useState<MarketPx[]>([]);
   const [loading, setLoading] = useState(true);
@@ -241,12 +239,12 @@ export default function App() {
             address={selected}
             seed={tokens.find((t) => t.address === selected)}
             onBack={() => setSelected(null)}
+            onTrade={(t) => tradeToken(t)}
           />
         )}
 
         {page === 'screener' && !selected && (
           <div className="wrap"><section className="section" id="screener">
-            <ArcTrending onPick={tradeWarp} />
             <div className="section-head">
               <div>
                 <div className="kicker">Screener</div>

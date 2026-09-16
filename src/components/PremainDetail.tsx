@@ -18,7 +18,7 @@ interface Detail {
   reservedCheck: string | null;
 }
 
-export function PremainDetail({ address, seed, onBack }: { address: string; seed?: Token; onBack: () => void }) {
+export function PremainDetail({ address, seed, onBack, onTrade }: { address: string; seed?: Token; onBack: () => void; onTrade?: (t: { address: string; symbol: string; name?: string; price?: number | null }) => void }) {
   const [d, setD] = useState<Detail | null>(null);
   const [warp, setWarp] = useState<WarpToken | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -97,6 +97,11 @@ export function PremainDetail({ address, seed, onBack }: { address: string; seed
           <div className="td-sym">{sym} · {d?.standard?.toUpperCase() || 'ERC-20'}</div>
           <button className="addr" onClick={copy} title="copy address">{address.slice(0, 10)}…{address.slice(-8)} {copied ? '✓ copied' : '⧉'}</button>
         </div>
+        {onTrade && (
+          <button className="btn solid td-trade" onClick={() => onTrade({ address, symbol: sym, name, price: warp?.price ?? seed?.price ?? null })}>
+            Trade {sym} <span className="arw">→</span>
+          </button>
+        )}
       </div>
 
       {err && <div className="msg err">Indexer error: {err}. The indexer source (arc-scan.org) is flaky — try again.</div>}

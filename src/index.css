@@ -868,3 +868,7 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 /* 2-section home (Ecosystem card removed — only USDC qualifies for now) */
 .home-cards-2 { grid-template-columns: repeat(2, 1fr); max-width: 860px; margin-left: auto; margin-right: auto; }
 @media (max-width: 720px) { .home-cards-2 { grid-template-columns: 1fr; } }
+
+/* token detail: Trade button pushed to the right of the header */
+.td-trade { margin-left: auto; align-self: center; white-space: nowrap; }
+@media (max-width: 560px) { .td-trade { margin-left: 0; margin-top: 10px; width: 100%; justify-content: center; } }
