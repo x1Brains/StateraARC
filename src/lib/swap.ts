@@ -432,6 +432,56 @@ export function buildCurveBuyTx(curve: string, usdcHuman: number, minOutRaw: big
   return { to: curve, from, value: usdcToNativeHex(usdcHuman), data: CURVE_BUY_SEL + padU(minOutRaw) };
 }
 
+// ── Uniswap V3 (Argus factory) trading (in-app, chain 5042) ──────────────────
+// The deepest-liquidity Arc tokens (ARGUS/CRCL/LONG/TOLLY/Architects…) trade on Uniswap V3 pools
+// (Argus factory 0xf0db7b58…). Verified on-chain 2026-09-16: SwapRouter02 0x53bf6b06… factory matches.
+//   exactInputSingle((tokenIn,tokenOut,fee,recipient,amountIn,amountOutMin,sqrtPriceLimitX96)) = 0x04e45aaf
+// Quote from the pool's slot0 spot price (exact for small trades; large trades protected by min-out).
+export const V3_ROUTER = '0x53bf6b0684ec7ef91e1387da3d1a1769bc5a6f77';
+const V3_POOL: Record<string, string> = {
+  '0xece5ca8bf9220718e5727754026757512212cb3c': '0x6a3bacaa6493734c1ac221ebf42cf530a96c1e02', // ARGUS
+  '0x2ba0f44bdfc17fba30eda9cdbecb908ca45b043b': '0x2e8180fa3967caf9abf57bbaeab9ae9063bcd7ba', // CRCL
+  '0x2164bb17a2d38c1b5170e987b2c0416df1efc752': '0xda9f3d166497ddfddf37c93cacfd8aa39b71e493', // LONG
+  '0xbc43ce8dec648ea298c4275559b81d6261c90b67': '0x162df51c504e7b8321e07387932f333d9be16a72', // TOLLY
+  '0xf3715bf5c2de299f08b81180ffb739a8372a175f': '0x6d8db35396b5eb98dee495e32b8cca992682316d', // ARCANINE
+  '0x8bcb94279fc2c984ec34e0c1f2192df8c69ea4f0': '0x0069cb6f70e2f848405f4483f232274c720ce6f9', // Architects
+  '0x12ce1f970722ca6e08364b60099b3d25c09b5434': '0x4052ee5accb46785be42910a3fe965a1855b8313', // ARCX10
+  '0x07704b06981ea962b87296362a1281484d160000': '0xcf924acee7eb1f169a922bf19b0a732810971985', // ARCAT
+  '0xeb64987643db71c76b2a2be7e723decc995e5b37': '0x40732e01ba7a829dea44f51a10e7c58cd9f37765', // COOL
+  '0x0bffa97f774824e9da843699aedd2835cb1b8022': '0x7dbcec05f12b14e21a79a0dc15ea9859322a4ab2', // ARCASH
+  '0xbe0cad585ea2d13de2f4e36376be755c0afd8b97': '0x482a249eb473b7de0ca8357b5496ccb7c55dfb72', // ARCBAT
+};
+const Q192 = 2n ** 192n;
+const v3Meta = new Map<string, { token0: string; fee: number }>();
+async function v3PoolMeta(pool: string): Promise<{ token0: string; fee: number } | null> {
+  if (v3Meta.has(pool)) return v3Meta.get(pool)!;
+  const [t0, feeHex] = await Promise.all([ethCall(pool, '0x0dfe1681'), ethCall(pool, '0xddca3f43')]); // token0(), fee()
+  if (!t0 || !feeHex) return null;
+  const m = { token0: ('0x' + t0.slice(-40)).toLowerCase(), fee: Number(BigInt(feeHex)) };
+  v3Meta.set(pool, m); return m;
+}
+export const v3PoolFor = (token: string): string | undefined => V3_POOL[token.toLowerCase()];
+// Quote USDC↔token on the V3 pool from slot0 spot price. Returns { outRaw, fee, pool } or null.
+export async function quoteV3(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<{ outRaw: bigint; fee: number; pool: string } | null> {
+  const a = tokenIn.toLowerCase(), b = tokenOut.toLowerCase();
+  const token = a === USDC ? b : (b === USDC ? a : null); // one side must be native USDC
+  if (!token) return null;
+  const pool = V3_POOL[token]; if (!pool) return null;
+  const [meta, slot0] = await Promise.all([v3PoolMeta(pool), ethCall(pool, '0x3850c7bd')]); // slot0()
+  if (!meta || !slot0 || slot0.length < 66) return null;
+  let sqrtP: bigint; try { sqrtP = BigInt('0x' + slot0.slice(2, 66)); } catch { return null; }
+  if (sqrtP <= 0n) return null;
+  const p2 = sqrtP * sqrtP; // price(token1/token0, raw) = p2 / 2^192
+  let outRaw = a === meta.token0 ? (amountInRaw * p2) / Q192 : (amountInRaw * Q192) / p2;
+  outRaw = (outRaw * BigInt(1_000_000 - meta.fee)) / 1_000_000n; // pool fee
+  if (outRaw <= 0n) return null;
+  return { outRaw, fee: meta.fee, pool };
+}
+export function buildV3SwapTx(tokenIn: string, tokenOut: string, fee: number, amountInRaw: bigint, amountOutMinRaw: bigint, recipient: string): TxReq {
+  const data = '0x04e45aaf' + padA(tokenIn) + padA(tokenOut) + padU(fee) + padA(recipient) + padU(amountInRaw) + padU(amountOutMinRaw) + padU(0n);
+  return { to: V3_ROUTER, from: recipient, data, value: '0x0' };
+}
+
 // Dry-run a built tx via eth_call to catch reverts (bad route, no liquidity, needs approval)
 // BEFORE the user signs. Returns null on success, or a decoded revert reason.
 export async function simulate(tx: TxReq): Promise<string | null> {
