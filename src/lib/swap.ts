@@ -504,6 +504,81 @@ export function buildV3SwapTx(tokenIn: string, tokenOut: string, fee: number, am
   return { to: V3_ROUTER, from: recipient, data, value: '0x0' };
 }
 
+// ── Uniswap V4 (Universal Router + hooked pools) ─────────────────────────────
+// For tokens whose real liquidity is a v4 pool (thin/no V3), e.g. ARCX10. Swaps go through the
+// Universal Router: execute(0x10 V4_SWAP, [actions 0x06/0x0c/0x0f + params], deadline), funds pulled
+// via Permit2. The hand-rolled calldata below was verified BYTE-IDENTICAL to a proven on-chain swap,
+// and real ARCX10 buy+sell were executed to confirm (2026-09-16). Quote from the pool's slot0
+// (extsload of a precomputed state slot — avoids in-browser keccak), consistent within ~3.6% of fills.
+export const UNIVERSAL_ROUTER = '0x4fca4a51ab4f23a7447b3284fbd7d73289a89fb1';
+export const PERMIT2 = '0x000000000022d473030f116ddee9f6b43ac78ba3';
+const PM_V4 = '0x8366a39cc670b4001a1121b8f6a443a643e40951'; // v4 PoolManager singleton (extsload for pool state)
+interface V4Cfg { currency0: string; currency1: string; fee: number; tickSpacing: number; hooks: string; stateSlot: string; }
+const V4_TOKENS: Record<string, V4Cfg> = {
+  '0x12ce1f970722ca6e08364b60099b3d25c09b5434': { // ARCX10 / USDC (currency0 < currency1)
+    currency0: '0x12ce1f970722ca6e08364b60099b3d25c09b5434', currency1: NATIVE_USDC, fee: 10000, tickSpacing: 200,
+    hooks: '0x462b30e1d11455440eeec627bc5e30b84b18e044',
+    stateSlot: '0x62ed14a4ecec4f041ce9a441e680bace03dfc8e823c5eb146ede512974e62d7e',
+  },
+};
+export const v4CfgFor = (token: string): V4Cfg | undefined => V4_TOKENS[token.toLowerCase()];
+// ABI encode a `bytes` value: length word + right-padded data.
+const encBytes = (hex: string): string => { const h = hex.replace(/^0x/, ''); return padU(BigInt(h.length / 2)) + h.padEnd(Math.ceil(h.length / 64) * 64, '0'); };
+// ABI encode a `bytes[]`: count + offsets + concatenated element encodings.
+const encBytesArr = (arr: string[]): string => {
+  const n = arr.length; const enc = arr.map(encBytes); let offs = '', data = '', cur = n * 32;
+  for (const e of enc) { offs += padU(BigInt(cur)); data += e; cur += e.length / 2; }
+  return padU(BigInt(n)) + offs + data;
+};
+const Q192_V4 = 2n ** 192n;
+// Live V4 quote from slot0 spot price × (1 − pool fee). Returns { outRaw, zeroForOne } or null.
+export async function quoteV4(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<{ outRaw: bigint; zeroForOne: boolean } | null> {
+  const a = tokenIn.toLowerCase(), b = tokenOut.toLowerCase();
+  const token = a === USDC ? b : (b === USDC ? a : null); if (!token) return null;
+  const cfg = V4_TOKENS[token]; if (!cfg) return null;
+  const j = await rpc('eth_call', [{ to: PM_V4, data: '0x1e2eaeaf' + cfg.stateSlot.slice(2) }, 'latest']); // PoolManager.extsload(stateSlot)
+  if (!j || j.error || !j.result || j.result === '0x') return null;
+  let sqrtP: bigint; try { sqrtP = BigInt(j.result) & ((1n << 160n) - 1n); } catch { return null; } // slot0 packs sqrtPriceX96 in low 160 bits
+  if (sqrtP <= 0n) return null;
+  const zeroForOne = a === cfg.currency0; // tokenIn is currency0 → 0→1
+  const p2 = sqrtP * sqrtP;
+  let outRaw = zeroForOne ? (amountInRaw * p2) / Q192_V4 : (amountInRaw * Q192_V4) / p2;
+  outRaw = (outRaw * BigInt(1_000_000 - cfg.fee)) / 1_000_000n;
+  if (outRaw <= 0n) return null;
+  return { outRaw, zeroForOne };
+}
+// Build the Universal Router execute() calldata for a V4 exact-in swap. Verified byte-identical.
+export function buildV4SwapTx(token: string, zeroForOne: boolean, amountInRaw: bigint, minOutRaw: bigint, from: string): TxReq | null {
+  const cfg = V4_TOKENS[token.toLowerCase()]; if (!cfg) return null;
+  const settleCur = zeroForOne ? cfg.currency0 : cfg.currency1; // paying this currency
+  const takeCur = zeroForOne ? cfg.currency1 : cfg.currency0;   // receiving this currency
+  const params0 = '0x' + padU(0x20n) + padA(cfg.currency0) + padA(cfg.currency1) + padU(BigInt(cfg.fee)) + padU(BigInt(cfg.tickSpacing)) + padA(cfg.hooks)
+    + padU(zeroForOne ? 1n : 0n) + padU(amountInRaw) + padU(minOutRaw) + padU(0n) + padU(0x140n) + padU(0n);
+  const settle = '0x' + padA(settleCur) + padU(amountInRaw);
+  const take = '0x' + padA(takeCur) + padU(minOutRaw);
+  const actions = '0x060c0f'; // SWAP_EXACT_IN_SINGLE, SETTLE_ALL, TAKE_ALL
+  const v4 = '0x' + padU(64n) + padU(BigInt(64 + encBytes(actions).length / 2)) + encBytes(actions) + encBytesArr([params0, settle, take]);
+  const cEnc = encBytes('0x10'), iEnc = encBytesArr([v4]);
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+  const head = padU(96n) + padU(BigInt(96 + cEnc.length / 2)) + padU(deadline);
+  return { to: UNIVERSAL_ROUTER, from, value: '0x0', data: '0x3593564c' + head + cEnc + iEnc };
+}
+// Permit2 status: does the wallet need to (a) approve the ERC-20 to Permit2, (b) Permit2-approve the router?
+export async function v4Permit2Status(token: string, owner: string, amountInRaw: bigint): Promise<{ needErc20: boolean; needPermit2: boolean }> {
+  const erc20Allow = await allowance(token, owner, PERMIT2);
+  // Permit2.allowance(owner, token, spender) → (uint160 amount, uint48 expiration, uint48 nonce)
+  const r = await rpc('eth_call', [{ to: PERMIT2, data: '0x927da105' + padA(owner) + padA(token) + padA(UNIVERSAL_ROUTER) }, 'latest']);
+  let p2amt = 0n, p2exp = 0n;
+  try { if (r && r.result && r.result !== '0x') { p2amt = BigInt('0x' + r.result.slice(2, 66)); p2exp = BigInt('0x' + r.result.slice(66, 130)); } } catch { /* treat as none */ }
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  return { needErc20: erc20Allow < amountInRaw, needPermit2: p2amt < amountInRaw || p2exp < now };
+}
+// Permit2.approve(token, spender, amount uint160, expiration uint48) = 0x87517c45
+export function buildPermit2ApproveTx(token: string, from: string): TxReq {
+  const MAX160 = (1n << 160n) - 1n, exp = BigInt(Math.floor(Date.now() / 1000) + 30 * 24 * 3600);
+  return { to: PERMIT2, from, value: '0x0', data: '0x87517c45' + padA(token) + padA(UNIVERSAL_ROUTER) + padU(MAX160) + padU(exp) };
+}
+
 // Dry-run a built tx via eth_call to catch reverts (bad route, no liquidity, needs approval)
 // BEFORE the user signs. Returns null on success, or a decoded revert reason.
 export async function simulate(tx: TxReq): Promise<string | null> {
