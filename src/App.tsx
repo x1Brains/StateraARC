@@ -13,12 +13,13 @@ type Page = 'home' | 'screener' | 'portfolio' | 'swap' | 'token';
 type Filter = 'all' | 'new' | 'eco';
 type SortKey = 'liq' | 'mcap' | 'holders' | 'price' | 'name';
 
-// ── deep-linkable URLs (hash routing — shareable, refresh-safe, needs no server config) ──
+// ── deep-linkable URLs (clean path routing, e.g. stateraarc.com/swap). Vercel serves index.html for
+//    any non-file/non-/api path (SPA fallback rewrite in vercel.json), so refresh/direct-load work. ──
 const PATHS: Record<Page, string> = { home: '/', screener: '/screener', token: '/str', portfolio: '/portfolio', swap: '/swap' };
-const hashFor = (pg: Page, sel: string | null): string =>
-  pg === 'screener' && sel && /^0x[0-9a-fA-F]{40}$/.test(sel) ? `#/token/${sel}` : `#${PATHS[pg] || '/'}`;
-function parseHash(): { page: Page; selected: string | null } {
-  const h = (window.location.hash.replace(/^#/, '') || '/').toLowerCase();
+const pathFor = (pg: Page, sel: string | null): string =>
+  pg === 'screener' && sel && /^0x[0-9a-fA-F]{40}$/.test(sel) ? `/token/${sel}` : (PATHS[pg] || '/');
+function parsePath(): { page: Page; selected: string | null } {
+  const h = ((window.location.pathname || '/').toLowerCase().replace(/\/+$/, '')) || '/';
   const m = h.match(/^\/token\/(0x[0-9a-f]{40})/);
   if (m) return { page: 'screener', selected: m[1] };
   const found = (Object.keys(PATHS) as Page[]).find((k) => PATHS[k] === h);
@@ -51,7 +52,7 @@ const LAUNCHPAD_LEGEND = [...new Set(Object.values(LAUNCHPADS))].map((l) => ({ l
 
 export default function App() {
   const [acked, setAcked] = useState<boolean>(() => disclaimerAcked());
-  const [page, setPage] = useState<Page>(() => parseHash().page);
+  const [page, setPage] = useState<Page>(() => parsePath().page);
   const [swapPreload, setSwapPreload] = useState<{ address: string; symbol: string; name?: string; price?: number | null } | null>(null);
   const tradeToken = (t: { address: string; symbol: string; name?: string; price?: number | null }) => { setSwapPreload({ address: t.address, symbol: t.symbol, name: t.name, price: t.price }); setPage('swap'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -63,7 +64,7 @@ export default function App() {
   const [sort, setSort] = useState<SortKey>('liq');
   const [pageNum, setPageNum] = useState(1);
   const [perPage, setPerPage] = useState(100);
-  const [selected, setSelected] = useState<string | null>(() => parseHash().selected);
+  const [selected, setSelected] = useState<string | null>(() => parsePath().selected);
   const [wallet, setWallet] = useState<string | null>(null);
   const onConnect = async () => { try { const a = await connectWallet(); if (a) setWallet(a); } catch {} };
   // Cinematic hero: one of the four lava scenes, chosen at random on each fresh load.
@@ -126,17 +127,16 @@ export default function App() {
   const openToken = (addr: string) => { setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const goScreener = (f: Filter = 'all') => { setFilter(f); setSort('liq'); setPage('screener'); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
-  // URL <-> state: back/forward + direct-load sync, and push a shareable hash on navigation.
+  // URL <-> state: back/forward + direct-load sync, and push a shareable clean path on navigation.
   useEffect(() => {
-    const apply = () => { const s = parseHash(); setPage(s.page); setSelected(s.selected); };
+    const apply = () => { const s = parsePath(); setPage(s.page); setSelected(s.selected); };
     window.addEventListener('popstate', apply);
-    window.addEventListener('hashchange', apply);
-    return () => { window.removeEventListener('popstate', apply); window.removeEventListener('hashchange', apply); };
+    return () => { window.removeEventListener('popstate', apply); };
   }, []);
   const navReady = useRef(false);
   useEffect(() => {
-    const want = hashFor(page, selected);
-    const cur = window.location.hash || '#/';
+    const want = pathFor(page, selected);
+    const cur = window.location.pathname.replace(/\/+$/, '') || '/';
     if (cur === want) { navReady.current = true; return; }
     if (navReady.current) window.history.pushState(null, '', want);
     else { window.history.replaceState(null, '', want); navReady.current = true; }
@@ -363,7 +363,7 @@ export default function App() {
 
         <footer><div className="wrap">
           <span className="fbrand">STATERA · ARC</span>
-          <span>Data via Warp · arc-scan.org · Arc Mainnet · chain 5042</span>
+          <span>Data via RadarDEX · Warp · ArcExplorer · Arc Mainnet · chain 5042</span>
           <span>Not financial advice · early launches are high-risk</span>
         </div></footer>
       </div>
