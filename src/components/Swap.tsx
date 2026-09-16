@@ -154,6 +154,13 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     && fromA.toLowerCase() === usdcK && to && to.address.toLowerCase() === warpMeta.addr);
   // Uniswap V3 (Argus factory) trade = one side USDC, the other a V3-pooled token (buy OR sell).
   const v3Trade = !!(warpMode && from && to && ((fromA.toLowerCase() === usdcK && v3PoolFor(to.address)) || (toA.toLowerCase() === usdcK && v3PoolFor(from.address))));
+  // Auto-refresh the live quote every 12s (mainnet pools move fast — keeps the shown amount current).
+  const [refreshTick, setRefreshTick] = useState(0);
+  useEffect(() => {
+    if (!warpMode || !amt) return;
+    const id = setInterval(() => setRefreshTick((t) => t + 1), 12000);
+    return () => clearInterval(id);
+  }, [warpMode, amt]);
 
   useEffect(() => {
     const n = parseFloat(amt);
@@ -204,7 +211,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setQuote(q);
     }, 450);
     return () => clearTimeout(id);
-  }, [amt, fromA, toA, decIn, decOut, warpMode, warpMeta, wallet, v3Trade]); // eslint-disable-line
+  }, [amt, fromA, toA, decIn, decOut, warpMode, warpMeta, wallet, v3Trade, refreshTick]); // eslint-disable-line
 
   const outHuman = v3q != null && decOut != null ? fromRaw(v3q.outRaw, decOut)
     : curveOut != null && decOut != null ? fromRaw(curveOut, decOut)
@@ -251,7 +258,9 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     try {
       setMsg('Switch your wallet to Arc mainnet…');
       if (!(await ensureChain(MAINNET_CHAIN_ID))) { setPhase('error'); setMsg('Please switch your wallet to Arc mainnet (chain 5042) to trade.'); return; }
-      const tx = buildCurveBuyTx(warpMeta.curve, n, minOut(curveOut, slip), wallet);
+      // Fresh quote at execution so min-out matches the current curve price (avoids stale-price reverts).
+      const fresh = await quoteCurveBuy(warpMeta.curve, n, wallet);
+      const tx = buildCurveBuyTx(warpMeta.curve, n, minOut(fresh ?? curveOut, slip), wallet);
       const rev = await simulate(tx);
       if (rev) { setPhase('error'); setMsg(`Buy would revert: ${rev}. Try higher slippage or a smaller size.`); return; }
       setPhase('swapping'); setMsg('Confirm the buy in your wallet…');
@@ -277,7 +286,11 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
         setPhase('approving'); setMsg(`One-time approval for ${from.symbol}…`);
         if (!(await waitReceipt(await sendTx(buildApproveTx(from.address, V3_ROUTER, MAX_UINT256, wallet))))) { setPhase('error'); setMsg('Approval failed.'); return; }
       }
-      const tx = buildV3SwapTx(from.address, to.address, v3q.fee, amountInRaw, minOut(v3q.outRaw, slip), wallet);
+      // Re-quote at the moment of execution so min-out reflects the CURRENT price (these pools move
+      // fast; a stale display quote is what caused reverts). Approval can take a few blocks too.
+      const fresh = await quoteV3(from.address, to.address, amountInRaw);
+      if (!fresh) { setPhase('error'); setMsg('Could not refresh the quote — try again.'); return; }
+      const tx = buildV3SwapTx(from.address, to.address, fresh.fee, amountInRaw, minOut(fresh.outRaw, slip), wallet);
       const rev = await simulate(tx);
       if (rev) { setPhase('error'); setMsg(`Swap would revert: ${rev}. Try a higher slippage.`); return; }
       setPhase('swapping'); setMsg('Confirm the swap in your wallet…');
