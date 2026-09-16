@@ -177,6 +177,15 @@ async function radarGet(path: string): Promise<any> {
   return r.json();
 }
 const rnum = (v: any): number | null => (v == null || isNaN(Number(v)) ? null : Number(v));
+// Unwrap Next.js image-optimizer URLs (e.g. arguspad.io/_next/image?url=<ipfs>&w=128) to the underlying
+// image. Those optimizer endpoints rate-limit (HTTP 429) so the <img> fails and falls back to a letter
+// tile; the wrapped source (IPFS/pinata) loads reliably. Applies to every launchpad's logos.
+function normIcon(u: string | null | undefined): string | null {
+  if (!u) return null;
+  const m = u.match(/\/_next\/image\?url=([^&]+)/);
+  if (m) { try { return decodeURIComponent(m[1]); } catch { return u; } }
+  return u;
+}
 // Launchpad display names (radar uses lowercase slugs). Falls back to a capitalized slug.
 const RADAR_LP: Record<string, string> = {
   argus: 'Argus', tolly: 'Tolly', long: 'LONG', dyor: 'DYOR', o1: 'O1', warp: 'Warp',
@@ -194,7 +203,7 @@ export async function fetchRadarTokens(limit = 500): Promise<Token[]> {
       return {
         address: (t.address || '').toLowerCase(), name: t.name || t.symbol || '?', symbol: t.symbol || '?',
         holders: t.holderCount != null ? Number(t.holderCount) : null, totalSupply: null, type: 'ERC-20',
-        iconUrl: t.icon || null, launchpad: lp, isOurs: false, isEcosystem: false,
+        iconUrl: normIcon(t.icon), launchpad: lp, isOurs: false, isEcosystem: false,
         price: rnum(t.price), liq: rnum(t.liquidityUsdc), mcap: rnum(t.mcap),
         volume24h: rnum(t.volume24 ?? t.volume24hFixed), change24h: rnum(t.change24h),
         createdAt: deploy != null ? deploy * 1000 : null,
@@ -210,7 +219,7 @@ export async function fetchRadarPortfolio(addr: string): Promise<{ total: number
     const j = await radarGet(`/portfolio/${addr.toLowerCase()}`);
     const holdings: RadarHolding[] = (Array.isArray(j.holdings) ? j.holdings : []).map((h: any) => ({
       address: (h.address || '').toLowerCase(), symbol: h.symbol || '?', name: h.name || h.symbol || '?',
-      decimals: h.decimals ?? 18, icon: h.icon || null, price: rnum(h.price),
+      decimals: h.decimals ?? 18, icon: normIcon(h.icon), price: rnum(h.price),
       amount: Number(h.amount ?? h.balance ?? 0), usd: rnum(h.usd ?? h.value),
     })).filter((h: RadarHolding) => h.address && h.amount > 0);
     return { total: rnum(j.total), holdings };
