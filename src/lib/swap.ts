@@ -431,6 +431,19 @@ export async function quoteCurveBuy(curve: string, usdcHuman: number, from: stri
 export function buildCurveBuyTx(curve: string, usdcHuman: number, minOutRaw: bigint, from: string): TxReq {
   return { to: curve, from, value: usdcToNativeHex(usdcHuman), data: CURVE_BUY_SEL + padU(minOutRaw) };
 }
+// Curve SELL: sell(uint256 amount, uint256 minUsdcOut) = 0xd79875eb. Approve token → curve, then sell.
+// eth_call of sell(amount, 0) returns USDC out in 18-dec NATIVE — we convert to 6-dec for the UI.
+// Verified on-chain 2026-09-16 (round-trip on BLOB curve). minUsdcOut on-chain is also 18-dec native.
+const CURVE_SELL_SEL = '0xd79875eb';
+export async function quoteCurveSell(curve: string, amountRaw: bigint, from: string): Promise<bigint | null> {
+  if (amountRaw <= 0n) return null;
+  const j = await rpc('eth_call', [{ from, to: curve, data: CURVE_SELL_SEL + padU(amountRaw) + padU(0n) }, 'latest']);
+  if (!j || j.error || !j.result || j.result === '0x') return null;
+  try { const native18 = BigInt(j.result.slice(0, 66)); return native18 > 0n ? native18 / (10n ** 12n) : null; } catch { return null; } // → 6-dec USDC
+}
+export function buildCurveSellTx(curve: string, amountRaw: bigint, minUsdc6: bigint, from: string): TxReq {
+  return { to: curve, from, value: '0x0', data: CURVE_SELL_SEL + padU(amountRaw) + padU(minUsdc6 * (10n ** 12n)) };
+}
 
 // ── Uniswap V3 (Argus factory) trading (in-app, chain 5042) ──────────────────
 // The deepest-liquidity Arc tokens (ARGUS/CRCL/LONG/TOLLY/Architects…) trade on Uniswap V3 pools

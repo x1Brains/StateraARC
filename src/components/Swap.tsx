@@ -5,7 +5,7 @@ import {
   buildApproveTx, buildSwapTx, simulate, minOut, toRaw, fromRaw, feeCandidates, MAX_UINT256,
   permitInfo, buildPermitTypedData, buildSwapWithPermitTx, type Quote, type TxReq,
   setSwapMainnet, activeScan, MAINNET_CHAIN_ID, quoteCurveBuy, buildCurveBuyTx,
-  quoteV3, buildV3SwapTx, v3PoolFor, V3_ROUTER,
+  quoteCurveSell, buildCurveSellTx, quoteV3, buildV3SwapTx, v3PoolFor, V3_ROUTER,
 } from '../lib/swap';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenPicker } from './TokenPicker';
@@ -148,10 +148,14 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     return () => { alive = false; };
   }, [warpTokenAddr]);
   const [curveOut, setCurveOut] = useState<bigint | null>(null); // in-app curve-buy expected tokens
+  const [curveSellOut, setCurveSellOut] = useState<bigint | null>(null); // curve-sell expected USDC (6-dec)
   const [v3q, setV3q] = useState<{ outRaw: bigint; fee: number; tokenIn: string; tokenOut: string } | null>(null); // Uni V3 quote
   // Curve BUY = paying USDC into a non-graduated curve token's curve contract (no WarpV2 route needed).
   const curveBuyable = !!(warpMode && warpMeta && !warpMeta.migrated && warpMeta.curve
     && fromA.toLowerCase() === usdcK && to && to.address.toLowerCase() === warpMeta.addr);
+  // Curve SELL = sending a non-graduated curve token back into its curve for USDC.
+  const curveSellable = !!(warpMode && warpMeta && !warpMeta.migrated && warpMeta.curve
+    && toA.toLowerCase() === usdcK && from && from.address.toLowerCase() === warpMeta.addr);
   // Uniswap V3 (Argus factory) trade = one side USDC, the other a V3-pooled token (buy OR sell).
   const v3Trade = !!(warpMode && from && to && ((fromA.toLowerCase() === usdcK && v3PoolFor(to.address)) || (toA.toLowerCase() === usdcK && v3PoolFor(from.address))));
   // Auto-refresh the live quote every 12s (mainnet pools move fast — keeps the shown amount current).
@@ -164,7 +168,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
 
   useEffect(() => {
     const n = parseFloat(amt);
-    setQuote(null); setQErr(null); setEstimate(null); setCurveOut(null); setV3q(null);
+    setQuote(null); setQErr(null); setEstimate(null); setCurveOut(null); setCurveSellOut(null); setV3q(null);
     if (!from || !to || !n || n <= 0) return;
 
     // ── Warp / mainnet token → real WarpV2 quote, with a price-estimate fallback ──
@@ -188,6 +192,12 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
           const raw = await quoteCurveBuy(warpMeta!.curve!, n, wallet);
           if (seq !== qSeq.current) return;
           if (raw) { setQuoting(false); setCurveOut(raw); return; }
+        }
+        // Curve SELL: a non-graduated curve token → USDC, quoted live from the curve (6-dec out).
+        if (curveSellable && wallet && decIn != null) {
+          const usdc6 = await quoteCurveSell(warpMeta!.curve!, toRaw(n, decIn), wallet);
+          if (seq !== qSeq.current) return;
+          if (usdc6) { setQuoting(false); setCurveSellOut(usdc6); return; }
         }
         setQuoting(false);
         // No route (v4-only token, or selling a curve token) → price estimate + Warp link fallback.
@@ -215,11 +225,13 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
 
   const outHuman = v3q != null && decOut != null ? fromRaw(v3q.outRaw, decOut)
     : curveOut != null && decOut != null ? fromRaw(curveOut, decOut)
+    : curveSellOut != null && decOut != null ? fromRaw(curveSellOut, decOut)
     : estimate ? estimate.out
     : (quote && decOut != null ? fromRaw(quote.amountOutRaw, decOut) : null);
   const minRecv = quote && decOut != null ? fromRaw(minOut(quote.amountOutRaw, slip), decOut)
     : v3q != null && decOut != null ? fromRaw(minOut(v3q.outRaw, slip), decOut)
-    : (curveOut != null && decOut != null ? fromRaw(minOut(curveOut, slip), decOut) : null);
+    : curveOut != null && decOut != null ? fromRaw(minOut(curveOut, slip), decOut)
+    : (curveSellOut != null && decOut != null ? fromRaw(minOut(curveSellOut, slip), decOut) : null);
   const rate = outHuman && parseFloat(amt) ? outHuman / parseFloat(amt) : null;
 
   const fromBalRaw = from ? bal[from.address.toLowerCase()] : undefined;
@@ -267,6 +279,33 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       const sh = await sendTx(tx); setHash(sh);
       if (!(await waitReceipt(sh))) { setPhase('error'); setMsg('Buy transaction failed.'); return; }
       setPhase('done'); setMsg(`Bought ${to?.symbol} for ${amt} USDC.`);
+      setAmt(''); setPhaseTick((t) => t + 1);
+    } catch (e: any) { setPhase('error'); setMsg(e?.message?.slice(0, 120) || 'Transaction rejected.'); }
+  };
+
+  // In-app SELL of a Warp bonding-curve token: approve token → curve, then curve.sell(amount, minUsdc).
+  const executeCurveSell = async () => {
+    if (!wallet || !warpMeta?.curve || !from || decIn == null || curveSellOut == null) return;
+    setPhase('idle'); setMsg(null); setHash(null);
+    try {
+      setMsg('Switch your wallet to Arc mainnet…');
+      if (!(await ensureChain(MAINNET_CHAIN_ID))) { setPhase('error'); setMsg('Please switch your wallet to Arc mainnet (chain 5042) to trade.'); return; }
+      setMsg(null);
+      const amountInRaw = toRaw(parseFloat(amt), decIn);
+      const bal = await balanceOf(from.address, wallet);
+      if (bal < amountInRaw) { setPhase('error'); setMsg(`Insufficient ${from.symbol} balance.`); return; }
+      if ((await allowance(from.address, wallet, warpMeta.curve)) < amountInRaw) {
+        setPhase('approving'); setMsg(`One-time approval for ${from.symbol}…`);
+        if (!(await waitReceipt(await sendTx(buildApproveTx(from.address, warpMeta.curve, MAX_UINT256, wallet))))) { setPhase('error'); setMsg('Approval failed.'); return; }
+      }
+      const fresh = await quoteCurveSell(warpMeta.curve, amountInRaw, wallet); // fresh min-out at current curve price
+      const tx = buildCurveSellTx(warpMeta.curve, amountInRaw, minOut(fresh ?? curveSellOut, slip), wallet);
+      const rev = await simulate(tx);
+      if (rev) { setPhase('error'); setMsg(`Sell would revert: ${rev}. Try a higher slippage.`); return; }
+      setPhase('swapping'); setMsg('Confirm the sell in your wallet…');
+      const sh = await sendTx(tx); setHash(sh);
+      if (!(await waitReceipt(sh))) { setPhase('error'); setMsg('Sell transaction failed.'); return; }
+      setPhase('done'); setMsg(`Sold ${amt} ${from.symbol} for USDC.`);
       setAmt(''); setPhaseTick((t) => t + 1);
     } catch (e: any) { setPhase('error'); setMsg(e?.message?.slice(0, 120) || 'Transaction rejected.'); }
   };
@@ -436,6 +475,13 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               <div className="sq-row"><span>Route</span><span className="mono">Uniswap V3 · {(v3q.fee / 10000).toFixed(2)}% fee</span></div>
             </div>
           )}
+          {(curveOut != null || curveSellOut != null) && rate != null && (
+            <div className="swap-quote">
+              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {compact(rate)} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? compact(minRecv) : '—'} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Route</span><span className="mono">Warp bonding curve</span></div>
+            </div>
+          )}
           {estimate && rate != null && (
             <div className="swap-quote">
               <div className="sq-row"><span>Est. rate</span><span className="mono">1 {from?.symbol} ≈ {compact(rate)} {to?.symbol}</span></div>
@@ -451,7 +497,9 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
                   ? <><b>Arc mainnet · live.</b> Routed through Uniswap V3 (Argus) on Arc mainnet (chain 5042). One-time token approval, then min received is enforced at your slippage.</>
                 : (curveBuyable && curveOut != null)
                   ? <><b>Arc mainnet · live.</b> Buying on Warp's bonding curve, in-app (chain 5042) — you pay USDC directly, no approval. Min received is enforced at your slippage.</>
-                  : <><b>Arc mainnet token (via Warp).</b> No in-app route for this side yet — Uniswap-v4-only pairs aren't fillable here. The figure is a price <b>estimate</b>; use the Warp link below.</>}
+                : (curveSellable && curveSellOut != null)
+                  ? <><b>Arc mainnet · live.</b> Selling on Warp's bonding curve, in-app (chain 5042). One-time token approval, then min received is enforced at your slippage.</>
+                  : <><b>Arc mainnet · live (chain 5042).</b> Fetching the best route for this pair… if it doesn't resolve, it may route only on Uniswap v4 — you can trade it on Warp meanwhile.</>}
             </div>
           )}
           {qErr && <div className="swap-info err"><span>{qErr}</span><span /></div>}
@@ -465,6 +513,10 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
             : (curveBuyable && curveOut != null)
               ? <button className="btn solid swap-cta" onClick={executeCurveBuy} disabled={busy}>
                   {phase === 'swapping' ? 'Buying…' : `Buy ${to?.symbol}`}
+                </button>
+            : (curveSellable && curveSellOut != null)
+              ? <button className="btn solid swap-cta" onClick={executeCurveSell} disabled={busy}>
+                  {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Selling…' : `Sell ${from?.symbol}`}
                 </button>
             : (warpMode && !quote)
               ? (warpTokenAddr && !quoting
