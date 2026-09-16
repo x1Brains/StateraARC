@@ -27,10 +27,14 @@ export function TokenPage() {
       <section className="tok-hero">
         <div className="tok-hero-bg"><img src="/hero-lava-2.jpg" alt="" /></div>
         <div className="tok-hero-inner">
+          <div className="tok-not-live">
+            <span className="tnl-tag"><span className="tnl-dot" /> Not live</span>
+            <div className="tnl-h">$STR is not launched yet</div>
+            <p className="tnl-p">There is <b>no STR token, no contract, and no presale</b> right now. Anything claiming to be “$STR” or a Statera presale today is a <b>scam</b>. The official launch and the real contract address will be announced <b>here on StateraArc</b> — nowhere else.</p>
+          </div>
           <div className="tok-logo-wrap">
             <img className="tok-logo" src="/str-logo.jpg" alt="Statera Arc" />
           </div>
-          <span className="tok-soon"><span className="tok-soon-dot" /> Not live yet · Coming to Arc</span>
           <h1 className="tok-title">$<span className="r">STR</span></h1>
           <p className="tok-tag">The token of <b>Statera</b> — tied into <span className="r">X1 City</span>, a web3 GameFi world in Unreal Engine 5.</p>
           <p className="tok-lede">A sealed ERC-20 with no one at the wheel — no owner, no admin keys, nothing anyone (us included) can change once it ships: 21,000,000 fixed supply, no mint, burnable. Hold it on Arc and you plug into X1 City — the open world we’re building.</p>

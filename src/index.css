@@ -683,6 +683,19 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
   box-shadow: 0 0 54px 4px rgba(255,105,35,.34), 0 0 0 1px rgba(255,255,255,.08), 0 12px 44px rgba(0,0,0,.5); }
 .tok-soon { display: inline-flex; align-items: center; gap: 8px; font: 700 10px var(--disp); letter-spacing: 2px; text-transform: uppercase; color: var(--chrome); padding: 6px 15px; border: 1px solid var(--red-dim); border-radius: 999px; background: rgba(0,0,0,.42); margin-bottom: 20px; }
 .tok-soon-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 10px var(--red); animation: pulse 2s infinite; }
+
+/* Big "not live yet" announcement — part of the $STR hero design, impossible to miss. */
+.tok-not-live { max-width: 620px; margin: 0 auto 28px; padding: 20px 22px; border: 1px solid var(--red-dim); border-radius: 16px;
+  background: linear-gradient(160deg, rgba(255,122,30,.14), rgba(0,0,0,.5)); box-shadow: 0 0 40px rgba(255,90,26,.18), inset 0 0 0 1px rgba(255,122,30,.06); text-align: center; }
+.tnl-tag { display: inline-flex; align-items: center; gap: 8px; font: 800 11px var(--disp); letter-spacing: 2px; text-transform: uppercase; color: var(--red-hi); margin-bottom: 10px; }
+.tnl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 12px var(--red); animation: pulse 2s infinite; }
+.tnl-h { font: 800 clamp(22px, 5vw, 34px) var(--disp); letter-spacing: .5px; color: var(--white); line-height: 1.1; margin-bottom: 10px; }
+.tnl-p { font-size: 13.5px; line-height: 1.6; color: var(--gray); max-width: 540px; margin: 0 auto; }
+.tnl-p b { color: var(--red-hi); }
+
+/* Home teaser in alert mode */
+.hero-str-teaser.alert { border-color: var(--red-hi); background: linear-gradient(120deg, rgba(255,90,26,.16), rgba(0,0,0,.4)); }
+.hst-tag.warn { color: var(--white); background: var(--red); }
 .tok-title { font-family: var(--disp); font-weight: 700; font-size: clamp(64px, 13vw, 132px); line-height: .92; letter-spacing: -3px; margin: 0; text-shadow: 0 4px 44px rgba(0,0,0,.65); }
 .tok-title .r { background: var(--fire); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 4px 30px rgba(255,105,35,.55)); }
 .tok-tag { font-family: var(--disp); font-size: clamp(17px, 2.6vw, 24px); color: var(--white); margin: 18px auto 0; max-width: 620px; text-shadow: 0 2px 18px rgba(0,0,0,.65); }
