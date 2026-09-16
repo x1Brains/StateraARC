@@ -1,6 +1,6 @@
 // StateraArc — Arc chain data layer. Reads Blockscout's public API (no key, client-side).
 // Flip NET to 'mainnet' when Arc mainnet + its explorer go live (Sept 16, 2026).
-import { fetchWarpTrending } from './warp';
+import { fetchWarpTokens } from './warp';
 
 export type Net = 'testnet' | 'mainnet';
 
@@ -508,36 +508,51 @@ const ECOSYSTEM_TOKENS: { address: string; name: string; symbol: string; price: 
   { address: '0x7ce5e3fb080545c8912cf93297d93441911e9e4d', name: 'Animus BTC', symbol: 'ABTC', price: null, holders: 5566 },
 ];
 
-// The mainnet token universe for the home cards + screener: tracked deep pools (real on-chain
-// price + liquidity: WARP, ARGUS, CRCL, LONG, TOLLY, Architects, ARCANINE, COOL, ARCASH, ARCBAT, MMM)
-// merged with live Warp launchpad tokens (filtered to cut dust/dupes), plus USDC as the ecosystem anchor.
+// The FULL mainnet token universe for the screener + home cards. Merges every source we have so the
+// screener shows pages of tokens with price/liquidity/holders — like before:
+//   1. USDC + Animus ecosystem suite   2. every Warp token (~390, full price/liq/mcap/holders)
+//   3. the arc-scan holder snapshot (~146 — adds non-Warp tokens like the Animus suite / externals)
+//   4. our tracked deep V3/WarpV2 pools OVERWRITE with accurate on-chain price + liquidity (ARGUS,
+//      TOLLY, LONG, COOL, Architects… — the deepest tokens, which Warp doesn't index).
+// Deduped by address; nothing filtered out (dust sorts to the back), so the count is in the hundreds.
 export async function fetchMainnetTokens(): Promise<Token[]> {
-  const seen = new Set<string>();
-  const out: Token[] = [];
-  const add = (t: Token) => { const k = t.address.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(t); } };
+  const map = new Map<string, Token>();
   const coreMeta: Record<string, { name: string; symbol: string }> = {};
   for (const t of MAINNET_CORE) coreMeta[t.address.toLowerCase()] = { name: t.name, symbol: t.symbol };
-  add({ address: NATIVE_USDC_ADDR, name: 'USD Coin', symbol: 'USDC', holders: null, totalSupply: null, type: 'ERC-20', iconUrl: '/coins/USDC.svg', launchpad: null, isOurs: false, isEcosystem: true, price: 1, liq: null, mcap: null });
-  // Arc ecosystem = USDC + the Animus wrapped-asset suite (the biggest holder base on Arc; AUSD/AEUR
-  // are dollar/euro mirrors, the rest track their underlying). Real addresses + holder counts.
-  for (const e of ECOSYSTEM_TOKENS) add({ address: e.address, name: e.name, symbol: e.symbol, holders: e.holders, totalSupply: null, type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false, isEcosystem: true, price: e.price, liq: null, mcap: null });
+  const mk = (o: Partial<Token> & { address: string; name: string; symbol: string }): Token => ({
+    holders: null, totalSupply: null, type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false,
+    isEcosystem: false, price: null, liq: null, mcap: null, ...o, address: o.address.toLowerCase(),
+  });
+  const set = (t: Token, overwrite = false) => { const k = t.address.toLowerCase(); if (!map.has(k) || overwrite) map.set(k, t); };
+
+  // 1) USDC + Animus ecosystem
+  set(mk({ address: NATIVE_USDC_ADDR, name: 'USD Coin', symbol: 'USDC', iconUrl: '/coins/USDC.svg', isEcosystem: true, price: 1 }));
+  for (const e of ECOSYSTEM_TOKENS) set(mk({ address: e.address, name: e.name, symbol: e.symbol, holders: e.holders, isEcosystem: true, price: e.price }));
+
+  // 2) every Warp token (full data)
+  try {
+    const warp = await fetchWarpTokens('liquidity', 800);
+    for (const w of warp) if (w.address) set(mk({
+      address: w.address, name: w.name, symbol: w.ticker, holders: w.holders, iconUrl: w.image,
+      launchpad: w.migrated ? null : 'Warp', isEcosystem: /^(usdc|eurc|usyc|wusdc|usdt|dusdt|ausd|aeur)$/i.test(w.ticker),
+      price: w.price, liq: w.liquidity, mcap: w.mcap,
+    }));
+  } catch { /* Warp optional */ }
+
+  // 3) arc-scan holder snapshot — adds non-Warp tokens (holders known, price/liq land from pools if tracked)
+  try { for (const t of await fetchPremainTokens()) set(t); } catch { /* snapshot optional */ }
+
+  // 4) tracked deep pools — overwrite with accurate on-chain price + liquidity
   const stats = await mainnetStats().catch(() => ({} as Record<string, { price: number | null; liq: number | null }>));
   for (const addr of Object.keys(MAINNET_POOL)) {
-    const m = coreMeta[addr]; const s = stats[addr] || { price: null, liq: null };
-    add({ address: addr, name: m?.name || addr.slice(0, 10), symbol: m?.symbol || '?', holders: null, totalSupply: null,
-      type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false,
-      isEcosystem: false, price: s.price, liq: s.liq, mcap: null }); // tracked tokens are utility/memes, not core stablecoins
+    const s = stats[addr] || { price: null, liq: null }; const cur = map.get(addr); const m = coreMeta[addr];
+    set(mk({
+      address: addr, name: m?.name || cur?.name || addr.slice(0, 10), symbol: m?.symbol || cur?.symbol || '?',
+      holders: cur?.holders ?? null, iconUrl: cur?.iconUrl ?? null, launchpad: cur?.launchpad ?? null,
+      price: s.price ?? cur?.price ?? null, liq: s.liq ?? cur?.liq ?? null, mcap: cur?.mcap ?? null,
+    }), true);
   }
-  try {
-    const warp = await fetchWarpTrending();
-    for (const w of warp) {
-      if ((w.liquidity ?? 0) < 500) continue; // cut curve dust + impersonator dupes
-      add({ address: w.address, name: w.name, symbol: w.ticker, holders: w.holders, totalSupply: null,
-        type: 'ERC-20', iconUrl: w.image, launchpad: w.migrated ? null : 'Warp', isOurs: false,
-        isEcosystem: /^(usdc|eurc|usyc|wusdc|usdt|dusdt)$/i.test(w.ticker), price: w.price, liq: w.liquidity, mcap: w.mcap }); // only true stablecoins
-    }
-  } catch { /* Warp feed optional */ }
-  return out;
+  return [...map.values()];
 }
 
 // Top holders of a mainnet token (arc-scan indexer). share is a fraction (0.0512 = 5.12%).
