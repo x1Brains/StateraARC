@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { resolveTokenLogo } from '../lib/arc';
 
 const PALETTE = ['#ff6a1a', '#00c98d', '#00d4ff', '#bf5af2', '#d6a44b', '#ff4466', '#22c55e'];
 function colorFor(seed: string): string {
@@ -15,8 +16,17 @@ const KNOWN: Record<string, string> = {
 
 export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string; url?: string | null }) {
   const [broken, setBroken] = useState(false);
+  const [onchain, setOnchain] = useState<string | null>(null);
   const color = colorFor(seed || symbol);
-  const src = url || KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol];
+  const known = url || KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol] || '';
+  // No supplied/known logo → read it on-chain from the token address (cached).
+  useEffect(() => {
+    if (known || !/^0x[0-9a-fA-F]{40}$/.test(seed || '')) return;
+    let alive = true;
+    resolveTokenLogo(seed).then((l) => { if (alive && l) setOnchain(l); }).catch(() => {});
+    return () => { alive = false; };
+  }, [seed, known]);
+  const src = known || onchain;
   if (src && !broken) {
     return <img className="tlogo" src={src} alt={symbol} loading="lazy" onError={() => setBroken(true)} />;
   }

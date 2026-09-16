@@ -661,6 +661,38 @@ export async function fetchPoolVolume24h(token: string): Promise<number | null> 
   return usdcVol * (86400 / sampleSecs); // scale sample → 24h
 }
 
+// On-chain token logo, read straight from the token address (no third-party dependency). Arc
+// launchpad tokens expose their image on-chain in one of two shapes: a URI function (0xfb7f21eb)
+// that returns the image URI directly (ipfs:// or a plain URL), or a tokenURI() (0x3c130d90) that
+// returns a JSON-metadata URL whose { image } we fetch. ipfs:// resolves through a working gateway.
+// Cached in memory + localStorage so it paints instantly next time (matches X1's tokenLogos pattern).
+const IPFS_GW = 'https://gateway.pinata.cloud/ipfs/';
+const toHttp = (u: string) => u.trim().replace(/^ipfs:\/\//i, IPFS_GW).replace(/^ar:\/\//i, 'https://arweave.net/');
+const _logoCache = new Map<string, string | null>();
+async function _imageFromJson(url: string): Promise<string | null> {
+  try { const j = await (await fetch(url, { signal: AbortSignal.timeout(8000) })).json(); return j?.image ? toHttp(String(j.image)) : null; } catch { return null; }
+}
+export async function resolveTokenLogo(address: string): Promise<string | null> {
+  const k = address.toLowerCase();
+  if (_logoCache.has(k)) return _logoCache.get(k)!;
+  try { const ls = typeof localStorage !== 'undefined' ? localStorage.getItem('sa_logo_' + k) : null; if (ls != null) { const v = ls || null; _logoCache.set(k, v); return v; } } catch { /* no ls */ }
+  let logo: string | null = null;
+  try {
+    const a = await mReadStr(address, '0xfb7f21eb'); // image-URI function (ARGUS/ARCASH-style factories)
+    if (a && /ipfs|https?:|ar:|Qm[1-9A-HJ-NP-Za-km-z]{40}/i.test(a)) {
+      const u = toHttp(a);
+      logo = /\.json($|\?)|\/metadata\//i.test(u) ? await _imageFromJson(u) : u;
+    }
+    if (!logo) {
+      const b = await mReadStr(address, '0x3c130d90'); // tokenURI() -> JSON metadata (ARCBAT/Architects-style)
+      if (b && /^(https?:|ipfs|ar:)/i.test(b.trim())) logo = await _imageFromJson(toHttp(b));
+    }
+  } catch { /* none on-chain */ }
+  _logoCache.set(k, logo);
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem('sa_logo_' + k, logo || ''); } catch { /* no ls */ }
+  return logo;
+}
+
 // Recent on-chain Transfer events for a token (mainnet RPC eth_getLogs) — works for ANY token.
 export interface TokenTransfer { from: string; to: string; amount: number; tx: string; }
 export async function fetchTokenTransfers(address: string, decimals = 18, want = 15): Promise<TokenTransfer[]> {
