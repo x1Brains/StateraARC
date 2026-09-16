@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchHoldings, fetchHoldingsMainnet, fetchRadarPortfolio, fetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type TokenPnl } from '../lib/arc';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
-import { IconExternal, IconCheck, IconCopy } from './icons';
+import { SendModal, type SendToken } from './SendModal';
+import { IconExternal, IconCheck, IconCopy, IconSend } from './icons';
 
 const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
 const USDC_ADDR = '0x3600000000000000000000000000000000000000';
@@ -23,6 +24,9 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   const [pnlLoading, setPnlLoading] = useState(false);
 
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [sendTok, setSendTok] = useState<SendToken | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const isOwnWallet = !!wallet && !!addr && wallet.toLowerCase() === addr.toLowerCase();
   // Price lookup by token address (board prices + live mainnet pool prices).
   const priceMap = useMemo(() => {
     const m = new Map<string, number>();
@@ -81,7 +85,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [addr, mainnet]); // eslint-disable-line
+  }, [addr, mainnet, refreshTick]); // eslint-disable-line
 
   // P&L: reconstruct cost basis from the wallet's on-chain swaps once holdings are known (mainnet only).
   const holdKey = holdings.map((h) => h.address).join(',');
@@ -176,6 +180,11 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
                       <button className="pf-copy" onClick={(e) => copyAddr(e, h.address)} title="Copy token address">
                         {copied === h.address ? <IconCheck className="i" /> : <IconCopy className="i" />}
                       </button>
+                      {isOwnWallet && h.balance > 0 && (
+                        <button className="pf-copy pf-send" onClick={(e) => { e.stopPropagation(); setSendTok({ address: h.address, symbol: h.symbol, name: h.name, decimals: h.decimals, balance: h.balance, iconUrl: h.iconUrl }); }} title={`Send ${h.symbol}`}>
+                          <IconSend className="i" />
+                        </button>
+                      )}
                     </span>
                   </span>
                   <span className="num hidesm">{compact(h.balance)}</span>
@@ -204,7 +213,10 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
                         <div className="pfd"><span className="pfd-l">MC now</span><span className="pfd-v">{fmtMc(h.mcapNow)}</span></div>
                       </div>
                     )}
-                    {openable && <button className="pf-detail-cta" onClick={() => onOpenToken!(h.address)}>Open {h.symbol} chart &amp; trades <IconExternal className="i" /></button>}
+                    <div className="pf-detail-actions">
+                      {isOwnWallet && h.balance > 0 && <button className="pf-detail-cta send" onClick={() => setSendTok({ address: h.address, symbol: h.symbol, name: h.name, decimals: h.decimals, balance: h.balance, iconUrl: h.iconUrl })}><IconSend className="i" /> Send {h.symbol}</button>}
+                      {openable && <button className="pf-detail-cta" onClick={() => onOpenToken!(h.address)}>Open {h.symbol} chart &amp; trades <IconExternal className="i" /></button>}
+                    </div>
                   </div>
                 )}
                 </div>
@@ -214,6 +226,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
           {!rows.length && <div className="msg">No token holdings found for this address on {mainnet ? 'Arc Mainnet' : CHAIN.name}.</div>}
         </>
       )}
+      {sendTok && wallet && <SendModal token={sendTok} wallet={wallet} onClose={() => setSendTok(null)} onSent={() => setTimeout(() => setRefreshTick((t) => t + 1), 4000)} />}
     </section></div>
   );
 }

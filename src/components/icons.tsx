@@ -30,3 +30,6 @@ export function IconSwitch({ className }: { className?: string }) {
 export function IconPower({ className }: { className?: string }) {
   return <svg {...base} className={className}><path d="M8 2v6M4.5 4.5a5 5 0 1 0 7 0" /></svg>;
 }
+export function IconSend({ className }: { className?: string }) {
+  return <svg {...base} className={className}><path d="M14 2 7 9M14 2l-4.5 12-2.5-5-5-2.5L14 2Z" /></svg>;
+}

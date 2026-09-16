@@ -512,6 +512,41 @@ a .i, button .i { pointer-events: none; }
 .pf-pnl-pct { font-size: 10px; opacity: .85; }
 .pf-open-btn { background: transparent; border: 0; color: var(--gray-3); cursor: pointer; padding: 2px; line-height: 0; border-radius: 4px; display: inline-flex; }
 .pf-open-btn:hover { color: var(--red-hi); background: rgba(255,255,255,.06); }
+.pf-send:hover { color: #4ecb71 !important; }
+.pf-detail-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.pf-detail-cta.send { color: #4ecb71; background: rgba(62,196,111,.1); border-color: rgba(62,196,111,.4); }
+.pf-detail-cta.send:hover { background: rgba(62,196,111,.18); }
+
+/* ── Modal (Send token) ── */
+.modal-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.66); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal { width: 100%; max-width: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 30px 80px -20px rgba(0,0,0,.8); overflow: hidden; }
+.sm-head { display: flex; align-items: center; gap: 11px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.sm-head .tlogo, .sm-head .tmono { width: 34px; height: 34px; font-size: 14px; flex: 0 0 34px; }
+.sm-title { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.sm-title b { font: 800 15px var(--disp); color: var(--white); }
+.sm-title span { font-size: 11px; color: var(--gray-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sm-x { background: transparent; border: 0; color: var(--gray-2); cursor: pointer; font-size: 15px; padding: 6px; border-radius: 8px; display: inline-flex; }
+.sm-x:hover { color: var(--white); background: rgba(255,255,255,.06); }
+.sm-body { padding: 16px 18px 18px; }
+.sm-field { margin-bottom: 14px; }
+.sm-field label { display: flex; align-items: center; gap: 8px; font: 700 10px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); margin-bottom: 7px; }
+.sm-in { width: 100%; background: #060a0e; border: 1px solid var(--line); border-radius: 11px; padding: 12px 13px; color: var(--white); font: 600 15px var(--body); outline: none; }
+.sm-in.mono { font-family: var(--mono); font-size: 12.5px; }
+.sm-in:focus { border-color: var(--red-dim); }
+.sm-in::placeholder { color: var(--gray-3); }
+.sm-amt-row { position: relative; display: flex; align-items: center; }
+.sm-amt-row .sm-in { padding-right: 58px; }
+.sm-sym { position: absolute; right: 13px; font: 700 12px var(--disp); color: var(--gray); pointer-events: none; }
+.sm-max { background: rgba(255,122,30,.14); border: 1px solid var(--red-dim); color: var(--red-hi); border-radius: 5px; padding: 1px 7px; font: 700 9px var(--disp); letter-spacing: .5px; cursor: pointer; }
+.sm-max:hover { background: rgba(255,122,30,.24); }
+.sm-bal { display: block; font: 500 11.5px var(--mono); color: var(--gray-2); margin-top: 7px; }
+.sm-warn { color: var(--red-hi); font-size: 11px; }
+.sm-send { width: 100%; margin-top: 4px; justify-content: center; display: flex; align-items: center; }
+.sm-status { font-size: 12.5px; line-height: 1.5; margin-top: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.02); color: var(--gray-2); }
+.sm-status a { color: var(--red-hi); }
+.sm-status.done { border-color: rgba(46,160,67,.5); background: rgba(46,160,67,.08); color: #6ee787; }
+.sm-status.error { border-color: var(--red-dim); background: rgba(255,47,20,.06); color: #ff8a70; }
+.sm-note { font-size: 10.5px; color: var(--gray-3); line-height: 1.5; margin: 12px 0 0; }
 
 /* Expandable per-holding detail drawer (buy price, invested, MC then vs now) */
 .pf-group { border-bottom: 1px solid var(--line-soft); }
