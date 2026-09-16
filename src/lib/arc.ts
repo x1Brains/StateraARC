@@ -499,6 +499,15 @@ async function mainnetStats(): Promise<Record<string, { price: number | null; li
   return out;
 }
 
+// Arc ecosystem assets (Animus wrapped suite — biggest holder base on chain) for the Ecosystem card.
+const ECOSYSTEM_TOKENS: { address: string; name: string; symbol: string; price: number | null; holders: number }[] = [
+  { address: '0xf5b08979251f398180385b54381ee3d6fa1bbe09', name: 'Animus USD', symbol: 'AUSD', price: 1, holders: 21268 },
+  { address: '0x8cd7e5a2240a1a7efaa9b164caa1dc80e9ed23a3', name: 'Animus EUR', symbol: 'AEUR', price: 1.08, holders: 22237 },
+  { address: '0x04adf55844be2f4c8d23e3f5f2386b08400b0cd1', name: 'Animus WXT', symbol: 'AWXT', price: null, holders: 20485 },
+  { address: '0x26d1ffbbb8b310b090ee0536748b4adfc88ae644', name: 'Animus Wirex Reward', symbol: 'AWORP', price: null, holders: 14773 },
+  { address: '0x7ce5e3fb080545c8912cf93297d93441911e9e4d', name: 'Animus BTC', symbol: 'ABTC', price: null, holders: 5566 },
+];
+
 // The mainnet token universe for the home cards + screener: tracked deep pools (real on-chain
 // price + liquidity: WARP, ARGUS, CRCL, LONG, TOLLY, Architects, ARCANINE, COOL, ARCASH, ARCBAT, MMM)
 // merged with live Warp launchpad tokens (filtered to cut dust/dupes), plus USDC as the ecosystem anchor.
@@ -509,6 +518,9 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
   const coreMeta: Record<string, { name: string; symbol: string }> = {};
   for (const t of MAINNET_CORE) coreMeta[t.address.toLowerCase()] = { name: t.name, symbol: t.symbol };
   add({ address: NATIVE_USDC_ADDR, name: 'USD Coin', symbol: 'USDC', holders: null, totalSupply: null, type: 'ERC-20', iconUrl: '/coins/USDC.svg', launchpad: null, isOurs: false, isEcosystem: true, price: 1, liq: null, mcap: null });
+  // Arc ecosystem = USDC + the Animus wrapped-asset suite (the biggest holder base on Arc; AUSD/AEUR
+  // are dollar/euro mirrors, the rest track their underlying). Real addresses + holder counts.
+  for (const e of ECOSYSTEM_TOKENS) add({ address: e.address, name: e.name, symbol: e.symbol, holders: e.holders, totalSupply: null, type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false, isEcosystem: true, price: e.price, liq: null, mcap: null });
   const stats = await mainnetStats().catch(() => ({} as Record<string, { price: number | null; liq: number | null }>));
   for (const addr of Object.keys(MAINNET_POOL)) {
     const m = coreMeta[addr]; const s = stats[addr] || { price: null, liq: null };

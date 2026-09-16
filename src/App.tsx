@@ -109,6 +109,7 @@ export default function App() {
   // Home preview lists.
   const trending = useMemo(() => [...tokens].filter((t) => t.liq != null).sort(byLiq).slice(0, 6), [tokens]);
   const launches = useMemo(() => [...tokens].filter((t) => t.launchpad).sort(byLiq).slice(0, 6), [tokens]);
+  const ecosystem = useMemo(() => [...tokens].filter((t) => t.isEcosystem).sort((a, b) => (b.holders ?? -1) - (a.holders ?? -1)).slice(0, 6), [tokens]);
 
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const openToken = (addr: string) => { setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -216,9 +217,10 @@ export default function App() {
             </section>
 
             <div className="wrap"><section className="section home">
-              <div className="home-cards home-cards-2">
+              <div className="home-cards">
                 <Preview title="Trending" kicker="Most liquidity" items={trending} onOpen={openToken} onAll={() => goScreener('all')} loading={loading} />
                 <Preview title="Latest Launches" kicker="From launchpads" items={launches} onOpen={openToken} onAll={() => goScreener('new')} loading={loading} badge="launch" />
+                <Preview title="Ecosystem" kicker="Circle & Arc core" items={ecosystem} onOpen={openToken} onAll={() => goScreener('eco')} loading={loading} />
               </div>
 
               <div className="home-cta">
@@ -380,7 +382,7 @@ function Preview({ title, kicker, items, onOpen, onAll, loading, badge }:
             </span>
             <span className="hrow-px">
               <span className="hrow-price">{tprice(t.price)}</span>
-              <span className="hrow-liq">{t.liq == null ? '—' : usd(t.liq) + ' liq'}</span>
+              <span className="hrow-liq">{t.liq != null ? usd(t.liq) + ' liq' : t.holders != null ? fmt(t.holders) + ' holders' : '—'}</span>
             </span>
           </div>
         ))}
