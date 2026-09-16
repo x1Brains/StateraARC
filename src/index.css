@@ -405,11 +405,15 @@ a .i, button .i { pointer-events: none; }
   .cd-cell { flex: 1; min-width: 0; padding: 13px 4px; }
   .cd-v { font-size: 26px; }
   .cd-l { letter-spacing: 1px; }
-  /* stat + info tiles: centered & clean on mobile */
-  .stat { text-align: center; }
+  /* stat tiles: compact multi-up grid on mobile (not one giant full-width box per row) */
+  .stats { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 18px; }
+  .stats.td-stats { grid-template-columns: repeat(3, 1fr); }
+  .stat { text-align: center; padding: 12px 8px; }
   .stat::after { left: 50%; transform: translateX(-50%); }
   .stat::before { display: none; }
-  .stat .v { font-size: 24px; }
+  .stat .v { font-size: 18px; }
+  .stat .l { font-size: 8px; letter-spacing: 1px; margin-top: 2px; }
+  .td-stats .stat .v, .td-stats .stat .v.r { font-size: 14px; }
   .section-head { text-align: center; justify-content: center; }
   .section-head > div { width: 100%; }
 }
