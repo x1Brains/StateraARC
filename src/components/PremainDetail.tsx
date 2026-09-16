@@ -45,9 +45,9 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       const detail = await fetchRadarTokenDetail(address).catch(() => null);
       if (alive) setRd(detail);
       const dec = detail?.decimals ?? 18;
-      fetchRadarHolders(address, dec, 50).then((h) => { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
+      fetchRadarHolders(address, dec, 100).then((h) => { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
     })();
-    fetchTokenTransfers(address, 18, 15).then((t) => { if (alive) setTxs(t); }).catch(() => { if (alive) setTxs([]); });
+    fetchTokenTransfers(address, 18, 40).then((t) => { if (alive) setTxs(t); }).catch(() => { if (alive) setTxs([]); });
     return () => { alive = false; };
   }, [address]);
 
@@ -234,7 +234,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
             {holders == null ? <div className="side-note">Loading holders…</div>
               : !holders.length ? <div className="side-note">No holder data available from the indexer.</div>
               : <div className="hl-list">
-                  {holders.slice(0, 25).map((h) => (
+                  {holders.map((h) => (
                     <div className="hl-row" key={h.address}>
                       <span className="hl-rank">{h.rank}</span>
                       <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer">{h.address.slice(0, 8)}…{h.address.slice(-6)}</a>

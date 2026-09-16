@@ -312,7 +312,7 @@ export default function App() {
                     <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
                     <span><div className="tname">{t.name}</div><div className="tsym">{t.symbol}</div></span>
                     <span className="num">{tprice(t.price)}</span>
-                    <span className={`num chg ${t.change24h == null ? '' : t.change24h >= 0 ? 'up' : 'down'}`}>{t.change24h == null ? '—' : `${t.change24h >= 0 ? '+' : ''}${t.change24h.toFixed(1)}%`}</span>
+                    <span className={`num chg ${t.change24h == null ? '' : t.change24h >= 0 ? 'up' : 'down'}`}>{t.change24h == null ? '—' : `${t.change24h >= 0 ? '+' : ''}${t.change24h.toFixed(Math.abs(t.change24h) >= 100 ? 0 : 1)}%`}</span>
                     <span className={`num hidesm${sort === 'mcap' ? ' hot' : ''}`}>{t.mcap == null ? '—' : usd(t.mcap)}</span>
                     <span className={`num hidesm${sort === 'liq' ? ' hot' : ''}`}>{t.liq == null ? '—' : usd(t.liq)}</span>
                     <span className="num hidesm">{fmt(t.holders)}</span>

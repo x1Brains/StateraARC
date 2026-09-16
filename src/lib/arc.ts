@@ -345,13 +345,17 @@ export const compact = (n: number | null) =>
   n == null ? '—' : n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(Math.round(n));
 
 // Token price — handles both normal and sub-cent values.
+// Clean, consistent price formatting: ~4 significant figures for sub-dollar prices (no long messy
+// tails like $0.00609479), K/M for big ones. Keeps every row the same visual width on the screener.
 export const tprice = (n: number | null) => {
   if (n == null) return '—';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
   if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
   if (n >= 1) return '$' + n.toFixed(2);
   if (n >= 0.01) return '$' + n.toFixed(4);
-  if (n >= 1e-6) return '$' + n.toFixed(8).replace(/0+$/, '');
-  return '$' + n.toExponential(2);
+  if (n >= 1e-6) return '$' + Number(n.toPrecision(4)).toString();
+  if (n > 0) return '$' + n.toExponential(2);
+  return '$0';
 };
 
 // ── token detail ──
