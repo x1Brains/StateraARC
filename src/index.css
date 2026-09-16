@@ -500,6 +500,14 @@ a .i, button .i { pointer-events: none; }
 .pf-or { color: var(--gray-2); font-size: 12px; }
 .pf-row { grid-template-columns: 38px minmax(140px, 1fr) 120px 110px 120px; }
 .pf-row.head { color: var(--gray-2); }
+.pf-id { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.pf-nm { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.pf-nm .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-open { color: var(--gray-3); flex: 0 0 auto; }
+.pf-row.tok.clickable:hover .pf-open { color: var(--red-hi); }
+.pf-id .tsym { display: inline-flex; align-items: center; gap: 6px; }
+.pf-copy { background: transparent; border: 0; color: var(--gray-3); cursor: pointer; padding: 2px; line-height: 0; border-radius: 4px; display: inline-flex; }
+.pf-copy:hover { color: var(--red-hi); background: rgba(255,255,255,.06); }
 
 /* ============ swap ============ */
 .swap-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; max-width: 900px; margin: 0 auto; }

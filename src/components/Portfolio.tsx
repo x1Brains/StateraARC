@@ -2,12 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchHoldings, fetchHoldingsMainnet, fetchRadarPortfolio, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding } from '../lib/arc';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
+import { IconExternal, IconCheck, IconCopy } from './icons';
 
 const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
+const USDC_ADDR = '0x3600000000000000000000000000000000000000';
 
-export function Portfolio({ tokens, wallet, onConnect, mainnet = false }: { tokens: Token[]; wallet: string | null; onConnect: () => void; mainnet?: boolean }) {
+export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = false }: { tokens: Token[]; wallet: string | null; onConnect: () => void; onOpenToken?: (addr: string) => void; mainnet?: boolean }) {
   const [addr, setAddr] = useState('');
   const [input, setInput] = useState('');
+  const [copied, setCopied] = useState<string | null>(null);
+  const copyAddr = (e: React.MouseEvent, a: string) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(a).then(() => { setCopied(a); setTimeout(() => setCopied((c) => (c === a ? null : c)), 1200); }).catch(() => {});
+  };
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -112,15 +119,26 @@ export function Portfolio({ tokens, wallet, onConnect, mainnet = false }: { toke
                 <span /><span>Token</span><span className="num">Balance</span>
                 <span className="num hidesm">Price</span><span className="num">Value</span>
               </div>
-              {rows.map((h) => (
-                <div className="trow tok pf-row" key={h.address}>
+              {rows.map((h) => {
+                const openable = !!onOpenToken && h.address.toLowerCase() !== USDC_ADDR;
+                return (
+                <div className={`trow tok pf-row${openable ? ' clickable' : ''}`} key={h.address}
+                  onClick={() => openable && onOpenToken!(h.address)}
+                  title={openable ? `Open ${h.symbol} chart & details` : undefined}>
                   <TokenLogo symbol={h.symbol} seed={h.address} url={h.iconUrl} />
-                  <span><div className="tname">{h.name}</div><div className="tsym">{h.symbol}</div></span>
+                  <span className="pf-id">
+                    <span className="pf-nm"><span className="tname">{h.name}</span>{openable && <IconExternal className="pf-open i" />}</span>
+                    <span className="tsym">{h.symbol}
+                      <button className="pf-copy" onClick={(e) => copyAddr(e, h.address)} title="Copy token address">
+                        {copied === h.address ? <IconCheck className="i" /> : <IconCopy className="i" />}
+                      </button>
+                    </span>
+                  </span>
                   <span className="num">{compact(h.balance)}</span>
                   <span className="num hidesm">{tprice(h.price)}</span>
                   <span className="num">{h.value == null ? '—' : usd(h.value)}</span>
                 </div>
-              ))}
+              ); })}
             </div>
           )}
           {!rows.length && <div className="msg">No token holdings found for this address on {mainnet ? 'Arc Mainnet' : CHAIN.name}.</div>}

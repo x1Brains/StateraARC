@@ -361,7 +361,7 @@ export default function App() {
         )}
 
         {page === 'token' && <TokenPage />}
-        {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} mainnet />}
+        {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} onOpenToken={openToken} mainnet />}
         {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} mainnet />}
 
         <footer><div className="wrap">
