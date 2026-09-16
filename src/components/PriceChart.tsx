@@ -1,26 +1,31 @@
 import { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, type IChartApi, type ISeriesApi } from 'lightweight-charts';
+import { createChart, ColorType, LineStyle, type IChartApi, type ISeriesApi } from 'lightweight-charts';
 import { fetchWarpCandles, type Candle } from '../lib/warp';
 import { fetchPoolCandles } from '../lib/arc';
 
-// TradingView-style candlestick chart for an Arc token. Data = Warp's OHLC candles (chain 5042),
-// which powers both the pre-public and mainnet views. Testnet tokens aren't on Warp, so the chart
-// shows an honest empty state there rather than a fake line.
+// TradingView-style price chart for an Arc token. Data = Warp OHLC candles (chain 5042) with an
+// on-chain pool-swap fallback for deep V3 tokens. DEX-style controls: timeframe, candles/line, lin/log.
 const TFS = [{ k: '1m', l: '1m' }, { k: '5m', l: '5m' }, { k: '1h', l: '1H' }];
+type ChartType = 'candles' | 'line';
 
-const priceFmt = (p: number) =>
-  p >= 1000 ? '$' + (p / 1000).toFixed(2) + 'K'
-  : p >= 1 ? '$' + p.toFixed(3)
-  : p >= 0.001 ? '$' + p.toFixed(5)
-  : '$' + p.toExponential(2);
+const priceFmt = (p: number) => {
+  if (!isFinite(p) || Math.abs(p) < 1e-12) return '$0'; // kill the "-1.73e-18" near-zero axis label
+  return p >= 1000 ? '$' + (p / 1000).toFixed(2) + 'K'
+    : p >= 1 ? '$' + p.toFixed(3)
+    : p >= 0.001 ? '$' + p.toFixed(5)
+    : '$' + p.toExponential(2);
+};
 
 export function PriceChart({ address, symbol, decimals, priceScale = 1 }: { address: string; symbol?: string; decimals?: number; priceScale?: number }) {
   const [tf, setTf] = useState('5m');
+  const [type, setType] = useState<ChartType>('candles');
+  const [log, setLog] = useState(false);
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [loading, setLoading] = useState(true);
   const boxRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const seriesRef = useRef<ISeriesApi<any> | null>(null);
+  const seriesTypeRef = useRef<ChartType | null>(null);
 
   // fetch candles on address / timeframe change
   useEffect(() => {
@@ -51,30 +56,42 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1 }: { addr
       width: boxRef.current.clientWidth, height: 340,
       layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#8f8478', fontFamily: 'JetBrains Mono, monospace' },
       grid: { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } },
-      rightPriceScale: { borderColor: 'rgba(255,255,255,.08)' },
+      rightPriceScale: { borderColor: 'rgba(255,255,255,.08)', scaleMargins: { top: 0.12, bottom: 0.08 } },
       timeScale: { borderColor: 'rgba(255,255,255,.08)', timeVisible: true, secondsVisible: false },
-      crosshair: { mode: 0 },
+      crosshair: { mode: 0, horzLine: { labelBackgroundColor: '#ff5a5a' }, vertLine: { labelBackgroundColor: '#333', style: LineStyle.Dashed } },
       localization: { priceFormatter: priceFmt },
     });
-    const series = chart.addCandlestickSeries({
-      upColor: '#5ad18a', downColor: '#ff5a5a', borderVisible: false,
-      wickUpColor: '#5ad18a', wickDownColor: '#ff5a5a',
-    });
-    chartRef.current = chart; seriesRef.current = series;
+    chartRef.current = chart;
     const ro = new ResizeObserver(() => { if (boxRef.current) chart.applyOptions({ width: boxRef.current.clientWidth }); });
     ro.observe(boxRef.current);
-    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; seriesRef.current = null; };
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; seriesRef.current = null; seriesTypeRef.current = null; };
   }, []);
 
-  // push data + auto-precision + fit
+  // (re)build the series when the chart type changes, then push data on any candle/type change
   useEffect(() => {
-    if (!seriesRef.current || !candles) return;
+    const chart = chartRef.current;
+    if (!chart || !candles) return;
+    if (seriesTypeRef.current !== type) {
+      if (seriesRef.current) { chart.removeSeries(seriesRef.current); seriesRef.current = null; }
+      seriesRef.current = type === 'candles'
+        ? chart.addCandlestickSeries({ upColor: '#5ad18a', downColor: '#ff5a5a', borderVisible: false, wickUpColor: '#5ad18a', wickDownColor: '#ff5a5a' })
+        : chart.addAreaSeries({ lineColor: '#ff7a1a', lineWidth: 2, topColor: 'rgba(255,122,26,.28)', bottomColor: 'rgba(255,122,26,0)' });
+      seriesTypeRef.current = type;
+    }
+    const series = seriesRef.current;
+    if (!series) return;
     const max = candles.reduce((m, c) => Math.max(m, c.high), 0);
     const precision = max >= 100 ? 2 : max >= 1 ? 4 : max >= 0.01 ? 6 : 8;
-    seriesRef.current.applyOptions({ priceFormat: { type: 'price', precision, minMove: Math.pow(10, -precision) } });
-    seriesRef.current.setData(candles as any);
-    chartRef.current?.timeScale().fitContent();
-  }, [candles]);
+    series.applyOptions({ priceFormat: { type: 'price', precision, minMove: Math.pow(10, -precision) } });
+    const data = type === 'candles' ? candles : candles.map((c) => ({ time: c.time, value: c.close }));
+    series.setData(data as any);
+    chart.timeScale().fitContent();
+  }, [candles, type]);
+
+  // linear / log price scale
+  useEffect(() => {
+    chartRef.current?.priceScale('right').applyOptions({ mode: log ? 1 : 0 });
+  }, [log]);
 
   const empty = !loading && candles != null && candles.length === 0;
   const last = candles && candles.length ? candles[candles.length - 1].close : null;
@@ -91,6 +108,16 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1 }: { addr
         </div>
         <div className="chart-tfs">
           {TFS.map((t) => <button key={t.k} className={tf === t.k ? 'on' : ''} onClick={() => setTf(t.k)}>{t.l}</button>)}
+        </div>
+      </div>
+      <div className="chart-tools">
+        <div className="chart-seg">
+          <button className={type === 'candles' ? 'on' : ''} onClick={() => setType('candles')}>Candles</button>
+          <button className={type === 'line' ? 'on' : ''} onClick={() => setType('line')}>Line</button>
+        </div>
+        <div className="chart-seg">
+          <button className={!log ? 'on' : ''} onClick={() => setLog(false)}>Linear</button>
+          <button className={log ? 'on' : ''} onClick={() => setLog(true)}>Log</button>
         </div>
       </div>
       <div className="chart-box-wrap">
