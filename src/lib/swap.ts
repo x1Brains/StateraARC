@@ -475,13 +475,22 @@ async function v3PoolMeta(pool: string): Promise<{ token0: string; fee: number }
 }
 export const v3PoolFor = (token: string): string | undefined => V3_POOL[token.toLowerCase()];
 // Quote USDC↔token on the V3 pool from slot0 spot price. Returns { outRaw, fee, pool } or null.
+// A V3 pool must hold at least this much USDC to be routable — guards against near-empty pools
+// (e.g. ARCX10's $16 V3 pair, whose real liquidity is a hooked Uniswap-v4 pool) giving a ruinous
+// fill. Thin/absent pools return null here → the swap falls back to the Warp link, not a bad trade.
+const V3_MIN_USDC = 500n * 10n ** 6n; // $500 (6-dec USDC face)
 export async function quoteV3(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<{ outRaw: bigint; fee: number; pool: string } | null> {
   const a = tokenIn.toLowerCase(), b = tokenOut.toLowerCase();
   const token = a === USDC ? b : (b === USDC ? a : null); // one side must be native USDC
   if (!token) return null;
   const pool = V3_POOL[token]; if (!pool) return null;
-  const [meta, slot0] = await Promise.all([v3PoolMeta(pool), ethCall(pool, '0x3850c7bd')]); // slot0()
+  const [meta, slot0, usdcHex] = await Promise.all([
+    v3PoolMeta(pool), ethCall(pool, '0x3850c7bd'), // slot0()
+    ethCall(USDC, '0x70a08231000000000000000000000000' + pool.slice(2)), // USDC balanceOf(pool)
+  ]);
   if (!meta || !slot0 || slot0.length < 66) return null;
+  // Liquidity guard: skip near-empty pools (their spot price is meaningless / fills are ruinous).
+  try { if (!usdcHex || BigInt(usdcHex) < V3_MIN_USDC) return null; } catch { return null; }
   let sqrtP: bigint; try { sqrtP = BigInt('0x' + slot0.slice(2, 66)); } catch { return null; }
   if (sqrtP <= 0n) return null;
   const p2 = sqrtP * sqrtP; // price(token1/token0, raw) = p2 / 2^192
