@@ -444,6 +444,9 @@ const MAINNET_POOL: Record<string, string> = {
   '0xeb64987643db71c76b2a2be7e723decc995e5b37': '0x40732e01ba7a829dea44f51a10e7c58cd9f37765', // COOL
   '0x0bffa97f774824e9da843699aedd2835cb1b8022': '0x7dbcec05f12b14e21a79a0dc15ea9859322a4ab2', // ARCASH
   '0xbe0cad585ea2d13de2f4e36376be755c0afd8b97': '0x482a249eb473b7de0ca8357b5496ccb7c55dfb72', // ARCBAT
+  // Found via Transfer-log scan (their pools hold few tokens so they never rank as top holders).
+  '0x2ba0f44bdfc17fba30eda9cdbecb908ca45b043b': '0x2e8180fa3967caf9abf57bbaeab9ae9063bcd7ba', // CRCL (thin, high unit price)
+  '0x12ce1f970722ca6e08364b60099b3d25c09b5434': '0x4052ee5accb46785be42910a3fe965a1855b8313', // ARCX10 (thin pair)
 };
 // Live USD prices for mainnet tokens, read straight from each token's USDC pool reserves.
 export async function priceMainnet(addrs: string[]): Promise<Record<string, number>> {
