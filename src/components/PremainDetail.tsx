@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenHolders, fetchTokenTransfers, type Holder, type TokenTransfer } from '../lib/arc';
 import type { Token } from '../lib/arc';
 
 // Pre-public (chain 5042) token detail. Source: arc-scan.org REST /tokens/{a} (UNOFFICIAL indexer,
@@ -23,11 +23,21 @@ export function PremainDetail({ address, seed, onBack }: { address: string; seed
   const [warp, setWarp] = useState<WarpToken | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [holders, setHolders] = useState<Holder[] | null>(null);
+  const [txs, setTxs] = useState<TokenTransfer[] | null>(null);
 
   // Warp (chain 5042) price/mcap + it backs the candlestick chart below.
   useEffect(() => {
     let alive = true; setWarp(null);
     fetchWarpToken(address).then((w) => { if (alive) setWarp(w); });
+    return () => { alive = false; };
+  }, [address]);
+
+  // Top holders (arc-scan) + recent on-chain transfers (mainnet RPC) — for the sections below.
+  useEffect(() => {
+    let alive = true; setHolders(null); setTxs(null);
+    fetchTokenHolders(address, 20).then((h) => { if (alive) setHolders(h); }).catch(() => { if (alive) setHolders([]); });
+    fetchTokenTransfers(address, 18, 15).then((t) => { if (alive) setTxs(t); }).catch(() => { if (alive) setTxs([]); });
     return () => { alive = false; };
   }, [address]);
 
@@ -115,6 +125,39 @@ export function PremainDetail({ address, seed, onBack }: { address: string; seed
         {warp?.topHolderBps != null && <div className="ir"><span className="ir-k">Top holder</span><span className="ir-v">{(warp.topHolderBps / 100).toFixed(1)}%</span></div>}
         {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
         {d?.reservedCheck && <div className="ir"><span className="ir-k">Reserved-name check</span><span className="ir-v">{d.reservedCheck}</span></div>}
+      </div>
+
+      {/* Top holders (arc-scan) */}
+      <div className="panel side-card" style={{ marginTop: 16 }}>
+        <h3>Top Holders{holders && holders.length ? ` · ${holders.length}` : ''}</h3>
+        {holders == null ? <div className="side-note">Loading holders…</div>
+          : !holders.length ? <div className="side-note">No holder data available from the indexer.</div>
+          : <div className="hl-list">
+              {holders.map((h) => (
+                <div className="hl-row" key={h.address}>
+                  <span className="hl-rank">{h.rank}</span>
+                  <a className="hl-addr mono" href={`https://arc-scan.org/address/${h.address}`} target="_blank" rel="noreferrer">{h.address.slice(0, 8)}…{h.address.slice(-6)}{h.isContract ? ' · pool/contract' : ''}</a>
+                  <span className="hl-bal">{compact(h.balance)}</span>
+                  <span className="hl-share">{h.share != null ? h.share.toFixed(2) + '%' : '—'}</span>
+                </div>
+              ))}
+            </div>}
+      </div>
+
+      {/* Recent transactions (on-chain transfers) */}
+      <div className="panel side-card" style={{ marginTop: 16 }}>
+        <h3>Recent Transactions</h3>
+        {txs == null ? <div className="side-note">Loading transactions…</div>
+          : !txs.length ? <div className="side-note">No recent transfers found on-chain.</div>
+          : <div className="tx-list">
+              {txs.map((t, i) => (
+                <div className="tx-row" key={t.tx + i}>
+                  <span className="tx-amt">{compact(t.amount)} <span className="tx-sym">{sym}</span></span>
+                  <span className="tx-ft mono">{t.from.slice(0, 6)}…{t.from.slice(-4)} → {t.to.slice(0, 6)}…{t.to.slice(-4)}</span>
+                  <a className="tx-link" href={`https://arc-scan.org/tx/${t.tx}`} target="_blank" rel="noreferrer">view ↗</a>
+                </div>
+              ))}
+            </div>}
       </div>
 
       <TokenLinks address={address} scanBase="https://arc-scan.org" warp />

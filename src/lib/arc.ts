@@ -526,6 +526,41 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
   } catch { /* Warp feed optional */ }
   return out;
 }
+
+// Top holders of a mainnet token (arc-scan indexer). share is a fraction (0.0512 = 5.12%).
+export interface Holder { address: string; balance: number; share: number | null; rank: number; isContract: boolean; }
+export async function fetchTokenHolders(address: string, limit = 20): Promise<Holder[]> {
+  try {
+    const r = await fetch(`https://api.arc-scan.org/v1/tokens/${address}/holders?limit=${limit}`, { headers: { accept: 'application/json' } });
+    if (!r.ok) return [];
+    const j = await r.json();
+    return (j.items || []).map((h: any) => ({
+      address: (h.address?.address || h.address || '').toString(),
+      balance: Number(h.balance?.formatted ?? 0),
+      share: h.share != null ? Number(h.share) * 100 : null,
+      rank: h.rank ?? 0,
+      isContract: !!h.address?.is_contract,
+    })).filter((h: Holder) => h.address);
+  } catch { return []; }
+}
+
+// Recent on-chain Transfer events for a token (mainnet RPC eth_getLogs) — works for ANY token.
+export interface TokenTransfer { from: string; to: string; amount: number; tx: string; }
+export async function fetchTokenTransfers(address: string, decimals = 18, want = 15): Promise<TokenTransfer[]> {
+  const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+  const head = await mrpc('eth_blockNumber', []); if (!head) return [];
+  const h = BigInt(head); const out: TokenTransfer[] = [];
+  for (let i = 0; i < 8 && out.length < want; i++) {
+    const hi = h - BigInt(i * 1500), lo = hi - 1500n;
+    const logs = await mrpc('eth_getLogs', [{ address, topics: [TRANSFER], fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) }]);
+    if (Array.isArray(logs)) for (const l of [...logs].reverse()) {
+      if (out.length >= want) break;
+      if (!l.topics || l.topics.length < 3) continue;
+      try { out.push({ from: '0x' + l.topics[1].slice(26), to: '0x' + l.topics[2].slice(26), amount: Number(BigInt(l.data)) / 10 ** decimals, tx: l.transactionHash }); } catch { /* skip */ }
+    }
+  }
+  return out.slice(0, want);
+}
 export const isAddress = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
 
 // ── wallet (EIP-1193 injected, e.g. MetaMask) ──

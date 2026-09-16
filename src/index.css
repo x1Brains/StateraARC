@@ -842,3 +842,25 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 .atr-sort { display: flex; gap: 4px; align-self: flex-start; }
 .atr-sort button { font-family: var(--disp); font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--gray-2); background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
 .atr-sort button.on { background: var(--fire); color: #180a03; border-color: transparent; }
+
+/* ── nav mainnet pill (replaces the testnet toggle) ── */
+.net-live { display: inline-flex; align-items: center; gap: 7px; flex: none; font-family: var(--disp); font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--gray); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; white-space: nowrap; }
+.net-live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fire); box-shadow: 0 0 8px var(--fire); }
+
+/* ── token detail: holders + transactions ── */
+.hl-list, .tx-list { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.hl-row { display: grid; grid-template-columns: 26px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 6px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.hl-row:last-child { border-bottom: 0; }
+.hl-rank { color: var(--gray-2); font-family: var(--mono); font-size: 12px; text-align: center; }
+.hl-addr { color: var(--red-hi); text-decoration: none; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hl-addr:hover { text-decoration: underline; }
+.hl-bal { color: var(--white); font-family: var(--mono); font-size: 12px; text-align: right; }
+.hl-share { color: var(--gray); font-family: var(--mono); font-size: 12px; text-align: right; min-width: 54px; }
+.tx-row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 8px 6px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.tx-row:last-child { border-bottom: 0; }
+.tx-amt { color: var(--white); font-family: var(--mono); font-size: 12px; }
+.tx-sym { color: var(--gray-2); }
+.tx-ft { color: var(--gray); font-size: 11px; white-space: nowrap; }
+.tx-link { color: var(--red-hi); text-decoration: none; font-size: 11px; white-space: nowrap; }
+.tx-link:hover { text-decoration: underline; }
+@media (max-width: 560px) { .tx-ft { display: none; } .hl-addr { font-size: 11px; } }
