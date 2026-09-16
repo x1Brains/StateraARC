@@ -124,7 +124,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         <input className="search" placeholder="Paste an Arc / EVM address (0x…)" value={input}
           onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && track()} />
         <button className="btn ghost" onClick={track}>Track</button>
-        <button className="btn solid" onClick={onConnect}>{wallet ? short(wallet) : 'Connect Wallet'}</button>
+        {!wallet && <button className="btn solid" onClick={onConnect}>Connect Wallet</button>}
       </div>
 
       {err && <div className="msg err">{err}</div>}

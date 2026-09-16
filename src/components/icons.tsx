@@ -24,3 +24,9 @@ export function IconCheck({ className }: { className?: string }) {
 export function IconCopy({ className }: { className?: string }) {
   return <svg {...base} className={className}><rect x="5.5" y="5.5" width="8" height="8" rx="1.3" /><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" /></svg>;
 }
+export function IconSwitch({ className }: { className?: string }) {
+  return <svg {...base} className={className}><path d="M3 5.5h8M8.5 3 11 5.5 8.5 8M13 10.5H5M7.5 8 5 10.5 7.5 13" /></svg>;
+}
+export function IconPower({ className }: { className?: string }) {
+  return <svg {...base} className={className}><path d="M8 2v6M4.5 4.5a5 5 0 1 0 7 0" /></svg>;
+}

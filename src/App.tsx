@@ -8,6 +8,7 @@ import { PremainDetail } from './components/PremainDetail';
 import { TokenPage } from './components/TokenPage';
 import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
+import { WalletButton } from './components/WalletButton';
 import { IconArrowRight, IconArrowLeft } from './components/icons';
 
 type Page = 'home' | 'screener' | 'portfolio' | 'swap' | 'token';
@@ -68,6 +69,14 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(() => parsePath().selected);
   const [wallet, setWallet] = useState<string | null>(null);
   const onConnect = async () => { try { const a = await connectWallet(); if (a) setWallet(a); } catch {} };
+  const onDisconnect = () => setWallet(null);
+  const onSwitch = async () => {
+    try {
+      const eth = (window as any).ethereum;
+      await eth?.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] }).catch(() => {});
+      const a = await connectWallet(); if (a) setWallet(a);
+    } catch {}
+  };
   // Cinematic hero: one of the four lava scenes, chosen at random on each fresh load.
   const [heroVariant] = useState<number>(() => 1 + Math.floor(Math.random() * 4));
 
@@ -176,7 +185,7 @@ export default function App() {
           <div className="spacer" />
           <VisitCounter />
           <div className="net-toggle" role="group" aria-label="network"><span className="net-live"><span className="dot" /> Arc Mainnet</span></div>
-          {page === 'swap' && <button className="connect" onClick={onConnect}>{wallet ? wallet.slice(0, 6) + '…' + wallet.slice(-4) : 'Connect Wallet'}</button>}
+          {(page === 'swap' || page === 'portfolio') && <WalletButton wallet={wallet} onConnect={onConnect} onDisconnect={onDisconnect} onSwitch={onSwitch} />}
         </div></div>
 
         {/* ============ HOME ============ */}
