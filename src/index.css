@@ -385,8 +385,8 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .td-head { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
 .td-head .tlogo, .td-head .tmono { width: 52px; height: 52px; font-size: 20px; }
 .td-id { flex: 1; }
-.td-name { font-family: var(--disp); font-weight: 700; font-size: 24px; letter-spacing: .5px; }
-.td-sym { color: var(--gray-2); font-size: 16px; }
+.td-name { font-family: var(--disp); font-weight: 800; font-size: 28px; letter-spacing: .3px; color: var(--white); line-height: 1.1; }
+.td-sym { color: var(--gray-2); font-size: 15px; font-weight: 600; margin-top: 2px; }
 .td-flags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 /* copy contract address — header chip */
 .copy-addr { display: inline-flex; align-items: center; gap: 10px; margin-top: 10px; max-width: 100%;

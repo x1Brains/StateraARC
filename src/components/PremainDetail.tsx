@@ -83,6 +83,8 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const px = warp?.price ?? seed?.price ?? null;
   const liq = warp?.liquidity ?? seed?.liq ?? null;
   const mc = warp?.mcap ?? seed?.mcap ?? (px != null && supplyNum ? px * supplyNum : null);
+  // On-chain volume includes wash/bot swaps (~50× what Warp/radardex report after filtering), so
+  // showing it would clash with every other tracker — only show Warp's (filtered) 24h volume.
   const vol = warp?.volume24h ?? null;
 
   return (

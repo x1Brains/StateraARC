@@ -618,6 +618,39 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   return [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([time, v]) => ({ time, open: v.o, high: v.h, low: v.l, close: v.c }));
 }
 
+// Live 24h volume for a pooled token from its V3 pool Swap events. A full 24h scan is ~68 getLogs
+// (RPC caps ranges at ~2.5k blocks), so we sample recent swaps and scale to 24h — accurate for
+// steady flow, approximate through a burst. Returns USD volume, or null if no pool / no swaps.
+export async function fetchPoolVolume24h(token: string): Promise<number | null> {
+  const pool = MAINNET_POOL[token.toLowerCase()]; if (!pool) return null;
+  const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]);
+  if (!t0hex || !headHex) return null;
+  const usdcIsToken0 = ('0x' + t0hex.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
+  const head = BigInt(headHex);
+  const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
+  const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (Number(BigInt(hb.timestamp)) - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+  const sampleBlocks = 12000; // ~100 min sample (6 × 2000)
+  let usdcVol = 0, sawAny = false;
+  const CH = 2000n;
+  for (let from = head - BigInt(sampleBlocks); from < head; from += CH) {
+    const to = from + CH > head ? head : from + CH;
+    const logs = await mrpc('eth_getLogs', [{ address: pool, topics: [SWAP_TOPIC], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }]);
+    if (!Array.isArray(logs)) continue;
+    for (const l of logs) {
+      try {
+        const d = l.data.slice(2);
+        const raw = BigInt('0x' + d.slice(usdcIsToken0 ? 0 : 64, usdcIsToken0 ? 64 : 128)); // amount0 or amount1 (int256)
+        const signed = raw >= (1n << 255n) ? raw - (1n << 256n) : raw;
+        const abs = signed < 0n ? -signed : signed;
+        usdcVol += Number(abs) / 1e6; sawAny = true;
+      } catch { /* skip */ }
+    }
+  }
+  if (!sawAny) return 0;
+  const sampleSecs = sampleBlocks * blockTime;
+  return usdcVol * (86400 / sampleSecs); // scale sample → 24h
+}
+
 // Recent on-chain Transfer events for a token (mainnet RPC eth_getLogs) — works for ANY token.
 export interface TokenTransfer { from: string; to: string; amount: number; tx: string; }
 export async function fetchTokenTransfers(address: string, decimals = 18, want = 15): Promise<TokenTransfer[]> {
