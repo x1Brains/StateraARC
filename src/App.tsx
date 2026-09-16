@@ -184,7 +184,7 @@ export default function App() {
           </div>
           <div className="spacer" />
           <VisitCounter />
-          <div className="net-toggle" role="group" aria-label="network"><span className="net-live"><span className="dot" /> Arc Mainnet</span></div>
+          <span className="net-live" role="status" aria-label="Arc Mainnet"><span className="dot" /> Arc Mainnet</span>
           {(page === 'swap' || page === 'portfolio') && <WalletButton wallet={wallet} onConnect={onConnect} onDisconnect={onDisconnect} onSwitch={onSwitch} />}
         </div></div>
 
