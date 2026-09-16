@@ -126,6 +126,9 @@ export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; 
   // mainnet (rpc.mainnet.arc.io + WarpV2) and quote/execute for real. Tokens with no WarpV2 route
   // (e.g. Uniswap-v4-only ARGUS/CRCL) still fall back to a price estimate.
   const warpMode = !!(from && warpPx[from.address.toLowerCase()] != null) || !!(to && warpPx[to.address.toLowerCase()] != null);
+  // The Warp/mainnet token in the pair (prefer the buy side) — used for the "Trade on Warp" deep link.
+  const warpTokenAddr = (to && warpPx[to.address.toLowerCase()] != null) ? to.address
+    : (from && warpPx[from.address.toLowerCase()] != null) ? from.address : null;
   // Declared BEFORE the quote effect so it commits first — engine is on mainnet when bestQuote runs.
   useEffect(() => { setSwapMainnet(warpMode); return () => setSwapMainnet(false); }, [warpMode]);
 
@@ -339,7 +342,7 @@ export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; 
             <div className="swap-warp-note">
               {quote
                 ? <><b>Arc mainnet · live.</b> Routed through WarpV2 on Arc mainnet (chain 5042). Your wallet will switch to Arc mainnet to trade.</>
-                : <><b>Arc mainnet token (via Warp).</b> This pair has no WarpV2 route yet — the figure shown is a price <b>estimate</b> (it likely trades on Uniswap v4, not routable here yet).</>}
+                : <><b>Arc mainnet token (via Warp).</b> No WarpV2 route — it trades on Warp's bonding curve or Uniswap v4, which this swap can't fill. The figure is a price <b>estimate</b>; trade it directly on Warp below.</>}
             </div>
           )}
           {qErr && <div className="swap-info err"><span>{qErr}</span><span /></div>}
@@ -347,9 +350,9 @@ export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; 
           {!wallet
             ? <button className="btn solid swap-cta" onClick={onConnect}>Connect Wallet</button>
             : (warpMode && !quote)
-              ? <button className="btn solid swap-cta" disabled>
-                  {quoting ? 'Finding route…' : estimate ? 'Estimate only — not routable here' : to ? 'Enter an amount' : 'Select a token'}
-                </button>
+              ? (warpTokenAddr && !quoting
+                  ? <a className="btn solid swap-cta" href={`https://circlewarp.fun/trade/${warpTokenAddr}`} target="_blank" rel="noreferrer">Trade {(to && warpPx[to.address.toLowerCase()] != null ? to.symbol : from?.symbol) || ''} on Warp ↗</a>
+                  : <button className="btn solid swap-cta" disabled>{quoting ? 'Finding route…' : to ? 'Enter an amount' : 'Select a token'}</button>)
               : <button className="btn solid swap-cta" onClick={execute} disabled={!quote || busy}>
                   {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : quote ? `Swap ${from?.symbol} → ${to?.symbol}` : to ? 'Enter an amount' : 'Select a token'}
                 </button>}
@@ -366,7 +369,9 @@ export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; 
         <aside className="swap-side">
           <div className="panel side-card">
             <h3>How it works</h3>
-            <p className="side-note">StateraArc quotes your trade against every live router on {CHAIN.name} ({SWAP_CFG.routers.length} tracked) and picks the deepest fill. Native USDC (0x3600) is Arc's gas token — swaps approve it as an ERC-20, then route through on-chain pools. Your min received is enforced on-chain at your chosen slippage.</p>
+            <p className="side-note">{warpMode
+              ? <>Trading Arc mainnet (chain 5042) tokens: StateraArc routes graduated tokens through WarpV2 and fills them here. Bonding-curve and Uniswap-v4 tokens can't be filled by this router — for those you'll get a live price estimate and a one-tap link to trade on Warp. Native USDC (0x3600) is the gas token; min received is enforced on-chain.</>
+              : <>StateraArc quotes your trade against every live router on {CHAIN.name} ({SWAP_CFG.routers.length} tracked) and picks the deepest fill. Native USDC (0x3600) is Arc's gas token — swaps approve it as an ERC-20, then route through on-chain pools. Your min received is enforced on-chain at your chosen slippage.</>}</p>
           </div>
           <div className="panel side-card">
             <h3>Paste &amp; trade</h3>

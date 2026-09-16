@@ -368,6 +368,68 @@ export async function fetchHoldings(addr: string): Promise<Holding[]> {
     })
     .filter((h: Holding) => h.balance > 0);
 }
+
+// ── Mainnet holdings (chain 5042) ─────────────────────────────────────────────
+// No indexer lists a wallet's mainnet tokens (arc-scan's /address/{a}/tokens 500s, explorer.arc.io
+// isn't Blockscout), so we scan a curated + board candidate set ON-CHAIN via the mainnet RPC. Not
+// exhaustive, but returns REAL balances for the tokens that matter (WARP, watchlist, stablecoins).
+const MAINNET_RPC = (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://rpc.mainnet.arc.io';
+async function mrpc(method: string, params: any[]): Promise<any> {
+  try {
+    const r = await fetch(MAINNET_RPC, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+    const j = await r.json();
+    return j.error ? null : j.result;
+  } catch { return null; }
+}
+const mCall = (to: string, data: string) => mrpc('eth_call', [{ to, data }, 'latest']);
+const mHexToStr = (hex: string) => { let s = ''; for (let i = 0; i + 1 < hex.length; i += 2) { const c = parseInt(hex.substr(i, 2), 16); if (c) s += String.fromCharCode(c); } return s; };
+const mReadStr = async (t: string, sel: string): Promise<string | null> => {
+  const r = await mCall(t, sel); if (!r || r === '0x' || r.length < 130) return null;
+  try { const len = Number(BigInt('0x' + r.slice(66, 130))); return mHexToStr(r.slice(130, 130 + len * 2)) || null; } catch { return null; }
+};
+const NATIVE_USDC_ADDR = '0x3600000000000000000000000000000000000000';
+// Curated notable mainnet tokens (symbol/decimals known) — always scanned.
+const MAINNET_CORE: { address: string; name: string; symbol: string; decimals: number }[] = [
+  { address: '0x384c60f98ecd4c26345499345c03d677e40f115e', name: 'Warp', symbol: 'WARP', decimals: 18 },
+  { address: '0x8bcb94279fc2c984ec34e0c1f2192df8c69ea4f0', name: 'Architects', symbol: 'Architects', decimals: 18 },
+  { address: '0xece5ca8bf9220718e5727754026757512212cb3c', name: 'Argus', symbol: 'ARGUS', decimals: 18 },
+  { address: '0x2ba0f44bdfc17fba30eda9cdbecb908ca45b043b', name: 'CRCL', symbol: 'CRCL', decimals: 18 },
+  { address: '0xbc43ce8dec648ea298c4275559b81d6261c90b67', name: 'Tolly', symbol: 'TOLLY', decimals: 18 },
+  { address: '0xf3715bf5c2de299f08b81180ffb739a8372a175f', name: 'Arcanine', symbol: 'ARCANINE', decimals: 18 },
+  { address: '0x12ce1f970722ca6e08364b60099b3d25c09b5434', name: 'Arc Index 10', symbol: 'ARCX10', decimals: 18 },
+  { address: '0xd17014b731d33994e4e482c374ef375b68240087', name: 'Machines Muxing Money', symbol: 'MMM', decimals: 18 },
+  { address: '0x07704b06981ea962b87296362a1281484d160000', name: 'Arcat', symbol: 'ARCAT', decimals: 18 },
+  { address: '0xeb64987643db71c76b2a2be7e723decc995e5b37', name: 'Cool', symbol: 'COOL', decimals: 18 },
+  { address: '0x0bffa97f774824e9da843699aedd2835cb1b8022', name: 'Arcash', symbol: 'ARCASH', decimals: 18 },
+  { address: '0xbe0cad585ea2d13de2f4e36376be755c0afd8b97', name: 'Arcbat', symbol: 'ARCBAT', decimals: 18 },
+];
+export async function fetchHoldingsMainnet(addr: string, extra: { address: string; name?: string; symbol?: string }[] = []): Promise<Holding[]> {
+  const seen = new Set(MAINNET_CORE.map((t) => t.address.toLowerCase()));
+  const cands: { address: string; name?: string; symbol?: string; decimals?: number }[] = [...MAINNET_CORE];
+  for (const t of extra) { const k = t.address?.toLowerCase(); if (k && !seen.has(k)) { seen.add(k); cands.push(t); } }
+  const out: Holding[] = [];
+  // native USDC (gas token, 18-dec native face)
+  const nb = await mrpc('eth_getBalance', [addr, 'latest']);
+  if (nb) { const bal = Number(BigInt(nb)) / 1e18; if (bal > 0) out.push({ address: NATIVE_USDC_ADDR, name: 'USD Coin', symbol: 'USDC', decimals: 6, balance: bal, iconUrl: null }); }
+  const balSel = '0x70a08231000000000000000000000000' + addr.slice(2).toLowerCase();
+  const CH = 12;
+  for (let i = 0; i < cands.length; i += CH) {
+    await Promise.all(cands.slice(i, i + CH).map(async (t) => {
+      const r = await mCall(t.address, balSel);
+      if (!r || r === '0x') return;
+      let raw: bigint; try { raw = BigInt(r); } catch { return; }
+      if (raw <= 0n) return;
+      const dec = t.decimals ?? Number(BigInt((await mCall(t.address, '0x313ce567')) || '0x12'));
+      const bal = Number(raw) / 10 ** dec;
+      if (bal <= 0) return;
+      const sym = t.symbol || (await mReadStr(t.address, '0x95d89b41')) || '?';
+      const name = t.name || (await mReadStr(t.address, '0x06fdde03')) || sym;
+      out.push({ address: t.address.toLowerCase(), name, symbol: sym, decimals: dec, balance: bal, iconUrl: null });
+    }));
+  }
+  return out.sort((a, b) => b.balance - a.balance);
+}
 export const isAddress = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
 
 // ── wallet (EIP-1193 injected, e.g. MetaMask) ──

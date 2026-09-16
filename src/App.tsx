@@ -418,7 +418,7 @@ export default function App() {
 
         {page === 'watchlist' && <Watchlist net={net === 'testnet' ? 'testnet' : 'mainnet'} />}
         {page === 'token' && <TokenPage />}
-        {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} />}
+        {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} mainnet={net !== 'testnet'} />}
         {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} />}
 
         <footer><div className="wrap">

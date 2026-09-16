@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchHoldings, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding } from '../lib/arc';
+import { fetchHoldings, fetchHoldingsMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 
 const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
 
-export function Portfolio({ tokens, wallet, onConnect }: { tokens: Token[]; wallet: string | null; onConnect: () => void }) {
+export function Portfolio({ tokens, wallet, onConnect, mainnet = false }: { tokens: Token[]; wallet: string | null; onConnect: () => void; mainnet?: boolean }) {
   const [addr, setAddr] = useState('');
   const [input, setInput] = useState('');
   const [holdings, setHoldings] = useState<Holding[]>([]);
@@ -24,11 +24,14 @@ export function Portfolio({ tokens, wallet, onConnect }: { tokens: Token[]; wall
   useEffect(() => {
     if (!addr || !isAddress(addr)) return;
     setLoading(true); setErr(null); setHoldings([]);
-    fetchHoldings(addr)
-      .then(setHoldings)
+    // Mainnet has no indexer for wallet holdings, so scan the curated + board token set on-chain.
+    const p = mainnet
+      ? fetchHoldingsMainnet(addr, tokens.map((t) => ({ address: t.address, name: t.name, symbol: t.symbol })))
+      : fetchHoldings(addr);
+    p.then(setHoldings)
       .catch((e) => setErr(e.message || 'failed to load'))
       .finally(() => setLoading(false));
-  }, [addr]);
+  }, [addr, mainnet]); // eslint-disable-line
 
   const rows = useMemo(() => {
     return holdings
@@ -83,7 +86,7 @@ export function Portfolio({ tokens, wallet, onConnect }: { tokens: Token[]; wall
               ))}
             </div>
           )}
-          {!rows.length && <div className="msg">No token holdings found for this address on {CHAIN.name}.</div>}
+          {!rows.length && <div className="msg">No token holdings found for this address on {mainnet ? 'Arc Mainnet' : CHAIN.name}.</div>}
         </>
       )}
     </section></div>
