@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchHoldings, fetchHoldingsMainnet, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding } from '../lib/arc';
+import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
 
 const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
@@ -32,7 +33,18 @@ export function Portfolio({ tokens, wallet, onConnect, mainnet = false }: { toke
       : fetchHoldings(addr);
     p.then((h) => {
       setHoldings(h);
-      if (mainnet) priceMainnet(h.map((x) => x.address)).then(setLivePx).catch(() => {});
+      if (!mainnet) return;
+      // 1) on-chain pool prices; 2) Warp API fallback for whatever's left (curve/graduated Warp tokens).
+      priceMainnet(h.map((x) => x.address)).then(async (px) => {
+        setLivePx(px);
+        const usdcK = '0x3600000000000000000000000000000000000000';
+        const missing = h.filter((x) => px[x.address] == null && x.address !== usdcK).slice(0, 14);
+        const got = await Promise.all(missing.map((x) =>
+          fetchWarpToken(x.address).then((w) => [x.address, w?.price ?? null] as const).catch(() => null)));
+        const add: Record<string, number> = {};
+        for (const r of got) if (r && r[1] != null) add[r[0]] = r[1];
+        if (Object.keys(add).length) setLivePx((prev) => ({ ...prev, ...add }));
+      }).catch(() => {});
     })
       .catch((e) => setErr(e.message || 'failed to load'))
       .finally(() => setLoading(false));

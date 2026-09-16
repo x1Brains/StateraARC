@@ -53,7 +53,7 @@ async function ensureChain(chainId: number): Promise<boolean> {
 const SLIPPAGES = [0.5, 1, 3];
 
 interface Preload { address: string; symbol: string; name?: string; price?: number | null }
-export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; wallet: string | null; onConnect: () => void; preload?: Preload | null }) {
+export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { tokens: Token[]; wallet: string | null; onConnect: () => void; preload?: Preload | null; mainnet?: boolean }) {
   const [extra, setExtra] = useState<Token[]>([]);
   // Warp (Arc mainnet 5042) token USD prices — presence marks a token as "mainnet/Warp": we show a
   // price-based estimate and gate live execution until mainnet, since these trade on Uniswap v4 and
@@ -126,9 +126,12 @@ export function Swap({ tokens, wallet, onConnect, preload }: { tokens: Token[]; 
   // A Warp/mainnet token is selected. Arc mainnet (5042) is LIVE, so we flip the swap engine to
   // mainnet (rpc.mainnet.arc.io + WarpV2) and quote/execute for real. Tokens with no WarpV2 route
   // (e.g. Uniswap-v4-only ARGUS/CRCL) still fall back to a price estimate.
-  const warpMode = !!(from && warpPx[from.address.toLowerCase()] != null) || !!(to && warpPx[to.address.toLowerCase()] != null);
-  // The Warp/mainnet token in the pair (prefer the buy side) — used for the "Trade on Warp" deep link.
-  const warpTokenAddr = (to && warpPx[to.address.toLowerCase()] != null) ? to.address
+  // On the mainnet site every trade uses the mainnet engine; a Warp-priced token also forces it.
+  const warpMode = mainnet || !!(from && warpPx[from.address.toLowerCase()] != null) || !!(to && warpPx[to.address.toLowerCase()] != null);
+  // The mainnet token in the pair (the non-USDC side) — used for curve detection + the Warp link.
+  const warpTokenAddr = mainnet
+    ? (to && to.address.toLowerCase() !== usdcK ? to.address : (from && from.address.toLowerCase() !== usdcK ? from.address : null))
+    : (to && warpPx[to.address.toLowerCase()] != null) ? to.address
     : (from && warpPx[from.address.toLowerCase()] != null) ? from.address : null;
   // Declared BEFORE the quote effect so it commits first — engine is on mainnet when bestQuote runs.
   useEffect(() => { setSwapMainnet(warpMode); return () => setSwapMainnet(false); }, [warpMode]);

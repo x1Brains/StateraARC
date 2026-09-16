@@ -419,7 +419,7 @@ export default function App() {
         {page === 'watchlist' && <Watchlist net={net === 'testnet' ? 'testnet' : 'mainnet'} />}
         {page === 'token' && <TokenPage />}
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} mainnet={net !== 'testnet'} />}
-        {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} />}
+        {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} mainnet={net !== 'testnet'} />}
 
         <footer><div className="wrap">
           <span className="fbrand">STATERA · ARC</span>

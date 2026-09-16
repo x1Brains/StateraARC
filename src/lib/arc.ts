@@ -458,7 +458,11 @@ const MAINNET_POOL: Record<string, string> = {
   // Found via Transfer-log scan (their pools hold few tokens so they never rank as top holders).
   '0x2ba0f44bdfc17fba30eda9cdbecb908ca45b043b': '0x2e8180fa3967caf9abf57bbaeab9ae9063bcd7ba', // CRCL (thin, high unit price)
   '0x12ce1f970722ca6e08364b60099b3d25c09b5434': '0x4052ee5accb46785be42910a3fe965a1855b8313', // ARCX10 (thin pair)
+  '0x2164bb17a2d38c1b5170e987b2c0416df1efc752': '0xda9f3d166497ddfddf37c93cacfd8aa39b71e493', // LONG (Uni V3, ~$113k)
+  '0xd17014b731d33994e4e482c374ef375b68240087': '0x0f0333cf487a90ac7e56cba1541a1669e260cf22', // MMM (thin)
 };
+// NOTE: these are Uniswap-V3 pools (Argus factory). balanceOf-ratio is an APPROXIMATION of the V3
+// spot price (concentrated liquidity), close enough for portfolio display; exact pricing = slot0.
 // Live USD prices for mainnet tokens, read straight from each token's USDC pool reserves.
 export async function priceMainnet(addrs: string[]): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
