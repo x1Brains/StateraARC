@@ -22,6 +22,9 @@ export interface WarpToken {
   v4: boolean;
   fee: number | null;        // pool fee (raw, e.g. 100000 = 10% in v4 hundredths-of-a-bip)
   pool: string | null;       // v4 poolId (bytes32) or pool address
+  curveAddress: string | null; // Warp bonding-curve contract (buy(minOut) payable with USDC value)
+  pairAddress: string | null;  // WarpV2 pair once graduated
+  migrated: boolean;         // true once graduated off the bonding curve to its DEX
   topHolderBps: number | null; // top holder concentration, basis points
   createdAt: number | null;  // ms epoch
   windows: { '1h'?: WarpWindow; '6h'?: WarpWindow };
@@ -45,6 +48,9 @@ function norm(t: any): WarpToken {
     v4: !!t.v4,
     fee: num(t.fee),
     pool: t.pool || null,
+    curveAddress: (t.curveAddress || t.curve || null)?.toLowerCase?.() || null,
+    pairAddress: (t.pairAddress || null)?.toLowerCase?.() || null,
+    migrated: !!t.migrated,
     topHolderBps: t.topHolderBps != null ? Number(t.topHolderBps) : null,
     createdAt: num(t.createdAt),
     windows: t.windows || {},

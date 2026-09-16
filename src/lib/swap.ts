@@ -411,6 +411,27 @@ export function buildSwapTx(
   return { to: q.router, from: opts.recipient, data, value: '0x0' };
 }
 
+// ── Warp bonding-curve trading (in-app, chain 5042) ──────────────────────────
+// Warp curve tokens (pre-graduation) trade by calling the token's curve contract directly:
+//   buy(uint256 minOut) payable — send native USDC as `value`, receive tokens. No approval.
+// Verified on-chain 2026-09-16 (BLOB curve 0x96f8aa55…: 25 USDC → 6,363 BLOB). eth_call of buy(0)
+// with the USDC value returns the EXACT tokens out at the current curve state — our live quote.
+const CURVE_BUY_SEL = '0xd96a094a'; // buy(uint256 minOut)
+const usdcToNativeHex = (usdcHuman: number): string =>
+  '0x' + (BigInt(Math.round(usdcHuman * 1e6)) * (10n ** 12n)).toString(16); // USDC (6d) → native 18d wei
+
+// Live buy quote: exact tokens out for `usdcHuman` USDC into the curve, or null.
+export async function quoteCurveBuy(curve: string, usdcHuman: number, from: string): Promise<bigint | null> {
+  if (usdcHuman <= 0) return null;
+  const j = await rpc('eth_call', [{ from, to: curve, data: CURVE_BUY_SEL + padU(0n), value: usdcToNativeHex(usdcHuman) }, 'latest']);
+  if (!j || j.error || !j.result || j.result === '0x') return null;
+  try { const out = BigInt(j.result.slice(0, 66)); return out > 0n ? out : null; } catch { return null; }
+}
+// Buy `usdcHuman` USDC worth of the curve token, enforcing minOutRaw. Native-USDC value tx, no approval.
+export function buildCurveBuyTx(curve: string, usdcHuman: number, minOutRaw: bigint, from: string): TxReq {
+  return { to: curve, from, value: usdcToNativeHex(usdcHuman), data: CURVE_BUY_SEL + padU(minOutRaw) };
+}
+
 // Dry-run a built tx via eth_call to catch reverts (bad route, no liquidity, needs approval)
 // BEFORE the user signs. Returns null on success, or a decoded revert reason.
 export async function simulate(tx: TxReq): Promise<string | null> {
