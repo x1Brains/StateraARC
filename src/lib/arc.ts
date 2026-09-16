@@ -838,7 +838,9 @@ export async function connectWallet(): Promise<string | null> {
       await eth.request({ method: 'wallet_addEthereumChain', params: [{
         chainId: hexId, chainName: CHAIN.name,
         nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-        rpcUrls: [CHAIN.rpc], blockExplorerUrls: [CHAIN.scan],
+        // Official Arc RPCs only (PublicNode/Allnodes + Circle's rpc.mainnet.arc.io) + the official explorer.
+        rpcUrls: NET === 'mainnet' ? ['https://arc-rpc.publicnode.com', 'https://rpc.mainnet.arc.io'] : [CHAIN.rpc],
+        blockExplorerUrls: NET === 'mainnet' ? ['https://explorer.arc.io'] : [CHAIN.scan],
       }] });
     }
   }
