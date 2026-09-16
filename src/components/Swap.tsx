@@ -225,10 +225,11 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
           if (usdc6) { setQuoting(false); setCurveSellOut(usdc6); return; }
         }
         setQuoting(false);
-        // No route (v4-only token, or selling a curve token) → price estimate + Warp link fallback.
+        // No route via WarpV2 / V3 / V4 / curve. If we at least know both prices, show an estimate;
+        // otherwise there's no tradeable pool for this token yet on any Arc DEX we route.
         const pf = pxOf(from.address.toLowerCase()), pt = pxOf(to.address.toLowerCase());
         if (pf && pt) setEstimate({ out: (n * pf) / pt });
-        else setQErr('No WarpV2 route for this pair — it may trade only on Uniswap v4 (not yet routable here).');
+        else setQErr('No liquidity pool found for this token on Arc yet — there’s nothing to trade against. It becomes buyable here automatically once a pool is created.');
       }, 450);
       return () => clearTimeout(id);
     }
@@ -602,9 +603,11 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
                   {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Selling…' : `Sell ${from?.symbol}`}
                 </button>
             : (warpMode && !quote)
-              ? (warpTokenAddr && !quoting
-                  ? <a className="btn solid swap-cta" href={`https://circlewarp.fun/trade/${warpTokenAddr}`} target="_blank" rel="noreferrer">Trade {(to && warpPx[to.address.toLowerCase()] != null ? to.symbol : from?.symbol) || ''} on Warp <IconExternal className="i" /></a>
-                  : <button className="btn solid swap-cta" disabled>{quoting ? 'Finding route…' : to ? 'Enter an amount' : 'Select a token'}</button>)
+              ? (!quoting && warpTokenAddr && warpPx[warpTokenAddr.toLowerCase()] != null
+                  // The traded token is actually on Warp → offer the Warp deep-link.
+                  ? <a className="btn solid swap-cta" href={`https://circlewarp.fun/trade/${warpTokenAddr}`} target="_blank" rel="noreferrer">Trade on Warp <IconExternal className="i" /></a>
+                  // Otherwise (e.g. a token with no pool yet) → an honest disabled state, no bogus Warp link.
+                  : <button className="btn solid swap-cta" disabled>{quoting ? 'Finding route…' : !to ? 'Select a token' : !amt ? 'Enter an amount' : 'No liquidity pool yet'}</button>)
               : <button className="btn solid swap-cta" onClick={execute} disabled={!quote || busy}>
                   {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : quote ? `Swap ${from?.symbol} to ${to?.symbol}` : to ? 'Enter an amount' : 'Select a token'}
                 </button>}
