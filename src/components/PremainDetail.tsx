@@ -74,7 +74,7 @@ export function PremainDetail({ address, seed, onBack }: { address: string; seed
 
       <div className="prepublic-banner" style={{ marginTop: 14 }}>
         <span className="pp-dot" />
-        <div><b>PRE-PUBLIC · chain 5042</b> — unofficial data from an independent indexer (arc-scan.org), <b>not Circle</b>. Holder/supply figures are indexer-computed and unverified. Impersonation is common on this chain — trust the <b>exact address</b>, not the symbol.</div>
+        <div><b>Arc Mainnet · chain 5042</b> — unofficial data from independent indexers (arc-scan.org · Warp), <b>not Circle</b>. Holder/supply figures are indexer-computed and unverified. Impersonation is common on this chain — trust the <b>exact address</b>, not the symbol.</div>
       </div>
 
       <div className="td-head">
@@ -89,7 +89,7 @@ export function PremainDetail({ address, seed, onBack }: { address: string; seed
         </div>
       </div>
 
-      {err && <div className="msg err">Indexer error: {err}. The pre-public source (arc-scan.org) is flaky — try again.</div>}
+      {err && <div className="msg err">Indexer error: {err}. The indexer source (arc-scan.org) is flaky — try again.</div>}
 
       <div className="stats" style={{ marginTop: 16 }}>
         <div className="stat"><div className="v r">{warp?.price != null ? tprice(warp.price) : '—'}</div><div className="l">Price</div></div>

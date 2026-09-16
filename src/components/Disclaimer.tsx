@@ -12,7 +12,7 @@ const POINTS = [
   ['Not financial advice', 'A data & tooling hub, not an advisor. Nothing here is a recommendation.'],
   ['Extremely volatile', 'Most tokens go to zero. Never risk what you can’t afford to lose.'],
   ['Unaudited software', 'This site and the contracts it touches aren’t audited. Use at your own risk.'],
-  ['Unofficial data', 'Testnet & pre-public (5042) data is unverified — treat it as indicative only.'],
+  ['Unofficial data', 'Arc mainnet (5042) & testnet data comes from third-party indexers — unverified, treat as indicative only.'],
   ['Your keys, your risk', 'You’re responsible for your wallet and every tx you sign. Verify addresses yourself.'],
   ['No liability', 'No recourse, refund, or insurance. Do your own research.'],
 ];

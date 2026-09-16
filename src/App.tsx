@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchTokens, fetchPremainTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN, NET, LAUNCHPADS, MAINNET_LAUNCH_ISO, MAINNET_LIVE, type Token, type MarketPx, type PremainMeta } from './lib/arc';
+import { fetchTokens, fetchPremainTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN, LAUNCHPADS, type Token, type MarketPx, type PremainMeta } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { TokenDetail } from './components/TokenDetail';
 import { Portfolio } from './components/Portfolio';
@@ -70,8 +70,10 @@ export default function App() {
   const [perPage, setPerPage] = useState(100);
   const [selected, setSelected] = useState<string | null>(() => parseHash().selected);
   type Net3 = 'testnet' | 'premain' | 'mainnet';
+  // 'premain' = the live Arc mainnet board (chain 5042, via Warp/arc-scan). It is the DEFAULT +
+  // primary view now that mainnet RPC is public. Testnet is a secondary opt-in switch.
   const [net, setNet] = useState<Net3>(() => {
-    try { return (localStorage.getItem('statera-net') as Net3) || 'testnet'; } catch { return 'testnet'; }
+    try { return localStorage.getItem('statera-net') === 'testnet' ? 'testnet' : 'premain'; } catch { return 'premain'; }
   });
   const switchNet = (n: Net3) => { setNet(n); setSelected(null); try { localStorage.setItem('statera-net', n); } catch {} };
   const [premainMetaState, setPremainMetaState] = useState<PremainMeta | null>(null);
@@ -179,24 +181,11 @@ export default function App() {
           <div className="spacer" />
           <VisitCounter />
           <div className="net-toggle" role="group" aria-label="network">
+            <button className={net === 'premain' ? 'on' : ''} onClick={() => switchNet('premain')} title="Arc mainnet · chain 5042">Mainnet</button>
             <button className={net === 'testnet' ? 'on' : ''} onClick={() => switchNet('testnet')}>Testnet</button>
-            <button className={net === 'premain' ? 'on' : ''} onClick={() => switchNet('premain')} title="Chain 5042 · unofficial pre-public source">Pre-Public</button>
-            <button className={net === 'mainnet' ? 'on' : ''} onClick={() => switchNet('mainnet')}>Mainnet</button>
           </div>
           {(page === 'portfolio' || page === 'swap') && <button className="connect" onClick={onConnect}>{wallet ? wallet.slice(0, 6) + '…' + wallet.slice(-4) : 'Connect Wallet'}</button>}
         </div></div>
-
-        {/* mainnet gate (home + screener) — live countdown to Sept 16, 2026 */}
-        {(page === 'home' || page === 'screener') && net === 'mainnet' && !MAINNET_LIVE && (
-          <div className="wrap"><section className="section">
-            <div className="soon cd-card">
-              <span className="badge b-red">Mainnet · Sept 16, 2026</span>
-              <h2>Arc Mainnet goes live in</h2>
-              <Countdown iso={MAINNET_LAUNCH_ISO} />
-              <p>Circle's Arc public mainnet launches <b style={{ color: 'var(--white)' }}>September 16, 2026</b>. StateraArc flips to live mainnet data automatically the moment it's on — no redeploy. For now, explore real tokens on <b style={{ color: 'var(--red-hi)', cursor: 'pointer' }} onClick={() => switchNet('testnet')}>Testnet</b>.</p>
-            </div>
-          </section></div>
-        )}
 
         {/* ============ HOME ============ */}
         {page === 'home' && net === 'testnet' && (
@@ -247,13 +236,10 @@ export default function App() {
               </div>
             </section>
 
-            {!MAINNET_LIVE && (
-              <div className="wrap"><div className="cd-banner" onClick={() => switchNet('mainnet')}>
-                <span className="cd-banner-l"><span className="dot" /> Arc Mainnet · Sept 16, 2026</span>
-                <Countdown iso={MAINNET_LAUNCH_ISO} compact />
-                <span className="cd-banner-cta">Countdown →</span>
-              </div></div>
-            )}
+            <div className="wrap"><div className="cd-banner" onClick={() => switchNet('premain')}>
+              <span className="cd-banner-l"><span className="dot" /> Arc Mainnet is LIVE · chain 5042</span>
+              <span className="cd-banner-cta">Open the Mainnet board →</span>
+            </div></div>
 
             <div className="wrap"><section className="section home">
               <div className="home-cards">
@@ -274,16 +260,16 @@ export default function App() {
           </>
         )}
 
-        {/* premain (chain 5042) home — compact intro to the pre-public board */}
+        {/* mainnet (chain 5042) home — live trending board front and center */}
         {page === 'home' && net === 'premain' && (
           <div className="wrap"><section className="section">
             <div className="prepublic-banner big">
               <span className="pp-dot" />
               <div>
-                <div className="kicker" style={{ marginBottom: 6 }}>Pre-Public · Chain 5042</div>
-                <h2 style={{ margin: '0 0 8px' }}>Arc's live pre-public mainnet</h2>
-                <p style={{ margin: '0 0 14px' }}>The real Arc mainnet chain (5042) is already producing blocks with a live token ecosystem — thousands of holders across stablecoins, wrapped assets and launchpad tokens. This is an <b>unofficial</b> view sourced from an independent indexer (arc-scan.org), <b>not Circle</b>. It becomes the official mainnet view the moment Circle opens the public RPC on Sept 16.</p>
-                <button className="btn solid" onClick={() => goScreener('all')}>Open Pre-Public Board <span className="arw">→</span></button>
+                <div className="kicker" style={{ marginBottom: 6 }}>Arc Mainnet · Chain 5042 · Live</div>
+                <h2 style={{ margin: '0 0 8px' }}>Arc mainnet is live — trade it now</h2>
+                <p style={{ margin: '0 0 14px' }}>Circle's Arc mainnet (chain 5042) is producing blocks with a live token ecosystem — stablecoins, wrapped assets and launchpad tokens across thousands of holders. Prices &amp; trending are sourced from independent indexers (Warp · arc-scan.org), <b>not Circle</b> — symbols are impersonated freely, so DYOR before you trade.</p>
+                <button className="btn solid" onClick={() => goScreener('all')}>Open Mainnet Board <span className="arw">→</span></button>
               </div>
             </div>
             <ArcTrending onPick={tradeWarp} />
@@ -314,7 +300,7 @@ export default function App() {
               <div className="prepublic-banner">
                 <span className="pp-dot" />
                 <div>
-                  <b>PRE-PUBLIC · Arc mainnet (chain 5042)</b> — an <b>unofficial</b> view of the live pre-public chain, sourced from an independent indexer (<a href="https://arc-scan.org" target="_blank" rel="noreferrer">arc-scan.org</a>), not Circle. Ranked by holders. Aggregates are unverified; token symbols are impersonated freely, so lookalikes are flagged — DYOR.
+                  <b>Arc Mainnet · chain 5042 · Live</b> — sourced from independent indexers (<a href="https://arc-scan.org" target="_blank" rel="noreferrer">arc-scan.org</a> · Warp), <b>not Circle</b>. Ranked by holders. Aggregates are unverified; token symbols are impersonated freely, so lookalikes are flagged — DYOR.
                   {premainMetaState?.headBlock && <span className="pp-meta"> · block {Number(premainMetaState.headBlock).toLocaleString()} · {premainMetaState.tokenCount} tokens</span>}
                 </div>
               </div>
@@ -322,10 +308,10 @@ export default function App() {
             {net === 'premain' && <ArcTrending onPick={tradeWarp} />}
             <div className="section-head">
               <div>
-                <div className="kicker">{net === 'premain' ? 'Pre-Public Board' : 'Screener'}</div>
+                <div className="kicker">{net === 'premain' ? 'Mainnet Board' : 'Screener'}</div>
                 <h2>Arc Tokens</h2>
                 <p>{net === 'premain'
-                  ? 'The most-held tokens on Arc pre-public mainnet, ranked by holder count. Prices land once the Uniswap v4 quoter is wired. Click a token to view it on arc-scan.org.'
+                  ? 'The most-held and trending tokens on Arc mainnet, with live Warp prices. Click a token to trade it or view it on arc-scan.org.'
                   : 'Live prices, liquidity & market cap from on-chain pools. Launchpad tokens flagged from deployer clustering.'}</p>
               </div>
               <button className="btn ghost" onClick={load} disabled={loading} style={{ opacity: loading ? .5 : 1 }}>{loading ? 'Loading' : 'Refresh'}</button>
@@ -336,7 +322,7 @@ export default function App() {
                 <div className="stat"><div className="v">{tokens.length || '—'}</div><div className="l">Tokens Indexed</div></div>
                 <div className="stat"><div className="v">{tokens[0]?.symbol ?? '—'}</div><div className="l">Most Held</div></div>
                 <div className="stat"><div className="v">{tokens.reduce((s, t) => s + (t.holders || 0), 0).toLocaleString()}</div><div className="l">Total Holders</div></div>
-                <div className="stat"><div className="v r">PRE-PUBLIC</div><div className="l">Chain 5042</div></div>
+                <div className="stat"><div className="v r">LIVE</div><div className="l">Mainnet · 5042</div></div>
               </div>
             ) : (
               <div className="stats">
@@ -430,41 +416,19 @@ export default function App() {
           </section></div>
         )}
 
-        {page === 'watchlist' && <Watchlist net={net === 'mainnet' ? 'mainnet' : 'testnet'} />}
+        {page === 'watchlist' && <Watchlist net={net === 'testnet' ? 'testnet' : 'mainnet'} />}
         {page === 'token' && <TokenPage />}
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} />}
         {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} />}
 
         <footer><div className="wrap">
           <span className="fbrand">STATERA · ARC</span>
-          <span>Data via Arcscan · {NET === 'testnet' ? 'Testnet — flips to mainnet at launch' : 'Mainnet'}</span>
+          <span>Data via Warp · arc-scan.org · {net === 'testnet' ? 'Arc Testnet' : 'Arc Mainnet · chain 5042'}</span>
           <span>Not financial advice · early launches are high-risk</span>
         </div></footer>
       </div>
     </>
   );
-}
-
-// ── live countdown to Arc mainnet ──
-function useCountdown(iso: string) {
-  const target = new Date(iso).getTime();
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
-  const ms = Math.max(0, target - now);
-  return {
-    d: Math.floor(ms / 86400000),
-    h: Math.floor((ms % 86400000) / 3600000),
-    m: Math.floor((ms % 3600000) / 60000),
-    s: Math.floor((ms % 60000) / 1000),
-    done: ms === 0,
-  };
-}
-function Countdown({ iso, compact }: { iso: string; compact?: boolean }) {
-  const { d, h, m, s, done } = useCountdown(iso);
-  if (done) return <span className="cd-live">Mainnet is live</span>;
-  if (compact) return <span className="cd-compact">{d}d {String(h).padStart(2, '0')}h {String(m).padStart(2, '0')}m {String(s).padStart(2, '0')}s</span>;
-  const cell = (v: number, l: string) => <div className="cd-cell"><div className="cd-v">{String(v).padStart(2, '0')}</div><div className="cd-l">{l}</div></div>;
-  return <div className="cd">{cell(d, 'Days')}<span className="cd-sep">:</span>{cell(h, 'Hrs')}<span className="cd-sep">:</span>{cell(m, 'Min')}<span className="cd-sep">:</span>{cell(s, 'Sec')}</div>;
 }
 
 // ── home preview card (Trending / Launches / Ecosystem) ──

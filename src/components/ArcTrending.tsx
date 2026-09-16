@@ -47,7 +47,7 @@ export function ArcTrending({ onPick }: { onPick?: (t: WarpToken) => void }) {
         <div>
           <div className="kicker">Live · Arc Mainnet</div>
           <h2>Trending on Arc <span className="atr-live"><span className="atr-dot" /> live</span></h2>
-          <p>Real-time data from <b>Warp</b> (circlewarp.fun), the active launchpad on Arc mainnet (chain 5042). Tap a contract to copy it, or hit Trade to load it into Swap. Unofficial · pre-public chain · DYOR.</p>
+          <p>Real-time data from <b>Warp</b> (circlewarp.fun), the active launchpad on Arc mainnet (chain 5042). Tap a contract to copy it, or hit Trade to load it into Swap. Unofficial · Arc mainnet · DYOR.</p>
         </div>
         <div className="atr-sort">
           <button className={sort === 'hot' ? 'on' : ''} onClick={() => setSort('hot')}>Hot</button>
@@ -56,7 +56,7 @@ export function ArcTrending({ onPick }: { onPick?: (t: WarpToken) => void }) {
       </div>
 
       {loading && !toks.length && <div className="load-box"><div className="spinner" /><div className="dim" style={{ fontFamily: 'var(--disp)', letterSpacing: 1.5, textTransform: 'uppercase', fontSize: 12 }}>Loading Arc trending</div></div>}
-      {err && !toks.length && <div className="msg err">Couldn’t reach the Warp feed right now — it’s a pre-public endpoint and can be flaky. It’ll refresh automatically.</div>}
+      {err && !toks.length && <div className="msg err">Couldn’t reach the Warp feed right now — the endpoint can be flaky. It’ll refresh automatically.</div>}
 
       <div className="atr-grid">
         {shown.slice(0, 24).map((t, i) => {
