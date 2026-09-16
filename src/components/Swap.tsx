@@ -498,8 +498,8 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   const busy = phase === 'approving' || phase === 'swapping';
 
   return (
-    <div className="wrap"><section className="section">
-      <div className="section-head">
+    <div className="wrap"><section className="section swap-section">
+      <div className="section-head swap-section-head">
         <div><div className="kicker">Swap</div><h2>Swap Tokens</h2>
           <p>Trade any Arc token — routed through the deepest on-chain liquidity, with slippage-protected execution. Any token address works.</p></div>
       </div>
@@ -643,7 +643,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               : acts == null ? <div className="side-note">Loading activity…</div>
               : !acts.length ? <div className="side-note">No recent transactions found on Arc.</div>
               : <div className="sp-acts">
-                  {acts.slice(0, 8).map((t) => {
+                  {acts.slice(0, 6).map((t) => {
                     const m = t.method.toLowerCase();
                     const kind = m === 'buy' ? 'buy' : m === 'sell' ? 'sell' : (m === 'execute' || m.startsWith('swap') || m === 'exactinputsingle') ? 'swap' : m === 'approve' ? 'approve' : m === 'transfer' ? 'transfer' : 'other';
                     const label = kind === 'buy' ? 'Buy' : kind === 'sell' ? 'Sell' : kind === 'swap' ? 'Swap' : kind === 'approve' ? 'Approve' : kind === 'transfer' ? 'Transfer' : t.method;
