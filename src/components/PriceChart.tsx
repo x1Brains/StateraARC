@@ -14,7 +14,7 @@ const priceFmt = (p: number) =>
   : p >= 0.001 ? '$' + p.toFixed(5)
   : '$' + p.toExponential(2);
 
-export function PriceChart({ address, symbol, decimals }: { address: string; symbol?: string; decimals?: number }) {
+export function PriceChart({ address, symbol, decimals, priceScale = 1 }: { address: string; symbol?: string; decimals?: number; priceScale?: number }) {
   const [tf, setTf] = useState('5m');
   const [candles, setCandles] = useState<Candle[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,7 +28,13 @@ export function PriceChart({ address, symbol, decimals }: { address: string; sym
     setLoading(true);
     (async () => {
       let c = await fetchWarpCandles(address, tf).catch(() => [] as Candle[]);
-      // Not on Warp (deep V3 tokens like ARGUS) → build candles from the pool's on-chain swaps.
+      // Warp candles use Warp's price scale, which ignores token decimals — rescale to the real price
+      // (priceScale = trusted seed price ÷ warp price; =1 for normal 18-dec tokens). Fixes cirBTC etc.
+      if (c && c.length && priceScale && priceScale !== 1) {
+        c = c.map((k) => ({ time: k.time, open: k.open * priceScale, high: k.high * priceScale, low: k.low * priceScale, close: k.close * priceScale }));
+      }
+      // Not on Warp (deep V3 tokens like ARGUS) → build candles from the pool's on-chain swaps (already
+      // decimals-correct, so no rescale).
       if ((!c || c.length === 0)) {
         const sec = tf === '1m' ? 60 : tf === '1h' ? 3600 : 300;
         c = await fetchPoolCandles(address, decimals ?? 18, sec).catch(() => [] as Candle[]);
@@ -36,7 +42,7 @@ export function PriceChart({ address, symbol, decimals }: { address: string; sym
       if (alive) { setCandles(c); setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [address, tf]);
+  }, [address, tf, priceScale]);
 
   // create the chart once
   useEffect(() => {

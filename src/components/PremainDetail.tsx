@@ -77,15 +77,18 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
 
   const sym = d?.symbol || seed?.symbol || '?';
   const name = d?.name || seed?.name || '';
-  // Price/liq/mcap: Warp for Warp-launched tokens, else the on-chain pool data from the screener seed
-  // (deep V3/WarpV2 tokens like ARGUS aren't on Warp). Market cap = price × total supply when needed.
+  // Price/liq/mcap: prefer the screener SEED (RadarDEX — decimals-aware, correct for 8/6-dec tokens
+  // like cirBTC/WBTC), then Warp. ⚠️ Warp's API reports price IGNORING token decimals, so an 8-dec
+  // token (cirBTC) comes back 10^(18-8)=10^10 too high — never trust warp.price over the seed.
   const supplyNum = d?.supply ? Number(d.supply) : (seed?.totalSupply != null ? Number(seed.totalSupply) : null);
-  const px = warp?.price ?? seed?.price ?? null;
-  const liq = warp?.liquidity ?? seed?.liq ?? null;
-  const mc = warp?.mcap ?? seed?.mcap ?? (px != null && supplyNum ? px * supplyNum : null);
-  // On-chain volume includes wash/bot swaps (~50× what Warp/radardex report after filtering), so
-  // showing it would clash with every other tracker — only show Warp's (filtered) 24h volume.
-  const vol = warp?.volume24h ?? null;
+  const px = seed?.price ?? warp?.price ?? null;
+  const liq = seed?.liq ?? warp?.liquidity ?? null;
+  const mc = seed?.mcap ?? warp?.mcap ?? (px != null && supplyNum ? px * supplyNum : null);
+  const vol = seed?.volume24h ?? warp?.volume24h ?? null;
+  // The chart pulls Warp candles (same wrong scale as warp.price for non-18-dec tokens). Rescale them
+  // to the correct price using the ratio of the trusted seed price to Warp's price (=1 when they agree).
+  const chartScale = (warp?.price != null && warp.price > 0 && seed?.price != null && seed.price > 0)
+    ? seed.price / warp.price : 1;
 
   return (
     <div className="wrap"><section className="section">
@@ -125,7 +128,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? 18} />
+        <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? 18} priceScale={chartScale} />
       </div>
 
       <div className="panel side-card" style={{ marginTop: 16 }}>
