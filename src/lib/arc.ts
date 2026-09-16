@@ -222,7 +222,7 @@ export interface RadarTokenDetail {
   burnedPct: number | null; buys24: number | null; sells24: number | null; traders24: number | null;
   txns24: number | null; volume24: number | null; change5m: number | null; change1h: number | null;
   change6h: number | null; change24h: number | null; verified: boolean; deployer: string | null;
-  bondingProgress: number | null; fdv: number | null; decimals: number;
+  bondingProgress: number | null; fdv: number | null; decimals: number; bestPool: string | null;
   website: string | null; twitter: string | null; telegram: string | null; discord: string | null;
 }
 export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDetail | null> {
@@ -234,6 +234,7 @@ export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDet
       txns24: rnum(t.txns24), volume24: rnum(t.volume24), change5m: rnum(t.change5m), change1h: rnum(t.change1h),
       change6h: rnum(t.change6h), change24h: rnum(t.change24h), verified: !!t.verified, deployer: t.deployer || null,
       bondingProgress: rnum(t.bondingProgress), fdv: rnum(t.fdv), decimals: t.decimals ?? 18,
+      bestPool: (t.bestPool || (Array.isArray(t.pools) && t.pools[0]?.pool) || null)?.toLowerCase?.() || null,
       website: t.website || null, twitter: t.twitter || null, telegram: t.telegram || null, discord: t.discord || null,
     };
   } catch { return null; }

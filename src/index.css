@@ -935,6 +935,36 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 .hl-conc { font: 600 11px var(--mono); color: var(--gray-2); }
 @media (max-width: 560px) { .hl-bal { display: none; } }
 
+/* Compact tabbed activity section (Transactions / Holders / Info) — scrolls inside itself. */
+.td-tabpanel { padding: 0; overflow: hidden; }
+.td-tabs { display: flex; border-bottom: 1px solid var(--line); }
+.td-tabs button { flex: 0 0 auto; font: 700 11px var(--disp); letter-spacing: .5px; color: var(--gray-2); background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 12px 16px; cursor: pointer; }
+.td-tabs button:hover { color: var(--white); }
+.td-tabs button.on { color: var(--white); border-bottom-color: var(--red-hi); }
+.td-tabbody { max-height: 420px; overflow-y: auto; padding: 12px 16px; }
+.td-tabbody::-webkit-scrollbar { width: 8px; }
+.td-tabbody::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 4px; }
+.td-tabsub { font: 600 11.5px var(--mono); color: var(--gray-2); margin-bottom: 8px; }
+.td-tabsub b { color: var(--white); }
+.td-tabbody .ir:first-child { padding-top: 0; }
+
+/* Transactions table (buy/sell coloured) */
+.txn-table { display: flex; flex-direction: column; }
+.txn-row { display: grid; grid-template-columns: 64px 1fr 88px 34px; gap: 10px; align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px; }
+.txn-row:last-child { border-bottom: 0; }
+.txn-head { font: 700 9px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); position: sticky; top: -12px; background: var(--panel); z-index: 1; }
+.txn-head .num, .txn-row .num { text-align: right; }
+.txn-head .tx, .txn-row .tx { text-align: center; }
+.txn-type { font: 700 11px var(--disp); letter-spacing: .4px; }
+.txn-type.buy { color: #4ecb71; }
+.txn-type.sell { color: #ff5a5a; }
+.txn-type.xfer { color: var(--gray-2); }
+.txn-sym { color: var(--gray-3); font-size: 10.5px; }
+.txn-mk { color: var(--red-hi); text-decoration: none; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.txn-mk:hover { text-decoration: underline; }
+.txn-tx { color: var(--gray-2); display: inline-flex; justify-content: center; }
+.txn-tx:hover { color: var(--red-hi); }
+
 /* Multi-timeframe change bar */
 .chg-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 .chg-cell { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }

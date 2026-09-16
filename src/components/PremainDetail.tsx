@@ -28,6 +28,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [holders, setHolders] = useState<RadarHolder[] | null>(null);
   const [holderCount, setHolderCount] = useState<number | null>(null);
   const [txs, setTxs] = useState<TokenTransfer[] | null>(null);
+  const [tab, setTab] = useState<'txns' | 'holders' | 'info'>('txns');
 
   // Warp (chain 5042) price/mcap + it backs the candlestick chart below.
   useEffect(() => {
@@ -101,6 +102,11 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   ].filter((s) => s.u) as { k: string; u: string }[];
   const chgClass = (v: number | null) => (v == null ? '' : v >= 0 ? 'up' : 'down');
   const chgTxt = (v: number | null) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(v <= -100 || v >= 100 ? 0 : 1)}%`);
+  // Classify a raw transfer as a buy/sell using the token's main pool (tokens FROM pool = buy, TO pool = sell).
+  const pool = rd?.bestPool ?? null;
+  const txKind = (t: TokenTransfer): 'buy' | 'sell' | 'xfer' =>
+    !pool ? 'xfer' : t.from.toLowerCase() === pool ? 'buy' : t.to.toLowerCase() === pool ? 'sell' : 'xfer';
+  const txMaker = (t: TokenTransfer) => (txKind(t) === 'buy' ? t.to : t.from);
   // The chart pulls Warp candles (same wrong scale as warp.price for non-18-dec tokens). Rescale them
   // to the correct price using the ratio of the trusted seed price to Warp's price (=1 when they agree).
   const chartScale = (warp?.price != null && warp.price > 0 && seed?.price != null && seed.price > 0)
@@ -179,70 +185,74 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
         </div>
       )}
 
-      <div className="panel side-card" style={{ marginTop: 16 }}>
-        <h3>Token info</h3>
-        <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
-        <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
-        <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{d?.decimals ?? '—'}</span></div>
-        {d?.creator && <div className="ir"><span className="ir-k">Creator</span><span className="ir-v mono">{d.creator.slice(0, 10)}…{d.creator.slice(-6)}</span></div>}
-        {d?.size != null && <div className="ir"><span className="ir-k">Bytecode</span><span className="ir-v">{d.size.toLocaleString()} bytes</span></div>}
-        {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
-        {warp?.topHolderBps != null && <div className="ir"><span className="ir-k">Top holder</span><span className="ir-v">{(warp.topHolderBps / 100).toFixed(1)}%</span></div>}
-        {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
-        {rd?.burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{rd.burnedPct.toFixed(2)}%</span></div>}
-        {rd?.verified && <div className="ir"><span className="ir-k">Verified</span><span className="ir-v" style={{ color: '#4ecb71' }}>Yes</span></div>}
-        {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
-        {d?.reservedCheck && <div className="ir"><span className="ir-k">Reserved-name check</span><span className="ir-v">{d.reservedCheck}</span></div>}
-        {!!socials.length && (
-          <div className="ir"><span className="ir-k">Links</span><span className="ir-v td-socials">
-            {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
-          </span></div>
-        )}
-      </div>
-
-      {/* Top holders (RadarDEX) — % bars, pool/deployer tags, concentration */}
-      <div className="panel side-card" style={{ marginTop: 16 }}>
-        <div className="sp-head">
-          <h3>Top Holders{holdersTotal != null ? ` · ${holdersTotal.toLocaleString()} total` : ''}</h3>
-          {top10 != null && <span className="hl-conc">Top 10 hold {top10.toFixed(1)}%</span>}
+      {/* Compact tabbed section — Transactions / Holders / Info (scrolls inside itself, not the page) */}
+      <div className="panel td-tabpanel" style={{ marginTop: 16 }}>
+        <div className="td-tabs">
+          <button className={tab === 'txns' ? 'on' : ''} onClick={() => setTab('txns')}>Transactions</button>
+          <button className={tab === 'holders' ? 'on' : ''} onClick={() => setTab('holders')}>Holders{holdersTotal != null ? ` · ${fmtNum(holdersTotal)}` : ''}</button>
+          <button className={tab === 'info' ? 'on' : ''} onClick={() => setTab('info')}>Info</button>
         </div>
-        {holders == null ? <div className="side-note">Loading holders…</div>
-          : !holders.length ? <div className="side-note">No holder data available from the indexer.</div>
-          : <div className="hl-list">
-              {holders.slice(0, 20).map((h) => (
-                <div className="hl-row" key={h.address}>
-                  <span className="hl-rank">{h.rank}</span>
-                  <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer">{h.address.slice(0, 8)}…{h.address.slice(-6)}</a>
-                  {h.isPool && <span className="hl-tag pool">POOL</span>}
-                  {h.isDeployer && <span className="hl-tag dev">DEV</span>}
-                  <span className="hl-barwrap"><span className="hl-bar" style={{ width: `${Math.min(100, h.percent ?? 0)}%` }} /></span>
-                  <span className="hl-bal">{compact(h.amount)}</span>
-                  <span className="hl-share">{h.percent != null ? h.percent.toFixed(2) + '%' : '—'}</span>
-                </div>
-              ))}
-            </div>}
-      </div>
 
-      {/* Recent transactions (on-chain transfers) */}
-      <div className="panel side-card" style={{ marginTop: 16 }}>
-        <h3>Recent Transactions</h3>
-        {txs == null ? <div className="side-note">Loading transactions…</div>
-          : !txs.length ? <div className="side-note">No recent transfers found on-chain.</div>
-          : <div className="tx-list">
-              {txs.map((t, i) => (
-                <div className="tx-row" key={t.tx + i}>
-                  <span className="tx-amt">{compact(t.amount)} <span className="tx-sym">{sym}</span></span>
-                  <span className="tx-ft mono">{t.from.slice(0, 6)}…{t.from.slice(-4)} <IconArrowRight className="i" /> {t.to.slice(0, 6)}…{t.to.slice(-4)}</span>
-                  <a className="tx-link" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer">View <IconExternal className="i" /></a>
-                </div>
-              ))}
-            </div>}
-      </div>
+        {tab === 'txns' && (
+          <div className="td-tabbody">
+            {txs == null ? <div className="side-note">Loading transactions…</div>
+              : !txs.length ? <div className="side-note">No recent transfers found on-chain.</div>
+              : <div className="txn-table">
+                  <div className="txn-row txn-head"><span>Type</span><span className="num">Amount</span><span>Maker</span><span className="num tx">Tx</span></div>
+                  {txs.map((t, i) => { const k = txKind(t); const mk = txMaker(t); return (
+                    <div className="txn-row" key={t.tx + i}>
+                      <span className={`txn-type ${k}`}>{k === 'buy' ? 'Buy' : k === 'sell' ? 'Sell' : 'Transfer'}</span>
+                      <span className="num mono">{compact(t.amount)} <span className="txn-sym">{sym}</span></span>
+                      <a className="txn-mk mono" href={`https://explorer.arc.io/address/${mk}`} target="_blank" rel="noreferrer">{mk.slice(0, 6)}…{mk.slice(-4)}</a>
+                      <a className="txn-tx num tx" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
+                    </div> ); })}
+                </div>}
+          </div>
+        )}
 
-      <TokenLinks address={address} scanBase="https://explorer.arc.io" warp />
+        {tab === 'holders' && (
+          <div className="td-tabbody">
+            {top10 != null && <div className="td-tabsub">Top 10 hold <b>{top10.toFixed(1)}%</b>{holdersTotal != null ? ` · ${fmtNum(holdersTotal)} holders` : ''}</div>}
+            {holders == null ? <div className="side-note">Loading holders…</div>
+              : !holders.length ? <div className="side-note">No holder data available from the indexer.</div>
+              : <div className="hl-list">
+                  {holders.slice(0, 25).map((h) => (
+                    <div className="hl-row" key={h.address}>
+                      <span className="hl-rank">{h.rank}</span>
+                      <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer">{h.address.slice(0, 8)}…{h.address.slice(-6)}</a>
+                      {h.isPool && <span className="hl-tag pool">POOL</span>}
+                      {h.isDeployer && <span className="hl-tag dev">DEV</span>}
+                      <span className="hl-barwrap"><span className="hl-bar" style={{ width: `${Math.min(100, h.percent ?? 0)}%` }} /></span>
+                      <span className="hl-bal">{compact(h.amount)}</span>
+                      <span className="hl-share">{h.percent != null ? h.percent.toFixed(2) + '%' : '—'}</span>
+                    </div>
+                  ))}
+                </div>}
+          </div>
+        )}
 
-      <div className="td-disc" style={{ marginTop: 16 }}>
-        Price, chart &amp; market data are sourced from the Warp launchpad (circlewarp.fun) on Arc mainnet (chain 5042) — Uniswap v4 pools. Contract &amp; holder data are from an independent indexer (arc-scan.org). All unofficial, not Circle. Not an endorsement; unverified; DYOR.
+        {tab === 'info' && (
+          <div className="td-tabbody">
+            <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
+            <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
+            <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{d?.decimals ?? '—'}</span></div>
+            {d?.creator && <div className="ir"><span className="ir-k">Creator</span><span className="ir-v mono">{d.creator.slice(0, 10)}…{d.creator.slice(-6)}</span></div>}
+            {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
+            {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
+            {rd?.burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{rd.burnedPct.toFixed(2)}%</span></div>}
+            {rd?.verified && <div className="ir"><span className="ir-k">Verified</span><span className="ir-v" style={{ color: '#4ecb71' }}>Yes</span></div>}
+            {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
+            {!!socials.length && (
+              <div className="ir"><span className="ir-k">Links</span><span className="ir-v td-socials">
+                {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
+              </span></div>
+            )}
+            <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" warp /></div>
+            <div className="td-disc" style={{ marginTop: 12 }}>
+              Price, chart &amp; market data via Warp (circlewarp.fun) &amp; RadarDEX on Arc mainnet (chain 5042). Contract/holder data from independent indexers. All unofficial, not Circle. Unverified; DYOR.
+            </div>
+          </div>
+        )}
       </div>
     </section></div>
   );
