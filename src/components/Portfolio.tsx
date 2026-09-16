@@ -27,9 +27,12 @@ export function Portfolio({ tokens, wallet, onConnect, mainnet = false }: { toke
   useEffect(() => {
     if (!addr || !isAddress(addr)) return;
     setLoading(true); setErr(null); setHoldings([]);
-    // Mainnet has no indexer for wallet holdings, so scan the curated + board token set on-chain.
+    // Mainnet has no indexer for wallet holdings, so we scan token contracts on-chain (one balanceOf each).
+    // Scanning all 500+ board tokens is slow and rate-limits the RPC — only scan the ones that matter
+    // (priced/liquid/ecosystem). The curated MAINNET_CORE set is always scanned inside the function.
+    const scan = tokens.filter((t) => t.price != null || t.liq != null || t.isEcosystem || t.launchpad);
     const p = mainnet
-      ? fetchHoldingsMainnet(addr, tokens.map((t) => ({ address: t.address, name: t.name, symbol: t.symbol })))
+      ? fetchHoldingsMainnet(addr, scan.map((t) => ({ address: t.address, name: t.name, symbol: t.symbol })))
       : fetchHoldings(addr);
     p.then((h) => {
       setHoldings(h);

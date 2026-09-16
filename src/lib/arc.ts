@@ -35,7 +35,9 @@ export const MAINNET_INFO = {
   officialBridge: 'https://bridge.usdc.com',                 // Circle's hosted USDC bridge (verified)
 };
 
-export const NET: Net = (import.meta.env.VITE_ARC_NET as Net) || 'testnet';
+// Mainnet-only app: wallet connect + all chain data target Arc mainnet (5042 / 0x13b2 / rpc.mainnet.arc.io).
+// (testnet override kept behind an explicit env flag for local debugging, but the shipped default is mainnet.)
+export const NET: Net = (import.meta.env.VITE_ARC_NET as Net) === 'testnet' ? 'testnet' : 'mainnet';
 export const CHAIN = NETS[NET];
 
 // Known launchpads / factories from our radar (deployers that minted many tokens).
@@ -440,7 +442,7 @@ export async function fetchHoldingsMainnet(addr: string, extra: { address: strin
     const sym = t.symbol || (await mReadStr(t.address, '0x95d89b41')) || '?';
     const name = t.name || (await mReadStr(t.address, '0x06fdde03')) || sym;
     out.push({ address: t.address.toLowerCase(), name, symbol: sym, decimals: dec, balance: bal, iconUrl: null });
-  }), 4);
+  }), 6);
   return out.sort((a, b) => b.balance - a.balance);
 }
 
