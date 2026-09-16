@@ -577,8 +577,12 @@ export async function fetchTokenHolders(address: string, limit = 20): Promise<Ho
 // so we chart them from chain.) Price is read from each swap's sqrtPriceX96; timestamps are
 // approximated from block height (blocks are ~sub-second on Arc), which is fine for a chart.
 const SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+const candleCache = new Map<string, { at: number; data: Candle[] }>();
 export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number): Promise<Candle[]> {
   const pool = MAINNET_POOL[token.toLowerCase()]; if (!pool) return [];
+  const ck = token.toLowerCase() + ':' + intervalSec;
+  const hit = candleCache.get(ck);
+  if (hit && Date.now() - hit.at < 45000) return hit.data; // 45s cache — instant re-opens / tf toggles
   const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]); // token0(), head
   if (!t0hex || !headHex) return [];
   const usdcIsToken0 = ('0x' + t0hex.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
@@ -586,13 +590,17 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
   const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
   const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
-  const spanBlocks = Math.min(120000, Math.ceil((intervalSec * 120) / blockTime)); // ~120 candles of history
+  const spanBlocks = Math.min(80000, Math.ceil((intervalSec * 70) / blockTime)); // ~70 candles of history
   const dexp = 10 ** (decimals - 6); // USDC is 6-dec, the token `decimals`-dec
-  const swaps: { ts: number; price: number }[] = [];
+  // Build the block ranges and fetch them IN PARALLEL (bounded) — the RPC caps ranges at ~2.5k blocks,
+  // so a sequential loop is slow; runLimited cuts it ~6×.
   const CH = 2500n;
-  for (let from = head - BigInt(spanBlocks); from < head && swaps.length < 4000; from += CH) {
-    const to = from + CH > head ? head : from + CH;
-    const logs = await mrpc('eth_getLogs', [{ address: pool, topics: [SWAP_TOPIC], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }]);
+  const ranges: [bigint, bigint][] = [];
+  for (let from = head - BigInt(spanBlocks); from < head; from += CH) ranges.push([from, from + CH > head ? head : from + CH]);
+  const results = await runLimited(ranges.map(([from, to]) => () =>
+    mrpc('eth_getLogs', [{ address: pool, topics: [SWAP_TOPIC], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }])), 6);
+  const swaps: { ts: number; price: number }[] = [];
+  for (const logs of results) {
     if (!Array.isArray(logs)) continue;
     for (const l of logs) {
       try {
@@ -615,7 +623,9 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
     if (!cur) buckets.set(b, { o: s.price, h: s.price, l: s.price, c: s.price });
     else { cur.h = Math.max(cur.h, s.price); cur.l = Math.min(cur.l, s.price); cur.c = s.price; }
   }
-  return [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([time, v]) => ({ time, open: v.o, high: v.h, low: v.l, close: v.c }));
+  const data = [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([time, v]) => ({ time, open: v.o, high: v.h, low: v.l, close: v.c }));
+  candleCache.set(ck, { at: Date.now(), data });
+  return data;
 }
 
 // Live 24h volume for a pooled token from its V3 pool Swap events. A full 24h scan is ~68 getLogs

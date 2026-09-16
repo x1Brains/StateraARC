@@ -13,17 +13,12 @@ const KNOWN: Record<string, string> = {
   EURC: '/coins/EURC.svg', USDT: '/coins/USDT.png', WBTC: '/coins/BTC.png', WETH: '/coins/ETH.png', PAXG: '/coins/PAXG.png', GOLD: '/coins/PAXG.png',
 };
 
-// Deterministic pixel-art avatar for any token without a real logo — so every token shows an image
-// (this is the same DiceBear style Warp itself uses for its logo-less tokens).
-const dicebear = (seed: string) => `https://api.dicebear.com/7.x/pixel-art/svg?seed=${encodeURIComponent(seed || '?')}&backgroundColor=26262c,1b1b20&radius=50`;
-
 export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string; url?: string | null }) {
-  const [stage, setStage] = useState(0); // 0 = primary src, 1 = dicebear, 2 = letter fallback
+  const [broken, setBroken] = useState(false);
   const color = colorFor(seed || symbol);
-  const real = url || KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol] || '';
-  const src = stage === 0 && real ? real : stage <= 1 ? dicebear(seed || symbol) : '';
-  if (src) {
-    return <img className="tlogo" src={src} alt={symbol} loading="lazy" onError={() => setStage((s) => s + 1)} />;
+  const src = url || KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol];
+  if (src && !broken) {
+    return <img className="tlogo" src={src} alt={symbol} loading="lazy" onError={() => setBroken(true)} />;
   }
   const letter = (symbol || '?').replace(/[^A-Za-z0-9]/g, '').charAt(0).toUpperCase() || '?';
   return (
