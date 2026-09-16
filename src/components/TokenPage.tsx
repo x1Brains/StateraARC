@@ -1,3 +1,4 @@
+import { IconArrowRight } from './icons';
 // $STR — the Statera token teaser / hype page. Not live yet: no contract address, no buy,
 // no presale — deliberately, so nobody gets phished by a fake.
 // Tie to X1 City = HOLD STR -> perks/status in the Unreal Engine game. + omnichain (STR reaches X1).
@@ -16,7 +17,7 @@ const ROADMAP = [
   { tag: 'Phase 1', title: 'STR goes live on Arc', now: true,
     body: 'The sealed 21M token ships on Arc — instantly tradeable and auto-listed on the StateraArc screener + swap. That’s the whole token: hold it, send it, burn it.' },
   { tag: 'Phase 2', title: 'Tied into X1 City',
-    body: 'X1 City is a full open world being built in Unreal Engine 5 — web3 GameFi, the first EVM↔SVM game on Arc. STR is the token tied into it.' },
+    body: 'X1 City is a full open world being built in Unreal Engine 5 — web3 GameFi, the first EVM-SVM game on Arc. STR is the token tied into it.' },
 ];
 
 export function TokenPage() {
@@ -83,10 +84,10 @@ export function TokenPage() {
         <div className="wrap tok-city-inner">
           <div className="kicker">The bigger picture · Web3 GameFi</div>
           <h2 className="tok-city-h">$STR, tied into <span className="r">X1 City</span>.</h2>
-          <p className="tok-city-sub"><b>X1 City is a full open world being built in Unreal Engine 5</b> — web3 GameFi, and the first game to bridge <b>EVM ↔ SVM</b>, on Arc. <b>$STR</b> is the token woven into it — more than a chart, it’s your link to the world we’re building.</p>
+          <p className="tok-city-sub"><b>X1 City is a full open world being built in Unreal Engine 5</b> — web3 GameFi, and the first game to bridge <b>EVM and SVM</b>, on Arc. <b>$STR</b> is the token woven into it — more than a chart, it’s your link to the world we’re building.</p>
           <div className="tok-city-actions">
             <div className="tok-city-tag"><span className="tct-dot" /> Unreal Engine 5 · Web3 GameFi · in active development</div>
-            <a className="btn solid tok-city-cta" href="https://x1city.io" target="_blank" rel="noreferrer">Explore X1 City <span className="arw">→</span></a>
+            <a className="btn solid tok-city-cta" href="https://x1city.io" target="_blank" rel="noreferrer">Explore X1 City <IconArrowRight className="arw" /></a>
           </div>
         </div>
       </section>

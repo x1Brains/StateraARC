@@ -71,6 +71,7 @@ export interface Token {
   premain?: boolean;       // sourced from the unofficial 5042 index
   createdAt?: number | null; // ms epoch the token was deployed (for "recent launches" sorting)
   volume24h?: number | null; // 24h USDC volume (RadarDEX aggregate)
+  change24h?: number | null; // 24h price change, percent (RadarDEX)
 }
 
 export const addrOf = (o: any): string =>
@@ -195,7 +196,7 @@ export async function fetchRadarTokens(limit = 500): Promise<Token[]> {
         holders: t.holderCount != null ? Number(t.holderCount) : null, totalSupply: null, type: 'ERC-20',
         iconUrl: t.icon || null, launchpad: lp, isOurs: false, isEcosystem: false,
         price: rnum(t.price), liq: rnum(t.liquidityUsdc), mcap: rnum(t.mcap),
-        volume24h: rnum(t.volume24 ?? t.volume24hFixed),
+        volume24h: rnum(t.volume24 ?? t.volume24hFixed), change24h: rnum(t.change24h),
         createdAt: deploy != null ? deploy * 1000 : null,
       };
     }).filter((t) => /^0x[0-9a-f]{40}$/.test(t.address));
@@ -647,7 +648,7 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
     for (const w of warp) if (w.address) set(mk({
       address: w.address, name: w.name, symbol: w.ticker, holders: w.holders, iconUrl: w.image,
       launchpad: w.migrated ? null : 'Warp', isEcosystem: ECOSYSTEM_ADDRS.has(w.address.toLowerCase()),
-      price: w.price, liq: w.liquidity, mcap: w.mcap, createdAt: w.createdAt ?? null, volume24h: w.volume24h ?? null,
+      price: w.price, liq: w.liquidity, mcap: w.mcap, createdAt: w.createdAt ?? null, volume24h: w.volume24h ?? null, change24h: w.change24h ?? null,
     }));
   } catch { /* Warp optional */ }
 

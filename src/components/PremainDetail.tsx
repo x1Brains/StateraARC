@@ -5,6 +5,7 @@ import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenHolders, fetchTokenTransfers, type Holder, type TokenTransfer } from '../lib/arc';
 import type { Token } from '../lib/arc';
+import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy } from './icons';
 
 // Pre-public (chain 5042) token detail. Source: arc-scan.org REST /tokens/{a} (UNOFFICIAL indexer,
 // reliable, unverified aggregates). No internal on-chain detail — 5042 has no Blockscout API and the
@@ -92,7 +93,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
 
   return (
     <div className="wrap"><section className="section">
-      <button className="back" onClick={onBack}>← Back to board</button>
+      <button className="back" onClick={onBack}><IconArrowLeft className="i" /> Back to board</button>
 
       <div className="prepublic-banner" style={{ marginTop: 14 }}>
         <span className="pp-dot" />
@@ -107,18 +108,18 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
             {d?.reservedName && <span className="wl-note" style={{ marginLeft: 8 }}>Reserved-name</span>}
           </div>
           <div className="td-sym">{sym} · {d?.standard?.toUpperCase() || 'ERC-20'}</div>
-          <button className="addr" onClick={copy} title="copy address">{address.slice(0, 10)}…{address.slice(-8)} {copied ? '✓ copied' : '⧉'}</button>
+          <button className="addr" onClick={copy} title="copy address"><span className="addr-hex">{address.slice(0, 10)}…{address.slice(-8)}</span>{copied ? <><IconCheck className="i" /> Copied</> : <IconCopy className="i" />}</button>
         </div>
         {onTrade && (
           <button className="btn solid td-trade" onClick={() => onTrade({ address, symbol: sym, name, price: px })}>
-            Trade {sym} <span className="arw">→</span>
+            Trade {sym} <IconArrowRight className="arw" />
           </button>
         )}
       </div>
 
       {err && <div className="msg err">Indexer error: {err}. The indexer source (arc-scan.org) is flaky — try again.</div>}
 
-      <div className="stats" style={{ marginTop: 16 }}>
+      <div className="stats td-stats" style={{ marginTop: 16 }}>
         <div className="stat"><div className="v r">{px != null ? tprice(px) : '—'}</div><div className="l">Price</div></div>
         <div className="stat"><div className="v">{mc != null ? usd(mc) : '—'}</div><div className="l">Market Cap</div></div>
         <div className="stat"><div className="v">{vol != null ? usd(vol) : '—'}</div><div className="l">Vol 24h</div></div>
@@ -170,8 +171,8 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
               {txs.map((t, i) => (
                 <div className="tx-row" key={t.tx + i}>
                   <span className="tx-amt">{compact(t.amount)} <span className="tx-sym">{sym}</span></span>
-                  <span className="tx-ft mono">{t.from.slice(0, 6)}…{t.from.slice(-4)} → {t.to.slice(0, 6)}…{t.to.slice(-4)}</span>
-                  <a className="tx-link" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer">view ↗</a>
+                  <span className="tx-ft mono">{t.from.slice(0, 6)}…{t.from.slice(-4)} <IconArrowRight className="i" /> {t.to.slice(0, 6)}…{t.to.slice(-4)}</span>
+                  <a className="tx-link" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer">View <IconExternal className="i" /></a>
                 </div>
               ))}
             </div>}

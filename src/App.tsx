@@ -8,6 +8,7 @@ import { PremainDetail } from './components/PremainDetail';
 import { TokenPage } from './components/TokenPage';
 import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
+import { IconArrowRight, IconArrowLeft } from './components/icons';
 
 type Page = 'home' | 'screener' | 'portfolio' | 'swap' | 'token';
 type Filter = 'all' | 'new' | 'eco';
@@ -175,7 +176,7 @@ export default function App() {
           <div className="spacer" />
           <VisitCounter />
           <div className="net-toggle" role="group" aria-label="network"><span className="net-live"><span className="dot" /> Arc Mainnet</span></div>
-          {(page === 'portfolio' || page === 'swap') && <button className="connect" onClick={onConnect}>{wallet ? wallet.slice(0, 6) + '…' + wallet.slice(-4) : 'Connect Wallet'}</button>}
+          {page === 'swap' && <button className="connect" onClick={onConnect}>{wallet ? wallet.slice(0, 6) + '…' + wallet.slice(-4) : 'Connect Wallet'}</button>}
         </div></div>
 
         {/* ============ HOME ============ */}
@@ -187,15 +188,15 @@ export default function App() {
                 <div className="hero-copy">
                   <span className="eyebrow"><span className="dot" /> Arc Hub · Web3 GameFi</span>
                   <h1>Track any <span className="r">launch</span><br />on Arc.</h1>
-                  <p className="lede">The Statera hub for Circle's Arc chain — screener, portfolio &amp; swap. And the studio building <span className="r">X1 City</span>: web3 <span className="r">GameFi</span> in Unreal Engine 5 — the first EVM↔SVM game on Arc.</p>
+                  <p className="lede">The Statera hub for Circle's Arc chain — screener, portfolio &amp; swap. And the studio building <span className="r">X1 City</span>: web3 <span className="r">GameFi</span> in Unreal Engine 5 — the first EVM-SVM game on Arc.</p>
                   <div className="hero-cta">
-                    <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <span className="arw">→</span></button>
+                    <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <IconArrowRight className="arw" /></button>
                     <button className="btn ghost" onClick={() => goScreener('new')}>New Launches</button>
                   </div>
                   <button className="hero-str-teaser" onClick={() => go('token')}>
                     <span className="hst-tag">New</span>
                     <span className="hst-txt">$STR — the token behind <b>X1 City</b>, our web3 GameFi world in UE5</span>
-                    <span className="hst-arw">→</span>
+                    <IconArrowRight className="hst-arw" />
                   </button>
                   <div className="hero-trust">
                     <div className="ht"><b>{tokens.length || '—'}</b><span>Tokens Tracked</span></div>
@@ -213,15 +214,15 @@ export default function App() {
               <div className="ue5-bg"><img src="/hero-lava-3.jpg" alt="" /></div>
               <div className="wrap ue5-inner">
                 <div className="ue5-badge"><span className="ue5-dot" /> Unreal Engine 5 · Web3 GameFi · In development</div>
-                <h2 className="ue5-h">We’re building <span className="r">X1 City</span> — the first <span className="r">EVM↔SVM</span> game.</h2>
+                <h2 className="ue5-h">We’re building <span className="r">X1 City</span> — the first <span className="r">EVM-SVM</span> game.</h2>
                 <p className="ue5-sub">A full open world in <b>Unreal Engine 5</b>, bridging Circle’s Arc (EVM) with X1 (SVM) in web3 gaming — the first to connect both. <b>$STR</b> is the token tied into X1 City — more than a chart, it’s your link to the world we’re building.</p>
                 <div className="ue5-feats">
                   <div className="ue5-feat"><b>Open World</b><span>An explorable UE5 city</span></div>
-                  <div className="ue5-feat"><b className="r">EVM↔SVM</b><span>First to bridge both</span></div>
+                  <div className="ue5-feat"><b className="r">EVM-SVM</b><span>First to bridge both</span></div>
                   <div className="ue5-feat"><b>Web3 GameFi</b><span>An on-chain economy</span></div>
                 </div>
                 <div className="ue5-actions">
-                  <a className="btn solid" href="https://x1city.io" target="_blank" rel="noreferrer">Explore X1 City <span className="arw">→</span></a>
+                  <a className="btn solid" href="https://x1city.io" target="_blank" rel="noreferrer">Explore X1 City <IconArrowRight className="arw" /></a>
                   <button className="btn ghost" onClick={() => go('token')}>The $STR token</button>
                 </div>
               </div>
@@ -240,7 +241,7 @@ export default function App() {
                   <h2>Every token on Arc, ranked.</h2>
                   <p>Sort {tokens.length || 500}+ tokens by liquidity or market cap, filter launchpads &amp; ecosystem, and dive into per-token trades, holders &amp; pools.</p>
                 </div>
-                <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <span className="arw">→</span></button>
+                <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <IconArrowRight className="arw" /></button>
               </div>
             </section></div>
           </>
@@ -299,6 +300,7 @@ export default function App() {
                 <div className="trow head sc">
                   <span>#</span><span /><span>Token</span>
                   <span className="num">Price</span>
+                  <span className="num">24h</span>
                   <span className={`num hidesm${sort === 'mcap' ? ' hot' : ''}`}>Market Cap</span>
                   <span className={`num hidesm${sort === 'liq' ? ' hot' : ''}`}>Liquidity</span>
                   <span className="num hidesm">Holders</span>
@@ -310,11 +312,12 @@ export default function App() {
                     <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
                     <span><div className="tname">{t.name}</div><div className="tsym">{t.symbol}</div></span>
                     <span className="num">{tprice(t.price)}</span>
+                    <span className={`num chg ${t.change24h == null ? '' : t.change24h >= 0 ? 'up' : 'down'}`}>{t.change24h == null ? '—' : `${t.change24h >= 0 ? '+' : ''}${t.change24h.toFixed(1)}%`}</span>
                     <span className={`num hidesm${sort === 'mcap' ? ' hot' : ''}`}>{t.mcap == null ? '—' : usd(t.mcap)}</span>
                     <span className={`num hidesm${sort === 'liq' ? ' hot' : ''}`}>{t.liq == null ? '—' : usd(t.liq)}</span>
                     <span className="num hidesm">{fmt(t.holders)}</span>
                     <span className="flags hidesm">
-                      {t.launchpad && <span className="badge b-red">{t.launchpad}</span>}
+                      {t.launchpad && <span className="badge b-lp">{t.launchpad}</span>}
                       {t.isEcosystem && <span className="badge b-gray">ECO</span>}
                     </span>
                   </div>
@@ -329,9 +332,9 @@ export default function App() {
                   Showing <b>{(pageNum - 1) * perPage + 1}–{Math.min(pageNum * perPage, rows.length)}</b> of {rows.length}
                 </div>
                 <div className="pager-ctrls">
-                  <button disabled={pageNum <= 1} onClick={() => { setPageNum((p) => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>← Prev</button>
+                  <button disabled={pageNum <= 1} onClick={() => { setPageNum((p) => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><IconArrowLeft className="i" /> Prev</button>
                   <span className="pager-num">Page {pageNum} / {totalPages}</span>
-                  <button disabled={pageNum >= totalPages} onClick={() => { setPageNum((p) => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Next →</button>
+                  <button disabled={pageNum >= totalPages} onClick={() => { setPageNum((p) => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Next <IconArrowRight className="i" /></button>
                   <div className="per">
                     {PER_PAGE_OPTS.map((n) => <button key={n} className={perPage === n ? 'on' : ''} onClick={() => setPerPage(n)}>{n}</button>)}
                   </div>
@@ -378,7 +381,7 @@ function Preview({ title, kicker, items, onOpen, onAll, loading, badge }:
     <div className="hcard panel">
       <div className="hcard-head">
         <div><div className="hcard-kick">{kicker}</div><h3>{title}</h3></div>
-        <button className="hcard-all" onClick={onAll}>All →</button>
+        <button className="hcard-all" onClick={onAll}>All <IconArrowRight className="i" /></button>
       </div>
       <div className="hcard-list">
         {loading && !items.length && <div className="hcard-empty">Loading…</div>}

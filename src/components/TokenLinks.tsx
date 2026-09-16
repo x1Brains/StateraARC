@@ -1,6 +1,8 @@
 // Bottom-of-page links section for a token: where to trade it (Warp on Arc mainnet), the block
 // explorer, its liquidity pool, and the main Arc DEXes. Warp/pool links only render where they
 // apply (5042 tokens), so testnet just shows the explorer + DEX directory.
+import { IconExternal } from './icons';
+
 export function TokenLinks({ address, scanBase, pool, warp }: {
   address: string; scanBase: string; pool?: string | null; warp?: boolean;
 }) {
@@ -11,15 +13,15 @@ export function TokenLinks({ address, scanBase, pool, warp }: {
       <div className="tlink-grid">
         {warp && (
           <a className="tlink" href={`https://circlewarp.fun/trade/${address}`} target="_blank" rel="noreferrer">
-            <b>Trade on Warp <span className="arw">↗</span></b><span>Launchpad · Uniswap v4</span>
+            <b>Trade on Warp <IconExternal className="arw" /></b><span>Launchpad · Uniswap v4</span>
           </a>
         )}
         <a className="tlink" href={`${scanBase}/token/${address}`} target="_blank" rel="noreferrer">
-          <b>Block Explorer <span className="arw">↗</span></b><span>Contract, holders &amp; transfers</span>
+          <b>Block Explorer <IconExternal className="arw" /></b><span>Contract, holders &amp; transfers</span>
         </a>
         {isAddr(pool) && (
           <a className="tlink" href={`${scanBase}/address/${pool}`} target="_blank" rel="noreferrer">
-            <b>Liquidity Pool <span className="arw">↗</span></b><span className="mono">{pool!.slice(0, 10)}…{pool!.slice(-6)}</span>
+            <b>Liquidity Pool <IconExternal className="arw" /></b><span className="mono">{pool!.slice(0, 10)}…{pool!.slice(-6)}</span>
           </a>
         )}
       </div>

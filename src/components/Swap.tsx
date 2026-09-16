@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { compact, usd, CHAIN, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
+import { IconSwapVertical, IconExternal } from './icons';
 import {
   NATIVE_USDC, SWAP_CFG, swapReady, bestQuote, decimalsOf, symbolOf, balanceOf, allowance,
   buildApproveTx, buildSwapTx, simulate, minOut, toRaw, fromRaw, feeCandidates, MAX_UINT256,
@@ -380,7 +381,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setPhase('swapping'); setMsg('Confirm the swap in your wallet…');
       const sh = await sendTx(tx); setHash(sh);
       if (!(await waitReceipt(sh))) { setPhase('error'); setMsg('Swap transaction failed.'); return; }
-      setPhase('done'); setMsg(`Swapped ${amt} ${from.symbol} → ${to.symbol}.`);
+      setPhase('done'); setMsg(`Swapped ${amt} ${from.symbol} to ${to.symbol}.`);
       setAmt(''); setPhaseTick((t) => t + 1);
     } catch (e: any) { setPhase('error'); setMsg(e?.message?.slice(0, 120) || 'Transaction rejected.'); }
   };
@@ -415,7 +416,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setPhase('swapping'); setMsg('Confirm the swap in your wallet…');
       const sh = await sendTx(tx); setHash(sh);
       if (!(await waitReceipt(sh))) { setPhase('error'); setMsg('Swap transaction failed.'); return; }
-      setPhase('done'); setMsg(`Swapped ${amt} ${from.symbol} → ${to.symbol}.`);
+      setPhase('done'); setMsg(`Swapped ${amt} ${from.symbol} to ${to.symbol}.`);
       setAmt(''); setPhaseTick((t) => t + 1);
     } catch (e: any) { setPhase('error'); setMsg(e?.message?.slice(0, 120) || 'Transaction rejected.'); }
   };
@@ -487,7 +488,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setHash(sh);
       const ok = await waitReceipt(sh);
       if (!ok) { setPhase('error'); setMsg('Swap transaction failed.'); return; }
-      setPhase('done'); setMsg(`Swapped ${amt} ${from.symbol} → ${to?.symbol}.`);
+      setPhase('done'); setMsg(`Swapped ${amt} ${from.symbol} to ${to?.symbol}.`);
       setAmt(''); setPhaseTick((t) => t + 1); // refresh balances
     } catch (e: any) {
       setPhase('error'); setMsg(e?.message?.slice(0, 120) || 'Transaction rejected.');
@@ -520,7 +521,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
             </div>
           </div>
 
-          <button className="swap-flip" onClick={flip} aria-label="flip">⇅</button>
+          <button className="swap-flip" onClick={flip} aria-label="flip"><IconSwapVertical /></button>
 
           <div className="swap-box">
             <div className="swap-row">
@@ -597,11 +598,11 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
             ? <button className="btn solid swap-cta" onClick={onConnect}>Connect Wallet</button>
             : (v3q != null)
               ? <button className="btn solid swap-cta" onClick={executeV3} disabled={busy}>
-                  {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : `Swap ${from?.symbol} → ${to?.symbol}`}
+                  {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : `Swap ${from?.symbol} to ${to?.symbol}`}
                 </button>
             : (v4q != null)
               ? <button className="btn solid swap-cta" onClick={executeV4} disabled={busy}>
-                  {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : `Swap ${from?.symbol} → ${to?.symbol}`}
+                  {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : `Swap ${from?.symbol} to ${to?.symbol}`}
                 </button>
             : (curveBuyable && curveOut != null)
               ? <button className="btn solid swap-cta" onClick={executeCurveBuy} disabled={busy}>
@@ -613,16 +614,16 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
                 </button>
             : (warpMode && !quote)
               ? (warpTokenAddr && !quoting
-                  ? <a className="btn solid swap-cta" href={`https://circlewarp.fun/trade/${warpTokenAddr}`} target="_blank" rel="noreferrer">Trade {(to && warpPx[to.address.toLowerCase()] != null ? to.symbol : from?.symbol) || ''} on Warp ↗</a>
+                  ? <a className="btn solid swap-cta" href={`https://circlewarp.fun/trade/${warpTokenAddr}`} target="_blank" rel="noreferrer">Trade {(to && warpPx[to.address.toLowerCase()] != null ? to.symbol : from?.symbol) || ''} on Warp <IconExternal className="i" /></a>
                   : <button className="btn solid swap-cta" disabled>{quoting ? 'Finding route…' : to ? 'Enter an amount' : 'Select a token'}</button>)
               : <button className="btn solid swap-cta" onClick={execute} disabled={!quote || busy}>
-                  {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : quote ? `Swap ${from?.symbol} → ${to?.symbol}` : to ? 'Enter an amount' : 'Select a token'}
+                  {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : quote ? `Swap ${from?.symbol} to ${to?.symbol}` : to ? 'Enter an amount' : 'Select a token'}
                 </button>}
 
           {msg && (
             <div className={`swap-status ${phase}`}>
               {msg}
-              {hash && <> · <a href={`${(warpMode ? activeScan() : CHAIN.scan)}/tx/${hash}`} target="_blank" rel="noreferrer">view tx ↗</a></>}
+              {hash && <> · <a href={`${(warpMode ? activeScan() : CHAIN.scan)}/tx/${hash}`} target="_blank" rel="noreferrer">View tx <IconExternal className="i" /></a></>}
             </div>
           )}
           <div className="swap-note">Best-fill routing across live Arc DEX liquidity. Paying with USDC or EURC, you just sign once — no gas, no approval tx (EIP-2612 permit). Other tokens: one approval the first time, then single-tx trades. Min-out enforced, dry-run simulated before you sign. Not financial advice — DYOR.</div>

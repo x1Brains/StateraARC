@@ -229,7 +229,10 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .home-cta p { color: var(--gray-2); font-size: 13.5px; margin: 8px 0 0; max-width: 560px; line-height: 1.55; }
 
 /* screener: market-cap column + active-sort highlight */
-.trow.sc { grid-template-columns: 44px 34px minmax(110px, 1fr) 92px 108px 108px 78px 128px; }
+.trow.sc { grid-template-columns: 44px 34px minmax(110px, 1fr) 92px 72px 108px 108px 78px 128px; }
+.chg.up { color: #4ecb71; }
+.chg.down { color: #ff5a5a; }
+.chg { font-family: var(--mono); }
 .num.hot { color: var(--red-hi); }
 .sortby { display: flex; align-items: center; gap: 8px; }
 .sortby-l { font-family: var(--disp); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
@@ -251,8 +254,40 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .tmono { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-family: var(--disp); font-weight: 700; font-size: 14px; }
 
 /* badges */
-.badge { font-family: var(--disp); font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; white-space: nowrap; }
+.badge { font-family: var(--disp); font-size: 8px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
 .b-red { color: var(--red-hi); background: rgba(255,43,43,.13); border: 1px solid rgba(255,43,43,.4); }
+/* Launchpad tag — muted/neutral so it never reads as a red "down" signal next to the 24h change. */
+.b-lp { color: var(--gray-2); background: rgba(138,154,184,.10); border: 1px solid rgba(138,154,184,.24); text-transform: none; letter-spacing: .2px; }
+
+/* Inline SVG icons (replace tofu-square Unicode glyphs). Inherit text color + size, align to baseline. */
+.i { width: 1em; height: 1em; vertical-align: -0.14em; flex: 0 0 auto; }
+.btn .arw, .tlink b .arw { width: 1em; height: 1em; vertical-align: -0.14em; }
+a .i, button .i { pointer-events: none; }
+
+/* Token detail: compact stat strip so the TOKEN (logo + name) is the focus, not six big boxes. */
+.td-stats { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; margin-bottom: 20px; }
+.td-stats .stat { padding: 10px 12px; border-radius: 10px; }
+.td-stats .stat .v { font-size: 16px; }
+.td-stats .stat .v.r { font-size: 16px; }
+.td-stats .stat .l { font-size: 8.5px; letter-spacing: 1px; margin-top: 2px; }
+@media (max-width: 560px) {
+  .td-stats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .td-stats .stat { padding: 8px 6px; }
+  .td-stats .stat .v, .td-stats .stat .v.r { font-size: 13.5px; }
+  .td-stats .stat .l { font-size: 8px; }
+}
+
+/* Address chips + contract rows must never bleed past the viewport on mobile. */
+.addr { max-width: 100%; }
+.addr .addr-hex { overflow: hidden; text-overflow: ellipsis; }
+.ir { flex-wrap: wrap; }
+.ir-v { overflow-wrap: anywhere; word-break: break-all; text-align: right; min-width: 0; }
+@media (max-width: 560px) {
+  .ir { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .ir-v { text-align: left; font-size: 11px; }
+  .td-head { gap: 12px; }
+  .td-head .tlogo, .td-head .tmono { width: 44px; height: 44px; font-size: 17px; }
+}
 .b-gray { color: var(--chrome); background: rgba(214,216,221,.08); border: 1px solid rgba(214,216,221,.22); }
 .b-white { color: #0a0a0a; background: var(--chrome); }
 .b-live { color: #59e0a0; background: rgba(60,224,140,.12); border: 1px solid rgba(60,224,140,.35); }
@@ -541,7 +576,7 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .tk-add-row:disabled { opacity: .6; cursor: default; }
 .tk-empty { color: var(--gray-2); font-size: 13px; text-align: center; padding: 28px 20px; line-height: 1.6; }
 .swap-sub { color: var(--gray-2); font-size: 12px; margin-top: 8px; }
-.swap-flip { display: block; margin: -6px auto; position: relative; z-index: 1; width: 34px; height: 34px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); color: var(--red-hi); cursor: pointer; font-size: 16px; }
+.swap-flip { display: grid; place-items: center; margin: -6px auto; position: relative; z-index: 1; width: 34px; height: 34px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); color: var(--red-hi); cursor: pointer; font-size: 15px; }
 .swap-flip:hover { border-color: var(--red-dim); }
 .swap-info { display: flex; justify-content: space-between; padding: 12px 4px; color: var(--gray-2); font-size: 13px; }
 .swap-cta { width: 100%; margin-top: 8px; }
@@ -608,7 +643,7 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 }
 @media (max-width: 640px) {
   .trow { grid-template-columns: 34px 40px minmax(110px, 1fr) 96px; }
-  .trow.sc { grid-template-columns: 40px 32px minmax(90px, 1fr) 84px; }
+  .trow.sc { grid-template-columns: 34px 30px minmax(74px, 1fr) 74px 58px; gap: 7px; padding: 12px 12px; }
   .hidesm { display: none; }
   /* compact nav so the menu fits one clean row on phones */
   .nav-links { gap: 2px; flex-wrap: wrap; }

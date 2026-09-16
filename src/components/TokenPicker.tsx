@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { IconClose, IconExternal } from './icons';
 import { isAddress, type Token } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 
@@ -53,7 +54,7 @@ export function TokenPicker({ value, tokens, exclude, onSelect, onAddAddress, ad
           <div className="tk-modal" onClick={(e) => e.stopPropagation()}>
             <div className="tk-modal-head">
               <span>Select a token</span>
-              <button type="button" className="tk-x" onClick={() => setOpen(false)} aria-label="close">✕</button>
+              <button type="button" className="tk-x" onClick={() => setOpen(false)} aria-label="close"><IconClose /></button>
             </div>
             <input ref={inputRef} className="tk-search" placeholder="Search name or paste address (0x…)"
               value={q} onChange={(e) => setQ(e.target.value)} spellCheck={false}
@@ -62,7 +63,7 @@ export function TokenPicker({ value, tokens, exclude, onSelect, onAddAddress, ad
               <button type="button" className="tk-add-row" onClick={addPasted} disabled={adding}>
                 <TokenLogo symbol="?" seed={q.trim()} url={null} />
                 <div className="tk-row-id"><b>{adding ? 'Adding…' : 'Add this token'}</b><span className="tk-row-addr">{q.trim().slice(0, 10)}…{q.trim().slice(-6)}</span></div>
-                <span className="tk-row-go">Import ↗</span>
+                <span className="tk-row-go">Import <IconExternal className="i" /></span>
               </button>
             )}
             <div className="tk-list">
