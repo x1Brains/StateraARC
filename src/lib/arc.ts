@@ -72,6 +72,9 @@ export interface Token {
   createdAt?: number | null; // ms epoch the token was deployed (for "recent launches" sorting)
   volume24h?: number | null; // 24h USDC volume (RadarDEX aggregate)
   change24h?: number | null; // 24h price change, percent (RadarDEX)
+  change1h?: number | null;  // 1h price change, percent
+  txns24?: number | null;    // 24h transaction count
+  spark?: number[] | null;   // sparkline price series (recent → last)
 }
 
 export const addrOf = (o: any): string =>
@@ -206,6 +209,8 @@ export async function fetchRadarTokens(limit = 500): Promise<Token[]> {
         iconUrl: normIcon(t.icon), launchpad: lp, isOurs: false, isEcosystem: false,
         price: rnum(t.price), liq: rnum(t.liquidityUsdc), mcap: rnum(t.mcap),
         volume24h: rnum(t.volume24 ?? t.volume24hFixed), change24h: rnum(t.change24h),
+        change1h: rnum(t.change1h), txns24: rnum(t.txns24),
+        spark: Array.isArray(t.spark) ? t.spark.filter((n: any) => typeof n === 'number' && isFinite(n)) : null,
         createdAt: deploy != null ? deploy * 1000 : null,
       };
     }).filter((t) => /^0x[0-9a-f]{40}$/.test(t.address));

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchMainnetTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
+import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
 import { Swap } from './components/Swap';
 import { Dropdown } from './components/Dropdown';
@@ -42,6 +43,18 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 const PER_PAGE_OPTS = [100, 250, 500];
 const byLiq = (a: Token, b: Token) => (b.liq ?? -1) - (a.liq ?? -1);
+// Screener cell formatters
+const chgCls = (v: number | null | undefined) => (v == null ? '' : v >= 0 ? 'up' : 'down');
+const chgFmt = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(Math.abs(v) >= 100 ? 0 : 1)}%`);
+const ageStr = (ms: number | null | undefined) => {
+  if (!ms) return '—';
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 2592000) return `${Math.floor(s / 86400)}d`;
+  if (s < 31536000) return `${Math.floor(s / 2592000)}mo`;
+  return `${(s / 31536000).toFixed(1)}y`;
+};
 
 // Legend for the launchpad/factory tags we detect on Arc (from LAUNCHPADS deployer clustering).
 const LP_DESC: Record<string, string> = {
@@ -305,15 +318,20 @@ export default function App() {
             {loading && !tokens.length && <div className="msg">Loading Arc tokens…</div>}
 
             {!!pageRows.length && (
-              <div className="table">
+              <div className="table-scroll">
+              <div className="table wide">
                 <div className="trow head sc">
                   <span>#</span><span /><span>Token</span>
                   <span className="num">Price</span>
+                  <span className="num">1h</span>
                   <span className="num">24h</span>
-                  <span className={`num hidesm${sort === 'mcap' ? ' hot' : ''}`}>Market Cap</span>
-                  <span className={`num hidesm${sort === 'liq' ? ' hot' : ''}`}>Liquidity</span>
-                  <span className="num hidesm">Holders</span>
-                  <span className="hidesm">Tags</span>
+                  <span className="num">Vol 24h</span>
+                  <span className={`num${sort === 'mcap' ? ' hot' : ''}`}>Market Cap</span>
+                  <span className={`num${sort === 'liq' ? ' hot' : ''}`}>Liquidity</span>
+                  <span className="num">Holders</span>
+                  <span className="num">Age</span>
+                  <span className="num">Last 24h</span>
+                  <span>Tags</span>
                 </div>
                 {pageRows.map((t, i) => (
                   <div className="trow tok sc" key={t.address} onClick={() => setSelected(t.address)}>
@@ -321,16 +339,21 @@ export default function App() {
                     <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
                     <span><div className="tname">{t.name}</div><div className="tsym">{t.symbol}</div></span>
                     <span className="num">{tprice(t.price)}</span>
-                    <span className={`num chg ${t.change24h == null ? '' : t.change24h >= 0 ? 'up' : 'down'}`}>{t.change24h == null ? '—' : `${t.change24h >= 0 ? '+' : ''}${t.change24h.toFixed(Math.abs(t.change24h) >= 100 ? 0 : 1)}%`}</span>
-                    <span className={`num hidesm${sort === 'mcap' ? ' hot' : ''}`}>{t.mcap == null ? '—' : usd(t.mcap)}</span>
-                    <span className={`num hidesm${sort === 'liq' ? ' hot' : ''}`}>{t.liq == null ? '—' : usd(t.liq)}</span>
-                    <span className="num hidesm">{fmt(t.holders)}</span>
-                    <span className="flags hidesm">
+                    <span className={`num chg ${chgCls(t.change1h)}`}>{chgFmt(t.change1h)}</span>
+                    <span className={`num chg ${chgCls(t.change24h)}`}>{chgFmt(t.change24h)}</span>
+                    <span className="num">{t.volume24h == null ? '—' : usd(t.volume24h)}</span>
+                    <span className={`num${sort === 'mcap' ? ' hot' : ''}`}>{t.mcap == null ? '—' : usd(t.mcap)}</span>
+                    <span className={`num${sort === 'liq' ? ' hot' : ''}`}>{t.liq == null ? '—' : usd(t.liq)}</span>
+                    <span className="num">{fmt(t.holders)}</span>
+                    <span className="num age">{ageStr(t.createdAt)}</span>
+                    <span className="num spark-cell"><Sparkline data={t.spark} /></span>
+                    <span className="flags">
                       {t.launchpad && <span className="badge b-lp">{t.launchpad}</span>}
                       {t.isEcosystem && <span className="badge b-gray">ECO</span>}
                     </span>
                   </div>
                 ))}
+              </div>
               </div>
             )}
             {!loading && !!tokens.length && !rows.length && <div className="msg">No tokens match{q ? ` "${q}"` : ' this filter'}.</div>}

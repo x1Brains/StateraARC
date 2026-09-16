@@ -229,10 +229,17 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .home-cta p { color: var(--gray-2); font-size: 13.5px; margin: 8px 0 0; max-width: 560px; line-height: 1.55; }
 
 /* screener: market-cap column + active-sort highlight */
-.trow.sc { grid-template-columns: 44px 34px minmax(110px, 1fr) 92px 72px 108px 108px 78px 128px; }
+/* XDEX-style rich screener: many columns, horizontal-scroll on narrow screens. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll .table.wide { min-width: 1120px; }
+.trow.sc { grid-template-columns: 42px 32px minmax(140px, 1.4fr) 90px 60px 62px 96px 104px 104px 74px 50px 80px 116px; }
 .chg.up { color: #4ecb71; }
 .chg.down { color: #ff5a5a; }
 .chg { font-family: var(--mono); }
+.trow.sc .age { color: var(--gray-2); font-family: var(--mono); }
+.spark-cell { display: flex; align-items: center; justify-content: flex-end; }
+.spark { display: block; }
+.spark-empty { display: inline-block; opacity: .2; }
 .num.hot { color: var(--red-hi); }
 .sortby { display: flex; align-items: center; gap: 8px; }
 .sortby-l { font-family: var(--disp); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
@@ -734,7 +741,7 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 }
 @media (max-width: 640px) {
   .trow { grid-template-columns: 34px 40px minmax(110px, 1fr) 96px; }
-  .trow.sc { grid-template-columns: 34px 30px minmax(74px, 1fr) 74px 58px; gap: 7px; padding: 12px 12px; }
+  /* .trow.sc keeps its full wide grid — the .table-scroll wrapper lets it scroll horizontally (XDEX-style) */
   .hidesm { display: none; }
   /* compact nav so the menu fits one clean row on phones */
   .nav-links { gap: 2px; flex-wrap: wrap; }
