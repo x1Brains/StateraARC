@@ -864,3 +864,7 @@ footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px
 .tx-link { color: var(--red-hi); text-decoration: none; font-size: 11px; white-space: nowrap; }
 .tx-link:hover { text-decoration: underline; }
 @media (max-width: 560px) { .tx-ft { display: none; } .hl-addr { font-size: 11px; } }
+
+/* 2-section home (Ecosystem card removed — only USDC qualifies for now) */
+.home-cards-2 { grid-template-columns: repeat(2, 1fr); max-width: 860px; margin-left: auto; margin-right: auto; }
+@media (max-width: 720px) { .home-cards-2 { grid-template-columns: 1fr; } }

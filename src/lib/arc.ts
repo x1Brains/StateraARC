@@ -418,6 +418,7 @@ const MAINNET_CORE: { address: string; name: string; symbol: string; decimals: n
   { address: '0xeb64987643db71c76b2a2be7e723decc995e5b37', name: 'Cool', symbol: 'COOL', decimals: 18 },
   { address: '0x0bffa97f774824e9da843699aedd2835cb1b8022', name: 'Arcash', symbol: 'ARCASH', decimals: 18 },
   { address: '0xbe0cad585ea2d13de2f4e36376be755c0afd8b97', name: 'Arcbat', symbol: 'ARCBAT', decimals: 18 },
+  { address: '0x2164bb17a2d38c1b5170e987b2c0416df1efc752', name: 'Long', symbol: 'LONG', decimals: 18 },
 ];
 export async function fetchHoldingsMainnet(addr: string, extra: { address: string; name?: string; symbol?: string }[] = []): Promise<Holding[]> {
   const seen = new Set(MAINNET_CORE.map((t) => t.address.toLowerCase()));
@@ -513,7 +514,7 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
     const m = coreMeta[addr]; const s = stats[addr] || { price: null, liq: null };
     add({ address: addr, name: m?.name || addr.slice(0, 10), symbol: m?.symbol || '?', holders: null, totalSupply: null,
       type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false,
-      isEcosystem: /warp/i.test(m?.symbol || ''), price: s.price, liq: s.liq, mcap: null });
+      isEcosystem: false, price: s.price, liq: s.liq, mcap: null }); // tracked tokens are utility/memes, not core stablecoins
   }
   try {
     const warp = await fetchWarpTrending();
@@ -521,7 +522,7 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
       if ((w.liquidity ?? 0) < 500) continue; // cut curve dust + impersonator dupes
       add({ address: w.address, name: w.name, symbol: w.ticker, holders: w.holders, totalSupply: null,
         type: 'ERC-20', iconUrl: w.image, launchpad: w.migrated ? null : 'Warp', isOurs: false,
-        isEcosystem: /warp|usdc|eurc|usyc/i.test(`${w.ticker} ${w.name}`), price: w.price, liq: w.liquidity, mcap: w.mcap });
+        isEcosystem: /^(usdc|eurc|usyc|wusdc|usdt|dusdt)$/i.test(w.ticker), price: w.price, liq: w.liquidity, mcap: w.mcap }); // only true stablecoins
     }
   } catch { /* Warp feed optional */ }
   return out;
