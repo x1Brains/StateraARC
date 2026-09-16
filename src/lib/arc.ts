@@ -216,6 +216,28 @@ export async function fetchRadarPortfolio(addr: string): Promise<{ total: number
   } catch { return { total: null, holdings: [] }; }
 }
 
+// ── Wallet activity feed (arc-scan REST) — the connected wallet's recent transactions ─────────────
+export interface WalletTx { hash: string; ts: number; method: string; value: number | null; symbol: string | null; status: boolean; to: string | null; from: string | null; }
+export async function fetchAddressTxs(addr: string, limit = 12): Promise<WalletTx[]> {
+  try {
+    const r = await fetch(`https://api.arc-scan.org/v1/address/${addr.toLowerCase()}/txs`, { headers: { accept: 'application/json' } });
+    if (!r.ok) return [];
+    const j = await r.json();
+    const items: any[] = Array.isArray(j.items) ? j.items : [];
+    return items.slice(0, limit).map((t): WalletTx => {
+      const m = t.method || {}; const v = t.value || {};
+      return {
+        hash: t.hash, ts: t.timestamp ? Number(t.timestamp) * 1000 : 0,
+        method: m.name || (m.is_creation ? 'deploy' : 'transfer'),
+        value: v.formatted != null && isFinite(Number(v.formatted)) ? Number(v.formatted) : null,
+        symbol: v.symbol || null,
+        status: t.status === 'success' || t.status === true || t.status === 1,
+        to: t.to?.address ?? null, from: t.from?.address ?? null,
+      };
+    }).filter((t) => t.hash);
+  } catch { return []; }
+}
+
 // Fetch a token's deployer and tag it if the deployer is a known launchpad. Called sparingly
 // (throttled by the caller) so we don't trip the public API rate limit.
 export async function enrichLaunchpad(t: Token): Promise<Token> {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { compact, CHAIN, type Token } from '../lib/arc';
+import { compact, usd, CHAIN, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx } from '../lib/arc';
+import { TokenLogo } from './TokenLogo';
 import {
   NATIVE_USDC, SWAP_CFG, swapReady, bestQuote, decimalsOf, symbolOf, balanceOf, allowance,
   buildApproveTx, buildSwapTx, simulate, minOut, toRaw, fromRaw, feeCandidates, MAX_UINT256,
@@ -114,6 +115,19 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     });
     return () => { alive = false; };
   }, [wallet, fromA, toA, phaseTick]); // eslint-disable-line
+
+  // Connected wallet's holdings (top tokens) + recent transactions — the side panel (X1-style).
+  const [holdings, setHoldings] = useState<RadarHolding[] | null>(null);
+  const [pfTotal, setPfTotal] = useState<number | null>(null);
+  const [acts, setActs] = useState<WalletTx[] | null>(null);
+  useEffect(() => {
+    if (!wallet) { setHoldings(null); setActs(null); setPfTotal(null); return; }
+    let alive = true;
+    setHoldings((h) => h ?? null); setActs((a) => a ?? null);
+    fetchRadarPortfolio(wallet).then((pf) => { if (alive) { setHoldings(pf.holdings); setPfTotal(pf.total); } }).catch(() => { if (alive) setHoldings([]); });
+    fetchAddressTxs(wallet, 12).then((t) => { if (alive) setActs(t); }).catch(() => { if (alive) setActs([]); });
+    return () => { alive = false; };
+  }, [wallet, phaseTick]); // eslint-disable-line
 
   const [quote, setQuote] = useState<Quote | null>(null);
   const [estimate, setEstimate] = useState<{ out: number } | null>(null);
@@ -251,6 +265,25 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   const fromBal = fromBalRaw != null && decIn != null ? fromRaw(fromBalRaw, decIn) : null;
   const toBal = toBalRaw != null && decOut != null ? fromRaw(toBalRaw, decOut) : null;
   const fmtBal = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: n < 1 ? 6 : 4 });
+  const timeAgo = (ms: number) => {
+    if (!ms) return '';
+    const s = Math.max(0, (Date.now() - ms) / 1000);
+    if (s < 60) return `${s | 0}s`;
+    if (s < 3600) return `${(s / 60) | 0}m`;
+    if (s < 86400) return `${(s / 3600) | 0}h`;
+    return `${(s / 86400) | 0}d`;
+  };
+  // Tap a holding in the side panel → load it as the sell side (holding → USDC).
+  const tradeHolding = (h: RadarHolding) => {
+    const k = h.address.toLowerCase();
+    setExtra((p) => p.some((t) => t.address.toLowerCase() === k) ? p
+      : [{ address: h.address, name: h.name, symbol: h.symbol, holders: null, totalSupply: null, type: 'ERC-20', iconUrl: h.icon, launchpad: null, isOurs: false, isEcosystem: false, price: h.price, liq: null, mcap: null }, ...p]);
+    setDec((p) => (p[k] != null ? p : { ...p, [k]: h.decimals ?? 18 }));
+    if (h.price != null) setWarpPx((p) => ({ ...p, [k]: h.price! }));
+    setToA(USDC.address);
+    setFromA(h.address);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // resolve + add a pasted token address, and select it into the given side
   const [adding, setAdding] = useState(false);
@@ -596,16 +629,47 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
         </div>
 
         <aside className="swap-side">
-          <div className="panel side-card">
-            <h3>How it works</h3>
+          {/* Your holdings — top tokens by value (RadarDEX), one tap to trade */}
+          <div className="panel side-card sp-card">
+            <div className="sp-head"><h3>Your Holdings</h3>{pfTotal != null && <span className="sp-total">{usd(pfTotal)}</span>}</div>
+            {!wallet ? <p className="side-note">Connect your wallet to see your holdings and recent trades here.</p>
+              : holdings == null ? <div className="side-note">Loading holdings…</div>
+              : !holdings.length ? <div className="side-note">No tokens held on Arc yet.</div>
+              : <div className="sp-holds">
+                  {holdings.slice(0, 6).map((h) => (
+                    <button className="sp-hold" key={h.address} onClick={() => tradeHolding(h)} title={`Trade ${h.symbol}`}>
+                      <TokenLogo symbol={h.symbol} seed={h.address} url={h.icon} />
+                      <span className="sp-h-id"><span className="sp-h-sym">{h.symbol}</span><span className="sp-h-amt">{compact(h.amount)}</span></span>
+                      <span className="sp-h-usd">{h.usd != null ? usd(h.usd) : '—'}</span>
+                    </button>
+                  ))}
+                </div>}
+          </div>
+
+          {/* Recent transactions — the connected wallet's activity (arc-scan) */}
+          <div className="panel side-card sp-card">
+            <h3>Recent Transactions</h3>
+            {!wallet ? <p className="side-note">Your latest swaps &amp; transfers will show here once connected.</p>
+              : acts == null ? <div className="side-note">Loading activity…</div>
+              : !acts.length ? <div className="side-note">No recent transactions found on Arc.</div>
+              : <div className="sp-acts">
+                  {acts.map((t) => (
+                    <a className="sp-act" key={t.hash} href={`https://www.arcexplorer.org/tx/${t.hash}`} target="_blank" rel="noreferrer">
+                      <span className={`sp-a-m ${t.status ? '' : 'fail'}`}>{t.method}</span>
+                      <span className="sp-a-v">{t.value != null && t.value > 0 ? `${compact(t.value)} ${t.symbol || ''}` : ''}</span>
+                      <span className="sp-a-t">{timeAgo(t.ts)}</span>
+                    </a>
+                  ))}
+                </div>}
+          </div>
+
+          {/* Compact how-it-works — small, no longer competing with the swap */}
+          <details className="sp-how">
+            <summary>How routing works</summary>
             <p className="side-note">{warpMode
-              ? <>Trading Arc mainnet (chain 5042) tokens: StateraArc routes graduated tokens through WarpV2 and fills them here. Bonding-curve and Uniswap-v4 tokens can't be filled by this router — for those you'll get a live price estimate and a one-tap link to trade on Warp. Native USDC (0x3600) is the gas token; min received is enforced on-chain.</>
-              : <>StateraArc quotes your trade against every live router on {CHAIN.name} ({SWAP_CFG.routers.length} tracked) and picks the deepest fill. Native USDC (0x3600) is Arc's gas token — swaps approve it as an ERC-20, then route through on-chain pools. Your min received is enforced on-chain at your chosen slippage.</>}</p>
-          </div>
-          <div className="panel side-card">
-            <h3>Paste &amp; trade</h3>
-            <p className="side-note">Open either token menu and paste any Arc ERC-20 address to import it instantly. If there's no pool yet, you'll see "no route" rather than a bad fill.</p>
-          </div>
+              ? <>Graduated tokens fill through WarpV2; bonding-curve &amp; Uniswap-v3/v4 tokens route on their own pools in-app. Native USDC (0x3600) is the gas token. Paste any Arc ERC-20 in a token menu to import it — no pool shows "no route", never a bad fill. Min received enforced on-chain.</>
+              : <>Quoted against every live router on {CHAIN.name} ({SWAP_CFG.routers.length} tracked) for the deepest fill. Native USDC (0x3600) is Arc's gas token. Paste any ERC-20 to import it. Min received enforced on-chain at your slippage.</>}</p>
+          </details>
         </aside>
       </div>
     </section></div>
