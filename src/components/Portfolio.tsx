@@ -22,6 +22,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   const [pnl, setPnl] = useState<Record<string, TokenPnl> | null>(null); // reconstructed cost basis
   const [pnlLoading, setPnlLoading] = useState(false);
 
+  const [expanded, setExpanded] = useState<string | null>(null);
   // Price lookup by token address (board prices + live mainnet pool prices).
   const priceMap = useMemo(() => {
     const m = new Map<string, number>();
@@ -29,6 +30,8 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     for (const [a, p] of Object.entries(livePx)) m.set(a, p);
     return m;
   }, [tokens, livePx]);
+  // Market cap lookup (for "MC when you bought" vs "MC now").
+  const mcapMap = useMemo(() => new Map(tokens.map((t) => [t.address.toLowerCase(), t.mcap])), [tokens]);
 
   // When a wallet connects, track it automatically.
   useEffect(() => { if (wallet) setAddr(wallet); }, [wallet]);
@@ -101,10 +104,16 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         const avgCost = pl?.avgCost ?? null;
         // Unrealized = (current price − avg cost) × current balance; total P&L adds realized.
         const unrealized = avgCost != null && p != null ? (p - avgCost) * h.balance : null;
-        const totalPnl = avgCost != null ? (pl!.realized + (unrealized ?? 0)) : null;
-        const invested = avgCost != null ? avgCost * h.balance : null; // cost basis of current bag
-        const pnlPct = invested && totalPnl != null && invested > 0 ? (totalPnl / invested) * 100 : null;
-        return { ...h, price: p, value, avgCost, totalPnl, pnlPct };
+        const realized = pl?.realized ?? 0;
+        const totalPnl = avgCost != null ? (realized + (unrealized ?? 0)) : null;
+        const costOfBag = avgCost != null ? avgCost * h.balance : null; // cost basis of what's held now
+        const pnlPct = costOfBag && totalPnl != null && costOfBag > 0 ? (totalPnl / costOfBag) * 100 : null;
+        const mcapNow = mcapMap.get(h.address) ?? null;
+        // MC when you bought ≈ (avg buy price / current price) × current market cap.
+        const mcapAtBuy = avgCost != null && p && p > 0 && mcapNow != null ? (avgCost / p) * mcapNow : null;
+        return { ...h, price: p, value, avgCost, totalPnl, pnlPct, unrealized, realized,
+          invested: pl?.invested ?? null, qtyBought: pl?.qtyBought ?? null, qtySold: pl?.qtySold ?? null,
+          costOfBag, mcapNow, mcapAtBuy };
       })
       .sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
   }, [holdings, priceMap, pnl]);
@@ -151,13 +160,18 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
               </div>
               {rows.map((h) => {
                 const openable = !!onOpenToken && h.address.toLowerCase() !== USDC_ADDR;
+                const isOpen = expanded === h.address;
+                const fmtMc = (n: number | null) => (n == null ? '—' : n >= 1e6 ? '$' + (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? '$' + (n / 1e3).toFixed(1) + 'K' : usd(n));
                 return (
-                <div className={`trow tok pf-row${openable ? ' clickable' : ''}`} key={h.address}
-                  onClick={() => openable && onOpenToken!(h.address)}
-                  title={openable ? `Open ${h.symbol} chart & details` : undefined}>
+                <div className="pf-group" key={h.address}>
+                <div className={`trow tok pf-row clickable${isOpen ? ' open' : ''}`}
+                  onClick={() => setExpanded((e) => (e === h.address ? null : h.address))}
+                  title="Tap for buy price, cost & market cap">
                   <TokenLogo symbol={h.symbol} seed={h.address} url={h.iconUrl} />
                   <span className="pf-id">
-                    <span className="pf-nm"><span className="tname">{h.name}</span>{openable && <IconExternal className="pf-open i" />}</span>
+                    <span className="pf-nm"><span className="tname">{h.name}</span>
+                      {openable && <button className="pf-open-btn" title={`Open ${h.symbol} chart`} onClick={(e) => { e.stopPropagation(); onOpenToken!(h.address); }}><IconExternal className="i" /></button>}
+                    </span>
                     <span className="tsym">{h.symbol}
                       <button className="pf-copy" onClick={(e) => copyAddr(e, h.address)} title="Copy token address">
                         {copied === h.address ? <IconCheck className="i" /> : <IconCopy className="i" />}
@@ -173,6 +187,26 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
                       {h.pnlPct != null && <span className="pf-pnl-pct">{h.pnlPct >= 0 ? '+' : ''}{h.pnlPct.toFixed(0)}%</span>}</>
                     )}
                   </span>
+                </div>
+                {isOpen && (
+                  <div className="pf-detail">
+                    {h.avgCost == null ? (
+                      <div className="side-note">{pnlLoading ? 'Loading your trade history…' : 'No on-chain buys found for this token — cost basis unavailable (it may have been received as a transfer, or bought token-to-token).'}</div>
+                    ) : (
+                      <div className="pf-detail-grid">
+                        <div className="pfd"><span className="pfd-l">Invested</span><span className="pfd-v">{usd(h.invested ?? 0)}</span></div>
+                        <div className="pfd"><span className="pfd-l">Avg buy</span><span className="pfd-v">{tprice(h.avgCost)}</span></div>
+                        <div className="pfd"><span className="pfd-l">Bought</span><span className="pfd-v">{compact(h.qtyBought ?? 0)} {h.symbol}</span></div>
+                        <div className="pfd"><span className="pfd-l">Now worth</span><span className="pfd-v">{h.value == null ? '—' : usd(h.value)}</span></div>
+                        <div className="pfd"><span className="pfd-l">Unrealized</span><span className={`pfd-v ${h.unrealized == null ? '' : h.unrealized >= 0 ? 'up' : 'down'}`}>{h.unrealized == null ? '—' : `${h.unrealized >= 0 ? '+' : '−'}${usd(Math.abs(h.unrealized))}`}</span></div>
+                        {h.realized !== 0 && <div className="pfd"><span className="pfd-l">Realized</span><span className={`pfd-v ${h.realized >= 0 ? 'up' : 'down'}`}>{h.realized >= 0 ? '+' : '−'}{usd(Math.abs(h.realized))}</span></div>}
+                        <div className="pfd"><span className="pfd-l">MC at your buy</span><span className="pfd-v">{fmtMc(h.mcapAtBuy)}</span></div>
+                        <div className="pfd"><span className="pfd-l">MC now</span><span className="pfd-v">{fmtMc(h.mcapNow)}</span></div>
+                      </div>
+                    )}
+                    {openable && <button className="pf-detail-cta" onClick={() => onOpenToken!(h.address)}>Open {h.symbol} chart &amp; trades <IconExternal className="i" /></button>}
+                  </div>
+                )}
                 </div>
               ); })}
             </div>

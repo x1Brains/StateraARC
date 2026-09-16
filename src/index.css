@@ -510,6 +510,25 @@ a .i, button .i { pointer-events: none; }
 .pf-pnl.down { color: #ff5a5a; }
 .pf-pnl-v { font-weight: 700; font-size: 12.5px; }
 .pf-pnl-pct { font-size: 10px; opacity: .85; }
+.pf-open-btn { background: transparent; border: 0; color: var(--gray-3); cursor: pointer; padding: 2px; line-height: 0; border-radius: 4px; display: inline-flex; }
+.pf-open-btn:hover { color: var(--red-hi); background: rgba(255,255,255,.06); }
+
+/* Expandable per-holding detail drawer (buy price, invested, MC then vs now) */
+.pf-group { border-bottom: 1px solid var(--line-soft); }
+.pf-group:last-child { border-bottom: 0; }
+.pf-group .pf-row { border-bottom: 0; }
+.trow.tok.pf-row.open { background: var(--panel-2); }
+.pf-detail { padding: 4px 16px 16px; background: var(--panel-2); }
+.pf-detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pfd { background: #060a0e; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; display: flex; flex-direction: column; gap: 3px; }
+.pfd-l { font: 700 8.5px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
+.pfd-v { font: 700 13px var(--mono); color: var(--white); }
+.pfd-v.up { color: #4ecb71; }
+.pfd-v.down { color: #ff5a5a; }
+.pf-detail-cta { margin-top: 12px; display: inline-flex; align-items: center; gap: 6px; font: 700 11px var(--disp); letter-spacing: .5px; color: var(--red-hi);
+  background: rgba(255,122,30,.1); border: 1px solid var(--red-dim); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+.pf-detail-cta:hover { background: rgba(255,122,30,.18); }
+@media (max-width: 640px) { .pf-detail-grid { grid-template-columns: repeat(2, 1fr); } }
 .pf-id { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
 .pf-nm { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .pf-nm .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
