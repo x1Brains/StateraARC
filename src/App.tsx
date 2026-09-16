@@ -7,18 +7,17 @@ import { Swap } from './components/Swap';
 import { Dropdown } from './components/Dropdown';
 import { PremainDetail } from './components/PremainDetail';
 import { TokenPage } from './components/TokenPage';
-import { Watchlist } from './components/Watchlist';
 import { ArcTrending } from './components/ArcTrending';
 import type { WarpToken } from './lib/warp';
 import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
 
-type Page = 'home' | 'screener' | 'watchlist' | 'portfolio' | 'swap' | 'token';
+type Page = 'home' | 'screener' | 'portfolio' | 'swap' | 'token';
 type Filter = 'all' | 'new' | 'eco';
 type SortKey = 'liq' | 'mcap' | 'holders' | 'price' | 'name';
 
 // ── deep-linkable URLs (hash routing — shareable, refresh-safe, needs no server config) ──
-const PATHS: Record<Page, string> = { home: '/', screener: '/screener', watchlist: '/watchlist', token: '/str', portfolio: '/portfolio', swap: '/swap' };
+const PATHS: Record<Page, string> = { home: '/', screener: '/screener', token: '/str', portfolio: '/portfolio', swap: '/swap' };
 const hashFor = (pg: Page, sel: string | null): string =>
   pg === 'screener' && sel && /^0x[0-9a-fA-F]{40}$/.test(sel) ? `#/token/${sel}` : `#${PATHS[pg] || '/'}`;
 function parseHash(): { page: Page; selected: string | null } {
@@ -32,7 +31,6 @@ function parseHash(): { page: Page; selected: string | null } {
 const NAV: { key: Page; label: string }[] = [
   { key: 'home', label: 'Home' },
   { key: 'screener', label: 'Screener' },
-  { key: 'watchlist', label: 'Watchlist' },
   { key: 'token', label: '$STR' },
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'swap', label: 'Swap' },
@@ -72,10 +70,10 @@ export default function App() {
   type Net3 = 'testnet' | 'premain' | 'mainnet';
   // 'premain' = the live Arc mainnet board (chain 5042, via Warp/arc-scan). It is the DEFAULT +
   // primary view now that mainnet RPC is public. Testnet is a secondary opt-in switch.
-  const [net, setNet] = useState<Net3>(() => {
-    try { return localStorage.getItem('statera-net') === 'testnet' ? 'testnet' : 'premain'; } catch { return 'premain'; }
-  });
-  const switchNet = (n: Net3) => { setNet(n); setSelected(null); try { localStorage.setItem('statera-net', n); } catch {} };
+  // ALWAYS land on mainnet. Testnet is an opt-in switch that lasts only for the current session —
+  // it is not persisted, so every fresh visit / reload starts on Arc mainnet.
+  const [net, setNet] = useState<Net3>('premain');
+  const switchNet = (n: Net3) => { setNet(n); setSelected(null); };
   const [premainMetaState, setPremainMetaState] = useState<PremainMeta | null>(null);
   const [wallet, setWallet] = useState<string | null>(null);
   const onConnect = async () => { try { const a = await connectWallet(); if (a) setWallet(a); } catch {} };
@@ -416,7 +414,6 @@ export default function App() {
           </section></div>
         )}
 
-        {page === 'watchlist' && <Watchlist net={net === 'testnet' ? 'testnet' : 'mainnet'} />}
         {page === 'token' && <TokenPage />}
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} mainnet={net !== 'testnet'} />}
         {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} mainnet={net !== 'testnet'} />}
