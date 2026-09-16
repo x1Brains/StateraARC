@@ -44,10 +44,19 @@ export function SendModal({ token, wallet, onClose, onSent }: { token: SendToken
       if (!eth()) throw new Error('No wallet found.');
       if (!(await ensureArc())) throw new Error('Switch your wallet to Arc mainnet to send.');
       const recipient = to.trim();
-      const raw = toRaw(amt, token.decimals);
-      // ERC-20 transfer(to, amount) — works for USDC (0x3600) and every Arc token.
-      const data = '0xa9059cbb' + recipient.slice(2).toLowerCase().padStart(64, '0') + raw.toString(16).padStart(64, '0');
-      const txHash: string = await eth().request({ method: 'eth_sendTransaction', params: [{ from: wallet, to: token.address, data, value: '0x0' }] });
+      // USDC is Arc's NATIVE gas token (0x3600) — it does NOT support a direct ERC-20 transfer() call
+      // (that reverts). Send it as a native value transfer (18-dec) instead. All other tokens: ERC-20.
+      const isNativeUsdc = token.address.toLowerCase() === '0x3600000000000000000000000000000000000000';
+      let params: any;
+      if (isNativeUsdc) {
+        const wei = toRaw(amt, 18); // native gas token is 18-dec
+        params = { from: wallet, to: recipient, value: '0x' + wei.toString(16) };
+      } else {
+        const raw = toRaw(amt, token.decimals);
+        const data = '0xa9059cbb' + recipient.slice(2).toLowerCase().padStart(64, '0') + raw.toString(16).padStart(64, '0');
+        params = { from: wallet, to: token.address, data, value: '0x0' };
+      }
+      const txHash: string = await eth().request({ method: 'eth_sendTransaction', params: [params] });
       setHash(txHash); setMsg('Sent — waiting for confirmation…');
       // wait for the receipt
       for (let i = 0; i < 40; i++) {
