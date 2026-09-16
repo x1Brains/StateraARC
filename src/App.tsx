@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchTokens, fetchPremainTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, CHAIN, LAUNCHPADS, type Token, type MarketPx, type PremainMeta } from './lib/arc';
+import { fetchMainnetTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
-import { TokenDetail } from './components/TokenDetail';
 import { Portfolio } from './components/Portfolio';
 import { Swap } from './components/Swap';
 import { Dropdown } from './components/Dropdown';
@@ -67,37 +66,23 @@ export default function App() {
   const [pageNum, setPageNum] = useState(1);
   const [perPage, setPerPage] = useState(100);
   const [selected, setSelected] = useState<string | null>(() => parseHash().selected);
-  type Net3 = 'testnet' | 'premain' | 'mainnet';
-  // 'premain' = the live Arc mainnet board (chain 5042, via Warp/arc-scan). It is the DEFAULT +
-  // primary view now that mainnet RPC is public. Testnet is a secondary opt-in switch.
-  // ALWAYS land on mainnet. Testnet is an opt-in switch that lasts only for the current session —
-  // it is not persisted, so every fresh visit / reload starts on Arc mainnet.
-  const [net, setNet] = useState<Net3>('premain');
-  const switchNet = (n: Net3) => { setNet(n); setSelected(null); };
-  const [premainMetaState, setPremainMetaState] = useState<PremainMeta | null>(null);
   const [wallet, setWallet] = useState<string | null>(null);
   const onConnect = async () => { try { const a = await connectWallet(); if (a) setWallet(a); } catch {} };
   // Cinematic hero: one of the four lava scenes, chosen at random on each fresh load.
   const [heroVariant] = useState<number>(() => 1 + Math.floor(Math.random() * 4));
 
+  // StateraArc is mainnet-only (Arc chain 5042). Tokens = tracked deep pools (real on-chain price +
+  // liquidity) merged with live Warp launchpad tokens.
   async function load() {
     setLoading(true); setErr(null);
     fetchMarket().then(setMarket).catch(() => {});
     try {
-      if (net === 'premain') {
-        const list = await fetchPremainTokens();
-        setTokens(list);
-        const { premainMeta } = await import('./lib/arc');
-        setPremainMetaState(premainMeta);
-      } else {
-        const list = await fetchTokens(500);
-        setTokens(list);
-      }
+      const list = await fetchMainnetTokens();
+      setTokens(list);
     } catch (e: any) { setErr(e.message || 'failed to load'); }
     finally { setLoading(false); }
   }
-  useEffect(() => { load(); }, [net]); // eslint-disable-line
-  useEffect(() => { if (net === 'premain') setSort('holders'); }, [net]);
+  useEffect(() => { load(); }, []); // eslint-disable-line
 
   const rows = useMemo(() => {
     let r = tokens;
@@ -178,15 +163,12 @@ export default function App() {
           </div>
           <div className="spacer" />
           <VisitCounter />
-          <div className="net-toggle" role="group" aria-label="network">
-            <button className={net === 'premain' ? 'on' : ''} onClick={() => switchNet('premain')} title="Arc mainnet · chain 5042">Mainnet</button>
-            <button className={net === 'testnet' ? 'on' : ''} onClick={() => switchNet('testnet')}>Testnet</button>
-          </div>
+          <div className="net-toggle" role="group" aria-label="network"><span className="net-live"><span className="dot" /> Arc Mainnet</span></div>
           {(page === 'portfolio' || page === 'swap') && <button className="connect" onClick={onConnect}>{wallet ? wallet.slice(0, 6) + '…' + wallet.slice(-4) : 'Connect Wallet'}</button>}
         </div></div>
 
         {/* ============ HOME ============ */}
-        {page === 'home' && net === 'testnet' && (
+        {page === 'home' && (
           <>
             <section className="hero">
               <div className="hero-bg"><img src={`/hero-lava-${heroVariant}.jpg`} alt="Statera" /></div>
@@ -205,11 +187,11 @@ export default function App() {
                     <span className="hst-arw">→</span>
                   </button>
                   <div className="hero-trust">
-                    <div className="ht"><b>{tokens.length || '500'}</b><span>Tokens Tracked</span></div>
+                    <div className="ht"><b>{tokens.length || '—'}</b><span>Tokens Tracked</span></div>
                     <div className="div" />
                     <div className="ht"><b>{launchpadCount || '—'}</b><span>Launchpad</span></div>
                     <div className="div" />
-                    <div className="ht"><b className="r">Live</b><span>Arc Testnet</span></div>
+                    <div className="ht"><b className="r">Live</b><span>Arc Mainnet</span></div>
                   </div>
                 </div>
               </div>
@@ -234,11 +216,6 @@ export default function App() {
               </div>
             </section>
 
-            <div className="wrap"><div className="cd-banner" onClick={() => switchNet('premain')}>
-              <span className="cd-banner-l"><span className="dot" /> Arc Mainnet is LIVE · chain 5042</span>
-              <span className="cd-banner-cta">Open the Mainnet board →</span>
-            </div></div>
-
             <div className="wrap"><section className="section home">
               <div className="home-cards">
                 <Preview title="Trending" kicker="Most liquidity" items={trending} onOpen={openToken} onAll={() => goScreener('all')} loading={loading} />
@@ -258,33 +235,8 @@ export default function App() {
           </>
         )}
 
-        {/* mainnet (chain 5042) home — live trending board front and center */}
-        {page === 'home' && net === 'premain' && (
-          <div className="wrap"><section className="section">
-            <div className="prepublic-banner big">
-              <span className="pp-dot" />
-              <div>
-                <div className="kicker" style={{ marginBottom: 6 }}>Arc Mainnet · Chain 5042 · Live</div>
-                <h2 style={{ margin: '0 0 8px' }}>Arc mainnet is live — trade it now</h2>
-                <p style={{ margin: '0 0 14px' }}>Circle's Arc mainnet (chain 5042) is producing blocks with a live token ecosystem — stablecoins, wrapped assets and launchpad tokens across thousands of holders. Prices &amp; trending are sourced from independent indexers (Warp · arc-scan.org), <b>not Circle</b> — symbols are impersonated freely, so DYOR before you trade.</p>
-                <button className="btn solid" onClick={() => goScreener('all')}>Open Mainnet Board <span className="arw">→</span></button>
-              </div>
-            </div>
-            <ArcTrending onPick={tradeWarp} />
-          </section></div>
-        )}
-
         {/* ============ SCREENER ============ */}
-        {page === 'screener' && net === 'testnet' && selected && (
-          <TokenDetail
-            address={selected}
-            price={tokens.find((t) => t.address === selected)?.price ?? null}
-            liq={tokens.find((t) => t.address === selected)?.liq ?? null}
-            onBack={() => setSelected(null)}
-          />
-        )}
-
-        {page === 'screener' && net === 'premain' && selected && (
+        {page === 'screener' && selected && (
           <PremainDetail
             address={selected}
             seed={tokens.find((t) => t.address === selected)}
@@ -292,44 +244,24 @@ export default function App() {
           />
         )}
 
-        {page === 'screener' && (net === 'testnet' || net === 'premain') && !selected && (
+        {page === 'screener' && !selected && (
           <div className="wrap"><section className="section" id="screener">
-            {net === 'premain' && (
-              <div className="prepublic-banner">
-                <span className="pp-dot" />
-                <div>
-                  <b>Arc Mainnet · chain 5042 · Live</b> — sourced from independent indexers (<a href="https://arc-scan.org" target="_blank" rel="noreferrer">arc-scan.org</a> · Warp), <b>not Circle</b>. Ranked by holders. Aggregates are unverified; token symbols are impersonated freely, so lookalikes are flagged — DYOR.
-                  {premainMetaState?.headBlock && <span className="pp-meta"> · block {Number(premainMetaState.headBlock).toLocaleString()} · {premainMetaState.tokenCount} tokens</span>}
-                </div>
-              </div>
-            )}
-            {net === 'premain' && <ArcTrending onPick={tradeWarp} />}
+            <ArcTrending onPick={tradeWarp} />
             <div className="section-head">
               <div>
-                <div className="kicker">{net === 'premain' ? 'Mainnet Board' : 'Screener'}</div>
+                <div className="kicker">Screener</div>
                 <h2>Arc Tokens</h2>
-                <p>{net === 'premain'
-                  ? 'The most-held and trending tokens on Arc mainnet, with live Warp prices. Click a token to trade it or view it on arc-scan.org.'
-                  : 'Live prices, liquidity & market cap from on-chain pools. Launchpad tokens flagged from deployer clustering.'}</p>
+                <p>Live prices, liquidity &amp; market cap from Arc mainnet pools (chain 5042) — WarpV2, Uniswap V3/V4 and Warp launchpad tokens. Click a token for its chart, holders &amp; trades.</p>
               </div>
               <button className="btn ghost" onClick={load} disabled={loading} style={{ opacity: loading ? .5 : 1 }}>{loading ? 'Loading' : 'Refresh'}</button>
             </div>
 
-            {net === 'premain' ? (
-              <div className="stats">
-                <div className="stat"><div className="v">{tokens.length || '—'}</div><div className="l">Tokens Indexed</div></div>
-                <div className="stat"><div className="v">{tokens[0]?.symbol ?? '—'}</div><div className="l">Most Held</div></div>
-                <div className="stat"><div className="v">{tokens.reduce((s, t) => s + (t.holders || 0), 0).toLocaleString()}</div><div className="l">Total Holders</div></div>
-                <div className="stat"><div className="v r">LIVE</div><div className="l">Mainnet · 5042</div></div>
-              </div>
-            ) : (
-              <div className="stats">
-                <div className="stat"><div className="v">{tokens.length || '—'}</div><div className="l">Tokens Tracked</div></div>
-                <div className="stat"><div className="v">{launchpadCount || '—'}</div><div className="l">Launchpad Tokens</div></div>
-                <div className="stat"><div className="v">{ecoCount || '—'}</div><div className="l">Ecosystem</div></div>
-                <div className="stat"><div className="v">{CHAIN.name.includes('Testnet') ? 'TESTNET' : 'LIVE'}</div><div className="l">Chain {CHAIN.chainId}</div></div>
-              </div>
-            )}
+            <div className="stats">
+              <div className="stat"><div className="v">{tokens.length || '—'}</div><div className="l">Tokens Tracked</div></div>
+              <div className="stat"><div className="v">{launchpadCount || '—'}</div><div className="l">Launchpad Tokens</div></div>
+              <div className="stat"><div className="v">{ecoCount || '—'}</div><div className="l">Ecosystem</div></div>
+              <div className="stat"><div className="v r">LIVE</div><div className="l">Mainnet · 5042</div></div>
+            </div>
 
             <div className="controls">
               <div className="tabs">
@@ -401,7 +333,7 @@ export default function App() {
               <div className="legend-head">
                 <div className="kicker">Legend</div>
                 <h3>What the tags mean</h3>
-                <p>All data is read live from the <b style={{ color: 'var(--white)' }}>Arc chain</b> ({CHAIN.name}) — on-chain pools, holders &amp; deployer clustering. Not affiliated with any other network's launchpads.</p>
+                <p>All data is read live from <b style={{ color: 'var(--white)' }}>Arc mainnet</b> (chain 5042) — on-chain pools, holders &amp; deployer clustering. Not affiliated with any other network's launchpads.</p>
               </div>
               <div className="legend-grid">
                 <div className="legend-item"><span className="badge b-gray">ECO</span><span>Core ecosystem asset — Circle / Arc infra &amp; stablecoins (USDC, EURC, USDT…).</span></div>
@@ -415,12 +347,12 @@ export default function App() {
         )}
 
         {page === 'token' && <TokenPage />}
-        {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} mainnet={net !== 'testnet'} />}
-        {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} mainnet={net !== 'testnet'} />}
+        {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} mainnet />}
+        {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} mainnet />}
 
         <footer><div className="wrap">
           <span className="fbrand">STATERA · ARC</span>
-          <span>Data via Warp · arc-scan.org · {net === 'testnet' ? 'Arc Testnet' : 'Arc Mainnet · chain 5042'}</span>
+          <span>Data via Warp · arc-scan.org · Arc Mainnet · chain 5042</span>
           <span>Not financial advice · early launches are high-risk</span>
         </div></footer>
       </div>

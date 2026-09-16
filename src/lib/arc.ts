@@ -1,5 +1,6 @@
 // StateraArc — Arc chain data layer. Reads Blockscout's public API (no key, client-side).
 // Flip NET to 'mainnet' when Arc mainnet + its explorer go live (Sept 16, 2026).
+import { fetchWarpTrending } from './warp';
 
 export type Net = 'testnet' | 'mainnet';
 
@@ -478,6 +479,51 @@ export async function priceMainnet(addrs: string[]): Promise<Record<string, numb
     try { usdc = Number(BigInt(uHex)) / 1e6; toks = Number(BigInt(bHex)) / 1e18; } catch { return; }
     if (usdc > 0 && toks > 0) out[a] = usdc / toks;
   }), 4);
+  return out;
+}
+
+// Combined price + USD liquidity for every tracked mainnet pool (one throttled on-chain pass).
+async function mainnetStats(): Promise<Record<string, { price: number | null; liq: number | null }>> {
+  const out: Record<string, { price: number | null; liq: number | null }> = {};
+  const balOf = (token: string, who: string) => mCall(token, '0x70a08231000000000000000000000000' + who.slice(2).toLowerCase());
+  await runLimited(Object.entries(MAINNET_POOL).map(([token, pool]) => async () => {
+    const [uHex, bHex] = await Promise.all([balOf(NATIVE_USDC_ADDR, pool), balOf(token, pool)]);
+    if (!uHex || uHex === '0x') { out[token] = { price: null, liq: null }; return; }
+    try {
+      const usdc = Number(BigInt(uHex)) / 1e6;
+      const toks = bHex && bHex !== '0x' ? Number(BigInt(bHex)) / 1e18 : 0;
+      out[token] = { price: toks > 0 ? usdc / toks : null, liq: usdc * 2 }; // full pool ≈ 2× the USDC side
+    } catch { out[token] = { price: null, liq: null }; }
+  }), 4);
+  return out;
+}
+
+// The mainnet token universe for the home cards + screener: tracked deep pools (real on-chain
+// price + liquidity: WARP, ARGUS, CRCL, LONG, TOLLY, Architects, ARCANINE, COOL, ARCASH, ARCBAT, MMM)
+// merged with live Warp launchpad tokens (filtered to cut dust/dupes), plus USDC as the ecosystem anchor.
+export async function fetchMainnetTokens(): Promise<Token[]> {
+  const seen = new Set<string>();
+  const out: Token[] = [];
+  const add = (t: Token) => { const k = t.address.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(t); } };
+  const coreMeta: Record<string, { name: string; symbol: string }> = {};
+  for (const t of MAINNET_CORE) coreMeta[t.address.toLowerCase()] = { name: t.name, symbol: t.symbol };
+  add({ address: NATIVE_USDC_ADDR, name: 'USD Coin', symbol: 'USDC', holders: null, totalSupply: null, type: 'ERC-20', iconUrl: '/coins/USDC.svg', launchpad: null, isOurs: false, isEcosystem: true, price: 1, liq: null, mcap: null });
+  const stats = await mainnetStats().catch(() => ({} as Record<string, { price: number | null; liq: number | null }>));
+  for (const addr of Object.keys(MAINNET_POOL)) {
+    const m = coreMeta[addr]; const s = stats[addr] || { price: null, liq: null };
+    add({ address: addr, name: m?.name || addr.slice(0, 10), symbol: m?.symbol || '?', holders: null, totalSupply: null,
+      type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false,
+      isEcosystem: /warp/i.test(m?.symbol || ''), price: s.price, liq: s.liq, mcap: null });
+  }
+  try {
+    const warp = await fetchWarpTrending();
+    for (const w of warp) {
+      if ((w.liquidity ?? 0) < 500) continue; // cut curve dust + impersonator dupes
+      add({ address: w.address, name: w.name, symbol: w.ticker, holders: w.holders, totalSupply: null,
+        type: 'ERC-20', iconUrl: w.image, launchpad: w.migrated ? null : 'Warp', isOurs: false,
+        isEcosystem: /warp|usdc|eurc|usyc/i.test(`${w.ticker} ${w.name}`), price: w.price, liq: w.liquidity, mcap: w.mcap });
+    }
+  } catch { /* Warp feed optional */ }
   return out;
 }
 export const isAddress = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
