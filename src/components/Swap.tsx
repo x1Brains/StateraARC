@@ -506,6 +506,10 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
 
       <div className="swap-wrap">
         <div className="swap-card">
+          <div className="swap-head">
+            <span className="swap-head-title">Swap</span>
+            <span className="swap-head-net"><span className="dot" /> Arc Mainnet</span>
+          </div>
           <div className="swap-box">
             <div className="swap-row">
               <span className="swap-l">You pay</span>
@@ -577,21 +581,6 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               <div className="sq-row"><span>Route</span><span className="mono">Warp · Uniswap v4</span></div>
             </div>
           )}
-          {warpMode && (
-            <div className="swap-warp-note">
-              {quote
-                ? <><b>Arc mainnet · live.</b> Routed through WarpV2 on Arc mainnet (chain 5042). Your wallet will switch to Arc mainnet to trade.</>
-                : v3q != null
-                  ? <><b>Arc mainnet · live.</b> Routed through Uniswap V3 (Argus) on Arc mainnet (chain 5042). One-time token approval, then min received is enforced at your slippage.</>
-                : v4q != null
-                  ? <><b>Arc mainnet · live.</b> Routed through Uniswap V4 (Universal Router) on Arc mainnet (chain 5042). First trade needs two one-time approvals (Permit2), then min received is enforced at your slippage.</>
-                : (curveBuyable && curveOut != null)
-                  ? <><b>Arc mainnet · live.</b> Buying on Warp's bonding curve, in-app (chain 5042) — you pay USDC directly, no approval. Min received is enforced at your slippage.</>
-                : (curveSellable && curveSellOut != null)
-                  ? <><b>Arc mainnet · live.</b> Selling on Warp's bonding curve, in-app (chain 5042). One-time token approval, then min received is enforced at your slippage.</>
-                  : <><b>Arc mainnet · live (chain 5042).</b> Fetching the best route for this pair… if it doesn't resolve, it may route only on Uniswap v4 — you can trade it on Warp meanwhile.</>}
-            </div>
-          )}
           {qErr && <div className="swap-info err"><span>{qErr}</span><span /></div>}
 
           {!wallet
@@ -654,13 +643,19 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               : acts == null ? <div className="side-note">Loading activity…</div>
               : !acts.length ? <div className="side-note">No recent transactions found on Arc.</div>
               : <div className="sp-acts">
-                  {acts.map((t) => (
+                  {acts.slice(0, 8).map((t) => {
+                    const m = t.method.toLowerCase();
+                    const kind = m === 'buy' ? 'buy' : m === 'sell' ? 'sell' : (m === 'execute' || m.startsWith('swap') || m === 'exactinputsingle') ? 'swap' : m === 'approve' ? 'approve' : m === 'transfer' ? 'transfer' : 'other';
+                    const label = kind === 'buy' ? 'Buy' : kind === 'sell' ? 'Sell' : kind === 'swap' ? 'Swap' : kind === 'approve' ? 'Approve' : kind === 'transfer' ? 'Transfer' : t.method;
+                    // The USDC value is only meaningful on a curve buy/sell (native USDC leg); hide it elsewhere.
+                    const showVal = (kind === 'buy' || kind === 'sell') && t.value != null && t.value > 0;
+                    return (
                     <a className="sp-act" key={t.hash} href={`https://explorer.arc.io/tx/${t.hash}`} target="_blank" rel="noreferrer">
-                      <span className={`sp-a-m ${t.status ? '' : 'fail'}`}>{t.method}</span>
-                      <span className="sp-a-v">{t.value != null && t.value > 0 ? `${compact(t.value)} ${t.symbol || ''}` : ''}</span>
+                      <span className={`sp-a-m k-${t.status ? kind : 'fail'}`}>{label}</span>
+                      <span className="sp-a-v">{showVal ? `${compact(t.value!)} USDC` : ''}</span>
                       <span className="sp-a-t">{timeAgo(t.ts)}</span>
                     </a>
-                  ))}
+                  ); })}
                 </div>}
           </div>
 

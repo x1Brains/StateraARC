@@ -520,19 +520,19 @@ a .i, button .i { pointer-events: none; }
 .pf-copy:hover { color: var(--red-hi); background: rgba(255,255,255,.06); }
 
 /* ============ swap ============ */
-.swap-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; max-width: 900px; margin: 0 auto; }
+.swap-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 288px; gap: 18px; align-items: start; max-width: 860px; margin: 0 auto; }
 .swap-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; min-width: 0; }
 @media (max-width: 780px) { .swap-wrap { grid-template-columns: 1fr; } }
 
 /* Side panel: your holdings + recent transactions (X1-style), compact so the swap stays the focus. */
 .swap-side { display: flex; flex-direction: column; gap: 14px; }
-.sp-card { padding: 14px; }
-.sp-card h3 { margin: 0 0 10px; font: 700 12px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
+.sp-card { padding: 12px 13px; }
+.sp-card h3 { margin: 0 0 8px; font: 700 11px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
 .sp-head { display: flex; align-items: baseline; justify-content: space-between; }
 .sp-head h3 { margin-bottom: 10px; }
 .sp-total { font: 700 13px var(--mono); color: var(--white); }
 .sp-holds { display: flex; flex-direction: column; gap: 4px; }
-.sp-hold { display: flex; align-items: center; gap: 9px; width: 100%; background: transparent; border: 1px solid transparent; border-radius: 10px; padding: 6px 7px; cursor: pointer; text-align: left; }
+.sp-hold { display: flex; align-items: center; gap: 8px; width: 100%; background: transparent; border: 1px solid transparent; border-radius: 9px; padding: 4px 6px; cursor: pointer; text-align: left; }
 .sp-hold:hover { background: #060a0e; border-color: var(--line); }
 .sp-hold .tlogo, .sp-hold .tmono { width: 26px; height: 26px; font-size: 11px; flex: 0 0 26px; }
 .sp-h-id { display: flex; flex-direction: column; min-width: 0; flex: 1; }
@@ -540,7 +540,7 @@ a .i, button .i { pointer-events: none; }
 .sp-h-amt { font: 500 10.5px var(--mono); color: var(--gray-3); }
 .sp-h-usd { font: 700 12px var(--mono); color: var(--white); white-space: nowrap; }
 .sp-acts { display: flex; flex-direction: column; }
-.sp-act { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 7px 2px; border-bottom: 1px solid rgba(255,255,255,.05); text-decoration: none; }
+.sp-act { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 5px 2px; border-bottom: 1px solid rgba(255,255,255,.05); text-decoration: none; }
 .sp-act:last-child { border-bottom: 0; }
 .sp-act:hover .sp-a-m { color: var(--red-hi); }
 .sp-a-m { font: 700 11px var(--disp); letter-spacing: .4px; text-transform: uppercase; color: var(--gray-2); }
@@ -551,8 +551,21 @@ a .i, button .i { pointer-events: none; }
 .sp-how summary { font: 700 11px var(--disp); letter-spacing: .8px; text-transform: uppercase; color: var(--gray-2); cursor: pointer; }
 .sp-how summary:hover { color: var(--white); }
 .sp-how .side-note { margin-top: 8px; }
+/* Swap card header bar (official DEX look, fills the top) */
+.swap-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.swap-head-title { font: 800 16px var(--disp); letter-spacing: .5px; color: var(--white); }
+.swap-head-net { display: inline-flex; align-items: center; gap: 7px; font: 700 10px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
+.swap-head-net .dot { width: 7px; height: 7px; border-radius: 50%; background: #3ec46f; box-shadow: 0 0 8px #3ec46f; }
 .swap-box { background: #060a0e; border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
 .swap-box:focus-within { border-color: var(--red-dim); }
+
+/* CTA text centered (was left-aligned) */
+.swap-cta { text-align: center; justify-content: center; display: flex; align-items: center; }
+
+/* Recent-transactions buy/sell colouring */
+.sp-a-m.k-buy { color: #4ecb71; }
+.sp-a-m.k-sell { color: #ff5a5a; }
+.sp-a-m.k-fail { color: var(--red-hi); text-decoration: line-through; opacity: .7; }
 .swap-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
 .swap-l { font-size: 11px; color: var(--gray-2); text-transform: uppercase; letter-spacing: 1px; font-family: var(--disp); }
 .swap-in { display: flex; align-items: center; gap: 10px; }
