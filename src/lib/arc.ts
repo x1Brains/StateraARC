@@ -253,6 +253,62 @@ export async function fetchRadarHolders(addr: string, decimals = 18, limit = 50)
   } catch { return { holderCount: null, holders: [] }; }
 }
 
+// ── Wallet P&L (cost basis reconstructed from on-chain swaps) ─────────────────────────────────────
+// No indexer exposes per-wallet P&L, so we rebuild it: pull the wallet's txs (arc-scan), fetch each
+// receipt, and in each one pair the token leg (to/from wallet) with its USDC counter-leg to classify a
+// BUY (USDC out, token in) or SELL (token out, USDC in). ⚠️ USDC is emitted TWICE in a V3 swap — once as
+// the native precompile 0xffff…fe (18-dec) and once as the 0x3600 ERC-20 (6-dec) for the SAME amount —
+// so we take the 0x3600 leg when present, else the native, never both. Verified vs a known wallet 2026-09-16.
+const ARCSCAN_REST = 'https://api.arc-scan.org/v1';
+const NATIVE_USDC_LOG = '0xfffffffffffffffffffffffffffffffffffffffe';
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+export interface TokenPnl { invested: number; qtyBought: number; proceeds: number; qtySold: number; avgCost: number | null; realized: number; }
+export async function fetchWalletPnl(wallet: string, decimalsByToken: Record<string, number>, maxTxs = 160): Promise<Record<string, TokenPnl>> {
+  const w = wallet.toLowerCase();
+  // 1) the wallet's txs (skip approvals — no value legs), paginated via the arc-scan cursor.
+  const hashes: string[] = [];
+  let cursor = '';
+  for (let p = 0; p < 3 && hashes.length < maxTxs; p++) {
+    let j: any;
+    try { j = await (await fetch(`${ARCSCAN_REST}/address/${w}/txs?limit=100${cursor ? `&cursor=${cursor}` : ''}`, { headers: { accept: 'application/json' } })).json(); }
+    catch { break; }
+    for (const t of j.items || []) { if ((t.method?.name || '') !== 'approve') hashes.push(t.hash); }
+    if (!j.page?.has_more) break;
+    cursor = j.page?.next || ''; if (!cursor) break;
+  }
+  // 2) receipts → per-token buy/sell aggregates (bounded concurrency to respect RPC limits).
+  const agg: Record<string, { cost: number; qb: number; proc: number; qs: number }> = {};
+  await runLimited(hashes.map((h) => async () => {
+    const rc = await mrpc('eth_getTransactionReceipt', [h]);
+    if (!rc || !rc.logs) return;
+    let u6o = 0, u6i = 0, uno = 0, uni = 0;
+    const tin: Record<string, number> = {}, tout: Record<string, number> = {};
+    for (const l of rc.logs) {
+      const tp: string[] = l.topics || [];
+      if (!tp[0] || tp[0].toLowerCase() !== TRANSFER_TOPIC || tp.length < 3) continue;
+      const frm = ('0x' + tp[1].slice(-40)).toLowerCase(), to = ('0x' + tp[2].slice(-40)).toLowerCase();
+      if (frm !== w && to !== w) continue;
+      const a = l.address.toLowerCase();
+      let raw: bigint; try { raw = BigInt(l.data); } catch { continue; }
+      if (a === NATIVE_USDC_ADDR) { const v = Number(raw) / 1e6; if (frm === w) u6o += v; if (to === w) u6i += v; }
+      else if (a === NATIVE_USDC_LOG) { const v = Number(raw) / 1e18; if (frm === w) uno += v; if (to === w) uni += v; }
+      else { const d = decimalsByToken[a]; if (d == null) continue; const v = Number(raw) / 10 ** d; if (to === w) tin[a] = (tin[a] || 0) + v; if (frm === w) tout[a] = (tout[a] || 0) + v; }
+    }
+    const uo = u6o > 0 ? u6o : uno, ui = u6i > 0 ? u6i : uni; // 0x3600 leg preferred, else native — never both
+    for (const a of new Set([...Object.keys(tin), ...Object.keys(tout)])) {
+      const g = agg[a] || (agg[a] = { cost: 0, qb: 0, proc: 0, qs: 0 });
+      if ((tin[a] || 0) > 0 && uo > 0) { g.cost += uo; g.qb += tin[a]; }
+      else if ((tout[a] || 0) > 0 && ui > 0) { g.proc += ui; g.qs += tout[a]; }
+    }
+  }), 5);
+  const out: Record<string, TokenPnl> = {};
+  for (const [a, g] of Object.entries(agg)) {
+    const avgCost = g.qb > 0 ? g.cost / g.qb : null;
+    out[a] = { invested: g.cost, qtyBought: g.qb, proceeds: g.proc, qtySold: g.qs, avgCost, realized: avgCost != null ? g.proc - avgCost * g.qs : 0 };
+  }
+  return out;
+}
+
 // ── Wallet activity feed (arc-scan REST) — the connected wallet's recent transactions ─────────────
 export interface WalletTx { hash: string; ts: number; method: string; value: number | null; symbol: string | null; status: boolean; to: string | null; from: string | null; }
 export async function fetchAddressTxs(addr: string, limit = 12): Promise<WalletTx[]> {
@@ -493,22 +549,30 @@ export async function fetchHoldings(addr: string): Promise<Holding[]> {
 // No indexer lists a wallet's mainnet tokens (arc-scan's /address/{a}/tokens 500s, explorer.arc.io
 // isn't Blockscout), so we scan a curated + board candidate set ON-CHAIN via the mainnet RPC. Not
 // exhaustive, but returns REAL balances for the tokens that matter (WARP, watchlist, stablecoins).
-// Multiple public Arc-mainnet RPCs. PublicNode (Allnodes) is first — it's a free, reliable endpoint
-// that doesn't burst-429 like rpc.mainnet.arc.io. We rotate through them on 429/5xx so a rate-limited
-// node fails over instead of just backing off. An env override, if set, takes priority.
+// Public Arc-mainnet RPCs, benchmarked 2026-09-16 (latency / getLogs range / receipts):
+//   • arc-rpc.publicnode.com — fastest (~169ms), 50k getLogs range, receipts ✓  → PRIMARY
+//   • rpc.mainnet.arc.io      — official (~197ms), 10k getLogs range, receipts ✓ → FALLBACK
+//   (dropped: arc.drpc.org has NO receipts; warp railway ~590ms; ankr/blast/thirdweb dead or gated.)
+// We rotate on timeout / 429 / 5xx / JSON-error so a slow, rate-limited or stale node fails over to the
+// next instead of stalling. A 7s per-try timeout keeps a hung node from blocking the whole call.
 const MAINNET_RPCS = [
   (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://arc-rpc.publicnode.com',
   'https://rpc.mainnet.arc.io',
 ].filter((v, i, a) => v && a.indexOf(v) === i);
+// Lowest common getLogs block-range across our RPCs (arc.io caps at 10k) — chunk to stay under it.
+export const MRPC_LOG_RANGE = 9000;
 async function mrpc(method: string, params: any[], tries = 4): Promise<any> {
   for (let i = 0; i < tries; i++) {
     const url = MAINNET_RPCS[i % MAINNET_RPCS.length];
     try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 7000);
       const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: ctrl.signal }).finally(() => clearTimeout(to));
       if (r.status === 429 || r.status >= 500) { await sleep(150 * (i + 1) + Math.random() * 200); continue; }
       const j = await r.json();
-      return j.error ? null : j.result;
+      if (j.error) { await sleep(120 * (i + 1)); continue; } // method/range error on this node → try the next
+      return j.result;
     } catch { await sleep(150 * (i + 1)); }
   }
   return null;

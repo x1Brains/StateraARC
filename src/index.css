@@ -502,8 +502,14 @@ a .i, button .i { pointer-events: none; }
 .pf-input { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
 .pf-input .search { flex: 1; min-width: 220px; }
 .pf-or { color: var(--gray-2); font-size: 12px; }
-.pf-row { grid-template-columns: 38px minmax(140px, 1fr) 120px 110px 120px; }
+.pf-row { grid-template-columns: 38px minmax(120px, 1fr) 96px 88px 96px 104px; }
 .pf-row.head { color: var(--gray-2); }
+@media (max-width: 640px) { .pf-row { grid-template-columns: 30px minmax(80px, 1fr) auto auto; gap: 8px; } }
+.pf-pnl { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-family: var(--mono); }
+.pf-pnl.up { color: #4ecb71; }
+.pf-pnl.down { color: #ff5a5a; }
+.pf-pnl-v { font-weight: 700; font-size: 12.5px; }
+.pf-pnl-pct { font-size: 10px; opacity: .85; }
 .pf-id { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
 .pf-nm { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .pf-nm .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
