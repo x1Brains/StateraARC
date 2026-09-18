@@ -40,7 +40,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'new', label: 'Launchpad' },
   { key: 'eco', label: 'Ecosystem' },
 ];
-const PER_PAGE_OPTS = [100, 250, 500];
+const PER_PAGE_OPTS = [50, 100, 250, 500];
 const byLiq = (a: Token, b: Token) => (b.liq ?? -1) - (a.liq ?? -1);
 // The deepest Arc tokens (Argus/Tolly/Long/Architects…) trade only on Uniswap V3, which no indexer
 // (Warp/RadarDEX) tracks activity for — so their 24h volume column is blank. We compute it on-chain
@@ -96,7 +96,7 @@ export default function App() {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('liq');
   const [pageNum, setPageNum] = useState(1);
-  const [perPage, setPerPage] = useState(100);
+  const [perPage, setPerPage] = useState(() => (typeof window !== 'undefined' && window.innerWidth <= 640 ? 50 : 100));
   const [selected, setSelected] = useState<string | null>(() => parsePath().selected);
   const [wallet, setWallet] = useState<string | null>(null);
   const onConnect = async () => { try { const a = await connectWallet(); if (a) setWallet(a); } catch {} };

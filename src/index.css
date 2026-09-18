@@ -141,8 +141,8 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .btn.ghost:hover { border-color: var(--gray-2); background: rgba(255,255,255,.055); transform: translateY(-2px); }
 
 /* ============ section ============ */
-.section { padding: 46px 0; }
-.section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
+.section { padding: 28px 0; }
+.section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
 .section-head h2 { font-family: var(--disp); font-weight: 700; font-size: 24px; letter-spacing: 1px; text-transform: uppercase; margin: 0; }
 .section-head .kicker { font-family: var(--disp); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--red); margin-bottom: 6px; }
 .section-head p { color: var(--gray-2); font-size: 13px; margin: 4px 0 0; }
@@ -241,28 +241,41 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .spark { display: block; }
 .spark-empty { display: inline-block; opacity: .2; }
 
-/* ── MOBILE: screener reflows from a wide scrolling table into per-token cards (no side-scroll) ── */
+/* ── MOBILE: dense screener — each token a tight row (no side-scroll), like a real mobile DEX ── */
 @media (max-width: 640px) {
   .table-scroll { overflow-x: visible; }
   .table-scroll .table.wide { min-width: 0; }
   .table.wide .trow.head.sc { display: none; }
   .trow.tok.sc {
-    grid-template-columns: 1fr 1fr;
-    gap: 12px 14px;
-    padding: 14px;
-    border: 1px solid var(--line-soft);
-    border-radius: 14px;
-    margin-bottom: 10px;
-    align-items: start;
+    grid-template-columns: 30px 1.5fr 1fr 1fr;
+    grid-template-areas: "logo name price chg" "vol mc liq hld" "spk spk spk spk";
+    gap: 5px 8px;
+    padding: 9px 12px;
+    border-radius: 0;
+    margin: 0;
+    border-bottom: 1px solid var(--line-soft);
+    align-items: center;
   }
   .trow.tok.sc .rank { display: none; }
-  .trow.tok.sc .tlogo, .trow.tok.sc .tmono { grid-column: 1 / -1; grid-row: 1; justify-self: start; }
-  .trow.tok.sc .sc-name { grid-column: 1 / -1; grid-row: 1; padding-left: 46px; min-height: 36px; display: flex; flex-direction: column; justify-content: center; }
-  .trow.tok.sc .num, .trow.tok.sc .num.chg { text-align: left; }
-  .trow.tok.sc [data-l]::before { content: attr(data-l); display: block; font-size: 9.5px; letter-spacing: .5px; text-transform: uppercase; color: var(--gray); margin-bottom: 3px; font-family: var(--sans); }
-  .trow.tok.sc .spark-cell { grid-column: 1 / -1; justify-content: flex-start; flex-direction: column; align-items: flex-start; }
-  .trow.tok.sc .spark-cell .spark { width: 100% !important; height: 34px; }
-  .trow.tok.sc .flags { grid-column: 1 / -1; }
+  .trow.tok.sc .tlogo, .trow.tok.sc .tmono { grid-area: logo; width: 30px; height: 30px; }
+  .trow.tok.sc .sc-name { grid-area: name; overflow: hidden; }
+  .trow.tok.sc .sc-name .tname { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trow.tok.sc .sc-name .tsym { font-size: 9.5px; }
+  .trow.tok.sc [data-l="Price"] { grid-area: price; text-align: right; font-weight: 700; font-size: 12px; }
+  .trow.tok.sc [data-l="24h"] { grid-area: chg; text-align: right; font-size: 11px; }
+  .trow.tok.sc [data-l="Vol 24h"] { grid-area: vol; }
+  .trow.tok.sc [data-l="Market Cap"] { grid-area: mc; }
+  .trow.tok.sc [data-l="Liquidity"] { grid-area: liq; }
+  .trow.tok.sc [data-l="Holders"] { grid-area: hld; }
+  .trow.tok.sc [data-l="Vol 24h"], .trow.tok.sc [data-l="Market Cap"],
+  .trow.tok.sc [data-l="Liquidity"], .trow.tok.sc [data-l="Holders"] { text-align: left; font-size: 10.5px; }
+  .trow.tok.sc [data-l]::before { content: attr(data-l); display: block; font-size: 8px; letter-spacing: .3px; text-transform: uppercase; color: var(--gray); font-family: var(--sans); line-height: 1.3; }
+  .trow.tok.sc [data-l="Price"]::before, .trow.tok.sc [data-l="24h"]::before { display: none; }
+  .trow.tok.sc .spark-cell { grid-area: spk; justify-content: flex-start; }
+  .trow.tok.sc .spark-cell::before { display: none; }
+  .trow.tok.sc .spark-cell .spark { width: 100% !important; height: 26px; }
+  /* trimmed on mobile to keep rows tight — full data is on the token page */
+  .trow.tok.sc [data-l="1h"], .trow.tok.sc .age, .trow.tok.sc .flags { display: none; }
 }
 .num.hot { color: var(--red-hi); }
 .sortby { display: flex; align-items: center; gap: 8px; }
@@ -296,7 +309,7 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 a .i, button .i { pointer-events: none; }
 
 /* Token detail: compact stat strip so the TOKEN (logo + name) is the focus, not six big boxes. */
-.td-stats { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; margin-bottom: 20px; }
+.td-stats { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; margin-bottom: 12px; }
 .td-stats .stat { padding: 10px 12px; border-radius: 10px; }
 .td-stats .stat .v { font-size: 16px; }
 .td-stats .stat .v.r { font-size: 16px; }
@@ -452,7 +465,7 @@ a .i, button .i { pointer-events: none; }
 /* ============ token detail ============ */
 .back { background: transparent; border: 1px solid var(--line); color: var(--gray); font: 600 12px var(--disp); letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; border-radius: 8px; cursor: pointer; margin-bottom: 20px; }
 .back:hover { color: var(--white); border-color: var(--gray-2); }
-.td-head { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+.td-head { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
 .td-head .tlogo, .td-head .tmono { width: 52px; height: 52px; font-size: 20px; }
 .td-id { flex: 1; }
 .td-name { font-family: var(--disp); font-weight: 800; font-size: 28px; letter-spacing: .3px; color: var(--white); line-height: 1.1; }
@@ -1005,7 +1018,7 @@ footer .flink:hover { text-decoration: underline; }
 @media (max-width: 640px) { .ue5-inner { padding: 46px 18px; } .ue5-feat { min-width: 100%; } }
 
 /* ── price chart (TradingView lightweight-charts, Warp candles) ── */
-.chart-card { padding: 14px 14px 10px; margin-bottom: 18px; }
+.chart-card { padding: 12px 12px 8px; margin-bottom: 12px; }
 .chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
 .chart-title { font-family: var(--disp); font-weight: 700; font-size: 15px; color: var(--white); display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .chart-usdc { color: var(--gray-2); font-weight: 600; font-size: 12px; }

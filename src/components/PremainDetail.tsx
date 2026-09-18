@@ -149,7 +149,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
 
       {err && !d && <div className="side-note" style={{ marginTop: 12 }}>Some extended contract details (creator, size) are temporarily unavailable — the price and market data below are unaffected.</div>}
 
-      <div className="stats td-stats" style={{ marginTop: 16 }}>
+      <div className="stats td-stats" style={{ marginTop: 12 }}>
         <div className="stat"><div className="v r">{px != null ? tprice(px) : '—'}</div><div className="l">Price</div></div>
         <div className="stat"><div className={`v chg ${chgClass(chg)}`}>{chgTxt(chg)}</div><div className="l">24h</div></div>
         <div className="stat"><div className="v">{mc != null ? usd(mc) : '—'}</div><div className="l">Market Cap</div></div>
@@ -167,13 +167,13 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
         </div>
       )}
 
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginTop: 12 }}>
         <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? 18} priceScale={chartScale} />
       </div>
 
       {/* Trade activity (24h) — buy/sell pressure, traders, txns (RadarDEX) */}
       {rd && (buys != null || sells != null || rd.txns24 != null) && (
-        <div className="panel side-card" style={{ marginTop: 16 }}>
+        <div className="panel side-card" style={{ marginTop: 12 }}>
           <h3>Trade Activity · 24h</h3>
           {buyPct != null && (
             <div className="bs-bar" title={`Buys ${buys} · Sells ${sells}`}>
@@ -195,7 +195,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       )}
 
       {/* Info — its own always-visible section (contract, market details, links) */}
-      <div className="panel side-card td-info" style={{ marginTop: 16 }}>
+      <div className="panel side-card td-info" style={{ marginTop: 12 }}>
         <h3>Info</h3>
         <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
         <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
@@ -214,7 +214,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       </div>
 
       {/* Compact tabbed section — Transactions / Holders (scrolls inside itself, not the page) */}
-      <div className="panel td-tabpanel" style={{ marginTop: 16 }}>
+      <div className="panel td-tabpanel" style={{ marginTop: 12 }}>
         <div className="td-tabs">
           <button className={tab === 'txns' ? 'on' : ''} onClick={() => setTab('txns')}>Transactions</button>
           <button className={tab === 'holders' ? 'on' : ''} onClick={() => setTab('holders')}>Holders{holdersTotal != null ? ` · ${fmtNum(holdersTotal)}` : ''}</button>
@@ -259,7 +259,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
         )}
       </div>
 
-      <div className="td-disc" style={{ marginTop: 16 }}>
+      <div className="td-disc" style={{ marginTop: 12 }}>
         Price, chart &amp; market data via Warp (circlewarp.fun) &amp; RadarDEX on Arc mainnet (chain 5042). Contract/holder data from independent indexers. All unofficial, not Circle. Unverified; DYOR.
       </div>
     </section></div>
