@@ -131,7 +131,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       </div>
 
       <div className="td-head">
-        <TokenLogo symbol={sym} seed={address} url={warp?.image ?? null} />
+        <TokenLogo symbol={sym} seed={address} url={warp?.image ?? seed?.iconUrl ?? null} />
         <div className="td-id">
           <div className="td-name">{name || sym}
             {d?.lookalike && <span className="wl-note" style={{ marginLeft: 8 }}>Lookalike</span>}

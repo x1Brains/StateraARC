@@ -164,12 +164,23 @@ async function metaFor(addr) {
 }
 
 async function poolStats(token, pool) {
-  const [uHex, bHex, supHex] = await Promise.all([balOf(NATIVE_USDC, pool), balOf(token, pool), call(token, '0x18160ddd')]);
+  const [uHex, bHex, supHex, slot0, t0] = await Promise.all([
+    balOf(NATIVE_USDC, pool), balOf(token, pool), call(token, '0x18160ddd'),
+    call(pool, '0x3850c7bd'), call(pool, '0x0dfe1681'), // slot0(), token0()
+  ]);
   if (!uHex || uHex === '0x') return null;
   const usdc = Number(hexToInt(uHex)) / 1e6;
-  const toks = bHex && bHex !== '0x' ? Number(hexToInt(bHex)) / 1e18 : 0;
-  const price = toks > 0 ? usdc / toks : null;
   const supply = supHex && supHex !== '0x' ? Number(hexToInt(supHex)) / 1e18 : null;
+  const usdcIsT0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC : false;
+  let price = null;
+  // Uniswap V3: price = slot0 sqrtPriceX96. ⛔ The reserve ratio (balance/balance) is NOT the price for
+  // concentrated liquidity — it gave CRCL $36 when the real market price is $84 (matches the chart).
+  if (slot0 && slot0 !== '0x' && slot0.length >= 66) {
+    const sqrtP = hexToInt('0x' + slot0.slice(2, 66)); // first word = sqrtPriceX96
+    if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; if (isFinite(ratio) && ratio > 0) price = (usdcIsT0 ? 1 / ratio : ratio) * 1e12; }
+  }
+  // Uniswap V2 (no slot0): the reserve ratio IS the price.
+  if (price == null) { const toks = bHex && bHex !== '0x' ? Number(hexToInt(bHex)) / 1e18 : 0; price = toks > 0 ? usdc / toks : null; }
   return { price, liq: usdc * 2, mcap: price != null && supply ? price * supply : null };
 }
 
