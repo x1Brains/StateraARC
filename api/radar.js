@@ -16,8 +16,9 @@ const BROWSER = {
   'Accept-Language': 'en-US,en;q=0.9',
   Referer: 'https://radardex.pro/',
 };
-const looksBad = (status, text) =>
-  status >= 400 || /just a moment|cf-challenge|challenge-platform|enable javascript|<!doctype html|<html/i.test((text || '').slice(0, 300));
+// Retry/fail-over ONLY on a Cloudflare HTML challenge or a 5xx/network error. A 4xx with a JSON body
+// (e.g. RadarDEX's {"error":"token not found"}) is a REAL answer — pass it straight through.
+const isChallenge = (text) => /just a moment|cf-challenge|challenge-platform|enable javascript|<!doctype html|<html/i.test((text || '').slice(0, 300));
 
 export default async function handler(req, res) {
   const u = new URL(req.url, 'http://x');
@@ -35,12 +36,14 @@ export default async function handler(req, res) {
       try {
         const r = await fetch(t.url, { headers: t.headers });
         const text = await r.text();
-        if (!looksBad(r.status, text)) {
+        if (!isChallenge(text) && r.status < 500) {
+          // real answer (2xx, or a 4xx like "token not found") — pass it through
           res.setHeader('content-type', 'application/json; charset=utf-8');
           res.setHeader('access-control-allow-origin', '*');
-          res.setHeader('cache-control', 'public, s-maxage=45, stale-while-revalidate=600');
-          return res.status(200).send(text);
+          res.setHeader('cache-control', r.status === 200 ? 'public, s-maxage=45, stale-while-revalidate=600' : 'no-store');
+          return res.status(r.status).send(text);
         }
+        // challenge or 5xx → retry, then try the next target
       } catch {
         /* try again / next target */
       }
