@@ -55,24 +55,33 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
     let alive = true;
     setD(null); setErr(null);
     (async () => {
-      try {
-        const r = await fetch(`${REST}/tokens/${address}`, { headers: { accept: 'application/json' } });
-        if (!r.ok) throw new Error(`indexer HTTP ${r.status}`);
-        const j = await r.json();
-        const t = j.token || {};
-        if (!alive) return;
-        setD({
-          symbol: t.symbol || seed?.symbol || '?', name: (t.name || seed?.name || '').trim(),
-          decimals: t.decimals ?? 18, standard: t.standard || 'erc20',
-          holders: j.holders != null ? Number(j.holders) : (seed?.holders ?? null),
-          supply: j.total_supply?.formatted ?? null,
-          transfers24h: j.transfers_24h != null ? Number(j.transfers_24h) : null,
-          creator: j.contract?.creation?.creator?.address ?? null,
-          size: j.contract?.size ?? null,
-          lookalike: !!t.unverified_lookalike, reservedName: !!t.shares_reserved_name,
-          reservedCheck: t.reserved_name_check ?? null,
-        });
-      } catch (e: any) { if (alive) setErr(e.message || 'failed to load from indexer'); }
+      // This only adds EXTENDED contract details (creator, size, lookalike flags). Price/liq/mcap/holders
+      // come from the screener seed and are unaffected if this flaky indexer (arc-scan.org) is down —
+      // so we retry quietly and, on failure, show a soft note instead of a scary error.
+      for (let i = 0; i < 3; i++) {
+        try {
+          const r = await fetch(`${REST}/tokens/${address}`, { headers: { accept: 'application/json' } });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const j = await r.json();
+          const t = j.token || {};
+          if (!alive) return;
+          setD({
+            symbol: t.symbol || seed?.symbol || '?', name: (t.name || seed?.name || '').trim(),
+            decimals: t.decimals ?? 18, standard: t.standard || 'erc20',
+            holders: j.holders != null ? Number(j.holders) : (seed?.holders ?? null),
+            supply: j.total_supply?.formatted ?? null,
+            transfers24h: j.transfers_24h != null ? Number(j.transfers_24h) : null,
+            creator: j.contract?.creation?.creator?.address ?? null,
+            size: j.contract?.size ?? null,
+            lookalike: !!t.unverified_lookalike, reservedName: !!t.shares_reserved_name,
+            reservedCheck: t.reserved_name_check ?? null,
+          });
+          return; // got it
+        } catch {
+          if (i < 2) await new Promise((res) => setTimeout(res, 500 * (i + 1)));
+          else if (alive) setErr('detail-unavailable');
+        }
+      }
     })();
     return () => { alive = false; };
   }, [address]); // eslint-disable-line
@@ -138,7 +147,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
         )}
       </div>
 
-      {err && <div className="msg err">Indexer error: {err}. The indexer source (arc-scan.org) is flaky — try again.</div>}
+      {err && !d && <div className="side-note" style={{ marginTop: 12 }}>Some extended contract details (creator, size) are temporarily unavailable — the price and market data below are unaffected.</div>}
 
       <div className="stats td-stats" style={{ marginTop: 16 }}>
         <div className="stat"><div className="v r">{px != null ? tprice(px) : '—'}</div><div className="l">Price</div></div>
