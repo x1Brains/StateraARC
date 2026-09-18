@@ -18,6 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const RADAR = process.env.RADAR_DIRECT || 'https://api.radardex.pro';
 const WARP = 'https://warp-arc-production.up.railway.app/api';
+const EXPLORER = 'https://explorer.arc.io/api/v2';
 const RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org', 'https://arc.gateway.tenderly.co'];
 const MAX = Number(process.argv[2] || 500);
 const NATIVE_USDC = '0x3600000000000000000000000000000000000000';
@@ -40,6 +41,17 @@ const POOLS = {
   '0xd17014b731d33994e4e482c374ef375b68240087': { pool: '0x0f0333cf487a90ac7e56cba1541a1669e260cf22', name: 'MMM', symbol: 'MMM' },
 };
 const RADAR_LP = { argus: 'Argus', tolly: 'Tolly', long: 'Long', warp: 'Warp', dyor: 'DYOR', o1: 'O1' };
+const ARCSCAN = 'https://api.arc-scan.org/v1'; // node CAN reach this (explorer.arc.io Cloudflare-blocks node fetch)
+// Baked logos for the deep-pool tokens no aggregator covers (from CoinGecko via the explorer).
+const ICON_MAP = {
+  '0xece5ca8bf9220718e5727754026757512212cb3c': 'https://assets.coingecko.com/coins/images/102178392/small/argus-token.png?1789463380',
+  '0x8bcb94279fc2c984ec34e0c1f2192df8c69ea4f0': 'https://assets.coingecko.com/coins/images/102178424/small/archi.jpg?1789536121',
+  '0xbc43ce8dec648ea298c4275559b81d6261c90b67': 'https://assets.coingecko.com/coins/images/102178398/small/tolly.webp?1789479311',
+  '0x2164bb17a2d38c1b5170e987b2c0416df1efc752': 'https://assets.coingecko.com/coins/images/102178399/small/long_400x400.jpg?1789480339',
+  '0x0bffa97f774824e9da843699aedd2835cb1b8022': 'https://assets.coingecko.com/coins/images/102178425/small/arcash.jpg?1789536555',
+  '0xbe0cad585ea2d13de2f4e36376be755c0afd8b97': 'https://assets.coingecko.com/coins/images/102178427/small/arc_bat.jpg?1789537144',
+  '0xf3715bf5c2de299f08b81180ffb739a8372a175f': 'https://assets.coingecko.com/coins/images/102178426/small/arcanine.jpg?1789536897',
+};
 const ECOSYSTEM = /animus|ausd|aeur|awxt|aworp|abtc/i;
 
 async function getJson(url, tries = 4) {
@@ -103,11 +115,28 @@ async function poolActivity(token, pool) {
     }
   }
   pts.sort((x, y) => x.b - y.b);
-  const change24h = pts.length >= 2 && pts[0].price > 0 ? ((pts[pts.length - 1].price - pts[0].price) / pts[0].price) * 100 : null;
+  const last = pts.length ? pts[pts.length - 1].price : null;
+  const change24h = pts.length >= 2 && pts[0].price > 0 ? ((last - pts[0].price) / pts[0].price) * 100 : null;
+  // 1h change: price at the last swap on/before ~1h ago vs now
+  let change1h = null;
+  if (pts.length >= 2 && last) {
+    const cutoff = Number(H) - Math.round(3600 / bt);
+    let p1h = null; for (const p of pts) { if (p.b <= cutoff) p1h = p.price; else break; }
+    if (p1h && p1h > 0) change1h = ((last - p1h) / p1h) * 100;
+  }
   // downsample to ~24 sparkline points
   let spark = null;
   if (pts.length >= 2) { const step = Math.max(1, Math.floor(pts.length / 24)); spark = pts.filter((_, i) => i % step === 0).map((p) => p.price); if (spark.length < 2) spark = pts.map((p) => p.price); }
-  return { volume24h: txns ? vol : null, txns24: txns || null, change24h, spark };
+  return { volume24h: txns ? vol : null, txns24: txns || null, change24h, change1h, spark };
+}
+
+// Token metadata (icon + holder count) for tokens no aggregator covers. Icon = baked CoinGecko map;
+// holders from arc-scan REST (node can reach it; explorer.arc.io Cloudflare-blocks node fetch → 403).
+async function metaFor(addr) {
+  let holders = null;
+  const j = await getJson(`${ARCSCAN}/tokens/${addr}`);
+  if (j) holders = num(j.holders ?? j.token?.holders ?? j.holders_count);
+  return { icon: ICON_MAP[addr.toLowerCase()] || null, holders };
 }
 
 async function poolStats(token, pool) {
@@ -161,16 +190,18 @@ async function poolStats(token, pool) {
   // 3) On-chain deep pools — the tokens no indexer covers get FULL activity data.
   console.log('[snap] on-chain deep pools…');
   for (const [token, meta] of Object.entries(POOLS)) {
-    const [stats, act] = await Promise.all([poolStats(token, meta.pool), poolActivity(token, meta.pool)]);
+    const [stats, act, ex] = await Promise.all([poolStats(token, meta.pool), poolActivity(token, meta.pool), metaFor(token)]);
     const cur = map.get(token) || {};
     set(mk({ address: token, name: cur.name || meta.name, symbol: cur.symbol || meta.symbol,
+      iconUrl: ex?.icon ?? null, holders: ex?.holders ?? null,
       price: stats?.price ?? null, liq: stats?.liq ?? null, mcap: stats?.mcap ?? null,
-      volume24h: act?.volume24h ?? null, change24h: act?.change24h ?? null, spark: act?.spark ?? null, txns24: act?.txns24 ?? null }));
+      volume24h: act?.volume24h ?? null, change1h: act?.change1h ?? null, change24h: act?.change24h ?? null, spark: act?.spark ?? null, txns24: act?.txns24 ?? null }));
     // deep-pool on-chain values are authoritative — overwrite radar/warp for price/liq/mcap/vol/change/spark
     const row = map.get(token);
+    if (ex) { if (ex.icon && !row.iconUrl) row.iconUrl = ex.icon; if (ex.holders != null) row.holders = ex.holders; }
     if (stats) { if (stats.price != null) row.price = stats.price; if (stats.liq != null) row.liq = stats.liq; if (stats.mcap != null) row.mcap = stats.mcap; }
-    if (act) { if (act.volume24h != null) row.volume24h = act.volume24h; if (act.change24h != null) row.change24h = act.change24h; if (act.spark) row.spark = act.spark; if (act.txns24 != null) row.txns24 = act.txns24; }
-    console.log(`  ${meta.symbol}: price=${row.price} liq=${row.liq?.toFixed?.(0)} vol24=${row.volume24h?.toFixed?.(0)} chg24=${row.change24h?.toFixed?.(1)} spark=${row.spark ? row.spark.length : 0}`);
+    if (act) { if (act.volume24h != null) row.volume24h = act.volume24h; if (act.change1h != null) row.change1h = act.change1h; if (act.change24h != null) row.change24h = act.change24h; if (act.spark) row.spark = act.spark; if (act.txns24 != null) row.txns24 = act.txns24; }
+    console.log(`  ${meta.symbol}: price=${row.price} liq=${row.liq?.toFixed?.(0)} vol24=${row.volume24h?.toFixed?.(0)} chg24=${row.change24h?.toFixed?.(1)} holders=${row.holders} icon=${row.iconUrl ? 'yes' : 'no'} spark=${row.spark ? row.spark.length : 0}`);
   }
 
   const tokens = [...map.values()].sort((a, b) => (b.liq ?? -1) - (a.liq ?? -1));
