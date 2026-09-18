@@ -834,6 +834,33 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
   return [...map.values()];
 }
 
+// SCREENER SOURCE OF TRUTH: the rich snapshot baked on the VPS (scripts/snapshot-mainnet.mjs) — one
+// small file with price/liq/mcap/holders/change/volume/sparkline for EVERY token, including the deep
+// V3 pools no indexer covers. The browser reads this instead of hammering live (Cloudflare-blockable)
+// APIs, so the screener is complete + correct every load. Falls back to the live merge if it's missing.
+export async function fetchScreenerTokens(): Promise<Token[]> {
+  try {
+    const url = (import.meta.env.VITE_SNAPSHOT_URL as string) || '/tokens-snapshot.json';
+    const r = await fetch(url, { cache: 'default' });
+    if (r.ok) {
+      const snap = await r.json();
+      if (snap && Array.isArray(snap.tokens) && snap.tokens.length) {
+        return snap.tokens.map((t: any): Token => ({
+          address: t.address, name: t.name, symbol: t.symbol,
+          holders: t.holders ?? null, totalSupply: null, type: 'ERC-20',
+          iconUrl: normIcon(t.iconUrl) ?? null, launchpad: t.launchpad ?? null,
+          isOurs: !!t.isOurs, isEcosystem: !!t.isEcosystem,
+          price: rnum(t.price), liq: rnum(t.liq), mcap: rnum(t.mcap),
+          volume24h: rnum(t.volume24h), change24h: rnum(t.change24h), change1h: rnum(t.change1h),
+          txns24: rnum(t.txns24), spark: Array.isArray(t.spark) ? t.spark.filter((n: any) => typeof n === 'number' && isFinite(n)) : null,
+          createdAt: rnum(t.createdAt),
+        }));
+      }
+    }
+  } catch { /* fall through to the live merge */ }
+  return fetchMainnetTokens();
+}
+
 // Top holders of a mainnet token (arc-scan indexer). share is a fraction (0.0512 = 5.12%).
 export interface Holder { address: string; balance: number; share: number | null; rank: number; isContract: boolean; }
 export async function fetchTokenHolders(address: string, limit = 20): Promise<Holder[]> {

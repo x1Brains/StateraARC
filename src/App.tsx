@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchMainnetTokens, fetchMarket, fetchPoolVolume24h, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
+import { fetchScreenerTokens, fetchMarket, fetchPoolVolume24h, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -119,9 +119,10 @@ export default function App() {
     setErr(null);
     fetchMarket().then(setMarket).catch(() => {});
     try {
-      const list = await fetchMainnetTokens();
+      const list = await fetchScreenerTokens();
       setTokens(list);
-      // Background: fill the on-chain 24h volume for deep-pool tokens the indexers don't cover.
+      // Safety net: if the snapshot ever lacks volume for a deep pool, fill it on-chain (usually a no-op
+      // now that the snapshot bakes it).
       enrichPoolVolumes(list, (addr, v) => setTokens((prev) => prev.map((x) => (x.address === addr ? { ...x, volume24h: v } : x))));
     } catch (e: any) { if (!silent) setErr(e.message || 'failed to load'); }
     finally { if (!silent) setLoading(false); }

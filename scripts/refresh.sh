@@ -4,7 +4,8 @@
 set -e
 cd "$(dirname "$0")/.."
 
-echo "[refresh] $(date -u +%FT%TZ) — rebuilding snapshot"
-ENRICH=1 ENRICH_MAX="${ENRICH_MAX:-300}" node scripts/snapshot.js "${MAX:-500}"
-PRICE_MAX="${PRICE_MAX:-200}" node scripts/prices.js
-echo "[refresh] done $(date -u +%FT%TZ) — $(node -e "const j=require('./public/tokens-snapshot.json');console.log(j.count+' tokens, '+j.tokens.filter(t=>t.price!=null).length+' priced')")"
+echo "[refresh] $(date -u +%FT%TZ) — rebuilding RICH mainnet snapshot"
+# RICH mainnet builder: RadarDEX (server-side, unblocked) + Warp + on-chain deep pools →
+# price/liq/mcap/holders/change/volume/sparkline for every token in ONE file.
+node scripts/snapshot-mainnet.mjs "${MAX:-500}"
+echo "[refresh] done $(date -u +%FT%TZ) — $(node -e "const j=require('./public/tokens-snapshot.json');console.log(j.count+' tokens, '+j.tokens.filter(t=>t.price!=null).length+' priced, '+j.tokens.filter(t=>t.spark).length+' with sparkline')")"
