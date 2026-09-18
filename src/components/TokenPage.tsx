@@ -89,6 +89,10 @@ export function TokenPage() {
           <div className="kicker">The bigger picture · Web3 GameFi</div>
           <h2 className="tok-city-h">$STR, tied into <span className="r">X1 City</span>.</h2>
           <p className="tok-city-sub"><b>X1 City is a full open world being built in Unreal Engine 5</b> — web3 GameFi, and the first game to bridge <b>EVM and SVM</b>, on Arc. <b>$STR</b> is the token woven into it — more than a chart, it’s your link to the world we’re building.</p>
+          <div className="tok-city-video">
+            <video src="/x1city-rain.mp4" controls playsInline preload="metadata" poster="/hero-lava-4.jpg" />
+            <span className="tcv-cap">X1 City — in-engine footage (Unreal Engine 5)</span>
+          </div>
           <div className="tok-city-actions">
             <div className="tok-city-tag"><span className="tct-dot" /> Unreal Engine 5 · Web3 GameFi · in active development</div>
             <a className="btn solid tok-city-cta" href="https://x1city.io" target="_blank" rel="noreferrer">Explore X1 City <IconArrowRight className="arw" /></a>
