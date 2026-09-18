@@ -240,6 +240,30 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .spark-cell { display: flex; align-items: center; justify-content: flex-end; }
 .spark { display: block; }
 .spark-empty { display: inline-block; opacity: .2; }
+
+/* ── MOBILE: screener reflows from a wide scrolling table into per-token cards (no side-scroll) ── */
+@media (max-width: 640px) {
+  .table-scroll { overflow-x: visible; }
+  .table-scroll .table.wide { min-width: 0; }
+  .table.wide .trow.head.sc { display: none; }
+  .trow.tok.sc {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 14px;
+    padding: 14px;
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    margin-bottom: 10px;
+    align-items: start;
+  }
+  .trow.tok.sc .rank { display: none; }
+  .trow.tok.sc .tlogo, .trow.tok.sc .tmono { grid-column: 1 / -1; grid-row: 1; justify-self: start; }
+  .trow.tok.sc .sc-name { grid-column: 1 / -1; grid-row: 1; padding-left: 46px; min-height: 36px; display: flex; flex-direction: column; justify-content: center; }
+  .trow.tok.sc .num, .trow.tok.sc .num.chg { text-align: left; }
+  .trow.tok.sc [data-l]::before { content: attr(data-l); display: block; font-size: 9.5px; letter-spacing: .5px; text-transform: uppercase; color: var(--gray); margin-bottom: 3px; font-family: var(--sans); }
+  .trow.tok.sc .spark-cell { grid-column: 1 / -1; justify-content: flex-start; flex-direction: column; align-items: flex-start; }
+  .trow.tok.sc .spark-cell .spark { width: 100% !important; height: 34px; }
+  .trow.tok.sc .flags { grid-column: 1 / -1; }
+}
 .num.hot { color: var(--red-hi); }
 .sortby { display: flex; align-items: center; gap: 8px; }
 .sortby-l { font-family: var(--disp); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }

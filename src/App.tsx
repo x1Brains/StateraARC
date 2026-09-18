@@ -358,16 +358,16 @@ export default function App() {
                   <div className="trow tok sc" key={t.address} onClick={() => setSelected(t.address)}>
                     <span className="rank">{(pageNum - 1) * perPage + i + 1}</span>
                     <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
-                    <span><div className="tname">{t.name}</div><div className="tsym">{t.symbol}</div></span>
-                    <span className="num">{tprice(t.price)}</span>
-                    <span className={`num chg ${chgCls(t.change1h)}`}>{chgFmt(t.change1h)}</span>
-                    <span className={`num chg ${chgCls(t.change24h)}`}>{chgFmt(t.change24h)}</span>
-                    <span className="num">{t.volume24h == null ? '—' : usd(t.volume24h)}</span>
-                    <span className={`num${sort === 'mcap' ? ' hot' : ''}`}>{t.mcap == null ? '—' : usd(t.mcap)}</span>
-                    <span className={`num${sort === 'liq' ? ' hot' : ''}`}>{t.liq == null ? '—' : usd(t.liq)}</span>
-                    <span className="num">{fmt(t.holders)}</span>
-                    <span className="num age">{ageStr(t.createdAt)}</span>
-                    <span className="num spark-cell"><Sparkline data={t.spark} /></span>
+                    <span className="sc-name"><div className="tname">{t.name}</div><div className="tsym">{t.symbol}</div></span>
+                    <span className="num" data-l="Price">{tprice(t.price)}</span>
+                    <span className={`num chg ${chgCls(t.change1h)}`} data-l="1h">{chgFmt(t.change1h)}</span>
+                    <span className={`num chg ${chgCls(t.change24h)}`} data-l="24h">{chgFmt(t.change24h)}</span>
+                    <span className="num" data-l="Vol 24h">{t.volume24h == null ? '—' : usd(t.volume24h)}</span>
+                    <span className={`num${sort === 'mcap' ? ' hot' : ''}`} data-l="Market Cap">{t.mcap == null ? '—' : usd(t.mcap)}</span>
+                    <span className={`num${sort === 'liq' ? ' hot' : ''}`} data-l="Liquidity">{t.liq == null ? '—' : usd(t.liq)}</span>
+                    <span className="num" data-l="Holders">{fmt(t.holders)}</span>
+                    <span className="num age" data-l="Age">{ageStr(t.createdAt)}</span>
+                    <span className="num spark-cell" data-l="Last 24h"><Sparkline data={t.spark} /></span>
                     <span className="flags">
                       {t.launchpad && <span className="badge b-lp">{t.launchpad}</span>}
                       {t.isEcosystem && <span className="badge b-gray">ECO</span>}
