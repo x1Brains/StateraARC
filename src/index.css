@@ -1181,6 +1181,6 @@ footer .flink:hover { text-decoration: underline; }
 @media (max-width: 560px) { .td-trade { margin-left: 0; margin-top: 10px; width: 100%; justify-content: center; } }
 
 /* X1 City showpiece video on the $STR page */
-.tok-city-video { margin: 22px 0 6px; max-width: 820px; }
+.tok-city-video { margin: 22px auto 6px; max-width: 820px; }
 .tok-city-video video { width: 100%; border-radius: 14px; border: 1px solid rgba(255,255,255,.1); background: #000; display: block; box-shadow: 0 18px 50px rgba(0,0,0,.5); }
 .tok-city-video .tcv-cap { display: block; margin-top: 8px; font-size: 12px; color: var(--gray); letter-spacing: .3px; }
