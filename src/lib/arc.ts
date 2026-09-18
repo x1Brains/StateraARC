@@ -900,9 +900,36 @@ function decodeSwap(dataHex: string, topic0: string, usdcIsToken0: boolean): { u
     return { usdc: ur < 0n ? -ur : ur, tok: tr < 0n ? -tr : tr };
   } catch { return null; }
 }
+// Arc DEX factories (discovered on-chain). getPool/getPair let us find ANY token's USDC pool instead of
+// relying on a hardcoded list — so charts/volume work for every token that trades on Uniswap V3 or V2.
+const V3_FACTORY = '0xf0db7b58379503491d857db50ac9ece64c653918';
+const V2_FACTORY = '0x942bd5bfdc5317c5507e326f8eb4bb6058ab5c10';
+const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
+const poolDiscovery = new Map<string, string | null>();
+// Find a token's deepest USDC pool (V3 any fee tier, or V2). Curated deep pools win; result cached.
+export async function findTokenPool(token: string): Promise<string | null> {
+  const t = token.toLowerCase();
+  if (MAINNET_POOL[t]) return MAINNET_POOL[t];
+  if (poolDiscovery.has(t)) return poolDiscovery.get(t)!;
+  const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
+  const usdcOf = async (p: string) => { const b = await mCall(NATIVE_USDC_ADDR, '0x70a08231' + pad(p)).catch(() => null); try { return b ? Number(BigInt(b)) / 1e6 : 0; } catch { return 0; } };
+  let best: string | null = null, bestUsdc = -1;
+  const candidates = await Promise.all([
+    ...[100, 500, 3000, 10000].map((fee) => mCall(V3_FACTORY, '0x1698ee82' + pad(t) + pad(NATIVE_USDC_ADDR) + fee.toString(16).padStart(64, '0')).catch(() => null)),
+    mCall(V2_FACTORY, '0xe6a43905' + pad(t) + pad(NATIVE_USDC_ADDR)).catch(() => null),
+  ]);
+  for (const r of candidates) {
+    const p = r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null;
+    if (!p || p === ZERO_ADDR) continue;
+    const usdc = await usdcOf(p);
+    if (usdc > bestUsdc) { bestUsdc = usdc; best = p; }
+  }
+  poolDiscovery.set(t, best);
+  return best;
+}
 const candleCache = new Map<string, { at: number; data: Candle[] }>();
 export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number): Promise<Candle[]> {
-  const pool = MAINNET_POOL[token.toLowerCase()]; if (!pool) return [];
+  const pool = await findTokenPool(token); if (!pool) return [];
   const ck = token.toLowerCase() + ':' + intervalSec;
   const hit = candleCache.get(ck);
   if (hit && Date.now() - hit.at < 45000) return hit.data; // 45s cache — instant re-opens / tf toggles
@@ -964,7 +991,7 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
 // (RPC caps ranges at ~2.5k blocks), so we sample recent swaps and scale to 24h — accurate for
 // steady flow, approximate through a burst. Returns USD volume, or null if no pool / no swaps.
 export async function fetchPoolVolume24h(token: string): Promise<number | null> {
-  const pool = MAINNET_POOL[token.toLowerCase()]; if (!pool) return null;
+  const pool = await findTokenPool(token); if (!pool) return null;
   const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]);
   if (!t0hex || !headHex) return null;
   const usdcIsToken0 = ('0x' + t0hex.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
