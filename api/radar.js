@@ -1,11 +1,12 @@
-// Resilient RadarDEX proxy.
-// RadarDEX (api.radardex.pro) sits behind Cloudflare, which HARD-BLOCKS Vercel's datacenter IPs
-// (verified 0/6 from Vercel, 6/6 from a clean IP). The old rewrite forwarded the challenge HTML, so
-// radarGet's JSON.parse threw and the whole site (screener/portfolio/token pages) stalled on "Loading…".
-// Fix: fetch through a clean-IP relay (our VPS, which RadarDEX does not block) configured via private
-// env vars — RADAR_UPSTREAM (e.g. http://host:8787) + RADAR_KEY — so the box IP/key stay OUT of this
-// public repo. We try the relay first, fall back to hitting RadarDEX directly, and EDGE-CACHE good
-// responses so a transient failure is smoothed over by cached/stale data.
+// Resilient RadarDEX proxy (single function — the [...path] catch-all only matched one segment on
+// this Vite project, so token/holders/portfolio 404'd). A vercel.json rewrite funnels every
+// /api/radar/:path* here as ?path=:path*; we rebuild the upstream path and forward it.
+//
+// Why a proxy at all: RadarDEX (api.radardex.pro) sits behind Cloudflare, which HARD-BLOCKS Vercel's
+// datacenter IPs (0/6 from Vercel, 6/6 from a clean IP). So we fetch through a clean-IP relay (our VPS,
+// which RadarDEX doesn't block) configured via private env vars RADAR_UPSTREAM + RADAR_KEY (kept OUT of
+// this public repo), fall back to hitting RadarDEX directly, and EDGE-CACHE good responses so a
+// transient failure is smoothed over by cached/stale data.
 const DIRECT = 'https://api.radardex.pro';
 const RELAY = process.env.RADAR_UPSTREAM || '';
 const RELAY_KEY = process.env.RADAR_KEY || '';
@@ -19,11 +20,16 @@ const looksBad = (status, text) =>
   status >= 400 || /just a moment|cf-challenge|challenge-platform|enable javascript|<!doctype html|<html/i.test((text || '').slice(0, 300));
 
 export default async function handler(req, res) {
-  const path = (req.url || '').replace(/^\/api\/radar/, '') || '/';
-  // Prefer the clean-IP relay; fall back to hitting RadarDEX directly.
+  const u = new URL(req.url, 'http://x');
+  const sub = (u.searchParams.get('path') || '').replace(/^\/+/, '');
+  u.searchParams.delete('path');
+  const qs = u.searchParams.toString();
+  const suffix = '/' + sub + (qs ? '?' + qs : '');
+
   const targets = [];
-  if (RELAY) targets.push({ url: RELAY + path, headers: { 'x-relay-key': RELAY_KEY, Accept: 'application/json' } });
-  targets.push({ url: DIRECT + path, headers: BROWSER });
+  if (RELAY) targets.push({ url: RELAY + suffix, headers: { 'x-relay-key': RELAY_KEY, Accept: 'application/json' } });
+  targets.push({ url: DIRECT + suffix, headers: BROWSER });
+
   for (const t of targets) {
     for (let i = 0; i < 2; i++) {
       try {
