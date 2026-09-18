@@ -22,7 +22,17 @@ const EXPLORER = 'https://explorer.arc.io/api/v2';
 const RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org', 'https://arc.gateway.tenderly.co'];
 const MAX = Number(process.argv[2] || 500);
 const NATIVE_USDC = '0x3600000000000000000000000000000000000000';
-const SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+const SWAP_V3 = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+const SWAP_V2 = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822';
+// USDC + the Animus ecosystem suite (biggest holder base on Arc) — always in the Ecosystem card.
+const ECO = [
+  { address: NATIVE_USDC, name: 'USD Coin', symbol: 'USDC', iconUrl: '/coins/USDC.svg', price: 1 },
+  { address: '0xf5b08979251f398180385b54381ee3d6fa1bbe09', name: 'Animus USD', symbol: 'AUSD', price: 1 },
+  { address: '0x8cd7e5a2240a1a7efaa9b164caa1dc80e9ed23a3', name: 'Animus EUR', symbol: 'AEUR', price: 1.08 },
+  { address: '0x04adf55844be2f4c8d23e3f5f2386b08400b0cd1', name: 'Animus WXT', symbol: 'AWXT' },
+  { address: '0x26d1ffbbb8b310b090ee0536748b4adfc88ae644', name: 'Animus Wirex Reward', symbol: 'AWORP' },
+  { address: '0x7ce5e3fb080545c8912cf93297d93441911e9e4d', name: 'Animus BTC', symbol: 'ABTC' },
+];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const num = (v) => (v == null || v === '' || isNaN(Number(v)) ? null : Number(v));
 
@@ -99,16 +109,26 @@ async function poolActivity(token, pool) {
   const pts = []; // {b, price}
   for (let from = H - BigInt(blocks24h); from < H; from += CH) {
     const to = from + CH > H ? H : from + CH;
-    const logs = await rpc('eth_getLogs', [{ address: pool, topics: [SWAP_TOPIC], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }]);
+    // Scan BOTH Uniswap-V3 and V2-style Swap events (ARCAT and other pools are V2, which the V3-only
+    // scan silently missed → "$0 volume / no trades" on real, liquid tokens).
+    const logs = await rpc('eth_getLogs', [{ address: pool, topics: [[SWAP_V3, SWAP_V2]], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }]);
     if (!Array.isArray(logs)) continue;
     for (const l of logs) {
       try {
         const d = l.data.slice(2);
-        const a0 = hexToInt('0x' + d.slice(0, 64)); const a1 = hexToInt('0x' + d.slice(64, 128));
-        const s0 = a0 >= (1n << 255n) ? a0 - (1n << 256n) : a0;
-        const s1 = a1 >= (1n << 255n) ? a1 - (1n << 256n) : a1;
-        const usdcRaw = usdcIsT0 ? s0 : s1; const tokRaw = usdcIsT0 ? s1 : s0;
-        const usdcAbs = usdcRaw < 0n ? -usdcRaw : usdcRaw; const tokAbs = tokRaw < 0n ? -tokRaw : tokRaw;
+        const w = (i) => hexToInt('0x' + d.slice(i * 64, i * 64 + 64));
+        let usdcAbs, tokAbs;
+        if ((l.topics[0] || '').toLowerCase() === SWAP_V2) {
+          // V2: amount0In, amount1In, amount0Out, amount1Out (all unsigned)
+          const a0 = w(0) + w(2), a1 = w(1) + w(3);
+          usdcAbs = usdcIsT0 ? a0 : a1; tokAbs = usdcIsT0 ? a1 : a0;
+        } else {
+          // V3: amount0, amount1 (signed int256)
+          const s0 = w(0) >= (1n << 255n) ? w(0) - (1n << 256n) : w(0);
+          const s1 = w(1) >= (1n << 255n) ? w(1) - (1n << 256n) : w(1);
+          const ur = usdcIsT0 ? s0 : s1, tr = usdcIsT0 ? s1 : s0;
+          usdcAbs = ur < 0n ? -ur : ur; tokAbs = tr < 0n ? -tr : tr;
+        }
         vol += Number(usdcAbs) / 1e6; txns++;
         if (tokAbs > 0n) pts.push({ b: parseInt(l.blockNumber, 16), price: (Number(usdcAbs) / 1e6) / (Number(tokAbs) / 1e18) });
       } catch { /* skip */ }
@@ -202,6 +222,12 @@ async function poolStats(token, pool) {
     if (stats) { if (stats.price != null) row.price = stats.price; if (stats.liq != null) row.liq = stats.liq; if (stats.mcap != null) row.mcap = stats.mcap; }
     if (act) { if (act.volume24h != null) row.volume24h = act.volume24h; if (act.change1h != null) row.change1h = act.change1h; if (act.change24h != null) row.change24h = act.change24h; if (act.spark) row.spark = act.spark; if (act.txns24 != null) row.txns24 = act.txns24; }
     console.log(`  ${meta.symbol}: price=${row.price} liq=${row.liq?.toFixed?.(0)} vol24=${row.volume24h?.toFixed?.(0)} chg24=${row.change24h?.toFixed?.(1)} holders=${row.holders} icon=${row.iconUrl ? 'yes' : 'no'} spark=${row.spark ? row.spark.length : 0}`);
+  }
+
+  // 4) Ecosystem suite (USDC + Animus) — always present + flagged for the Ecosystem card.
+  for (const e of ECO) {
+    set(mk({ address: e.address, name: e.name, symbol: e.symbol, iconUrl: e.iconUrl ?? null, price: e.price ?? null, isEcosystem: true }));
+    const row = map.get(e.address.toLowerCase()); if (row) { row.isEcosystem = true; if (e.iconUrl && !row.iconUrl) row.iconUrl = e.iconUrl; }
   }
 
   const tokens = [...map.values()].sort((a, b) => (b.liq ?? -1) - (a.liq ?? -1));
