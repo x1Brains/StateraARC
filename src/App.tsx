@@ -32,7 +32,6 @@ function parsePath(): { page: Page; selected: string | null } {
 const NAV: { key: Page; label: string }[] = [
   { key: 'home', label: 'Home' },
   { key: 'screener', label: 'Screener' },
-  { key: 'token', label: '$STR' },
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'swap', label: 'Swap' },
 ];
@@ -421,7 +420,7 @@ export default function App() {
         <footer><div className="wrap">
           <span className="fbrand">STATERA · ARC</span>
           <span>Data via RadarDEX · Warp · ArcExplorer · Arc Mainnet · chain 5042</span>
-          <span>Not financial advice · early launches are high-risk</span>
+          <span><button className="flink" onClick={() => go('token')}>The $STR token</button> · Not financial advice · early launches are high-risk</span>
         </div></footer>
       </div>
     </>

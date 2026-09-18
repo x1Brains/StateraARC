@@ -719,6 +719,8 @@ a .i, button .i { pointer-events: none; }
 footer { border-top: 1px solid var(--line); margin-top: 40px; }
 footer .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 26px 20px; color: var(--gray-3); font-size: 11px; }
 footer .fbrand { font-family: var(--disp); font-weight: 700; letter-spacing: 3px; color: var(--gray); }
+footer .flink { background: none; border: 0; color: var(--orange); cursor: pointer; padding: 0; font: inherit; }
+footer .flink:hover { text-decoration: underline; }
 
 @media (max-width: 820px) {
   .hero { min-height: 460px; }

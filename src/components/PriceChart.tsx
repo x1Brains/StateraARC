@@ -5,7 +5,11 @@ import { fetchPoolCandles } from '../lib/arc';
 
 // TradingView-style price chart for an Arc token. Data = Warp OHLC candles (chain 5042) with an
 // on-chain pool-swap fallback for deep V3 tokens. DEX-style controls: timeframe, candles/line, lin/log.
-const TFS = [{ k: '1m', l: '1m' }, { k: '5m', l: '5m' }, { k: '1h', l: '1H' }];
+// Arc mainnet launched 2026-09-16, so there are only a couple days of history — 1W/1M/ALL would just
+// repeat the same ~2 days. These span from fine-grain to a multi-day view; longer ones become useful
+// as the chain ages.
+const TFS = [{ k: '1m', l: '1m' }, { k: '5m', l: '5m' }, { k: '15m', l: '15m' }, { k: '1h', l: '1H' }, { k: '4h', l: '4H' }, { k: '1d', l: '1D' }];
+const TF_SEC: Record<string, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
 type ChartType = 'candles' | 'line';
 
 const priceFmt = (p: number) => {
@@ -41,8 +45,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1 }: { addr
       // Not on Warp (deep V3 tokens like ARGUS) → build candles from the pool's on-chain swaps (already
       // decimals-correct, so no rescale).
       if ((!c || c.length === 0)) {
-        const sec = tf === '1m' ? 60 : tf === '1h' ? 3600 : 300;
-        c = await fetchPoolCandles(address, decimals ?? 18, sec).catch(() => [] as Candle[]);
+        c = await fetchPoolCandles(address, decimals ?? 18, TF_SEC[tf] ?? 300).catch(() => [] as Candle[]);
       }
       if (alive) { setCandles(c); setLoading(false); }
     })();

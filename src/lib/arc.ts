@@ -882,7 +882,24 @@ export async function fetchTokenHolders(address: string, limit = 20): Promise<Ho
 // (Warp tokens use Warp's candles; the deep V3 tokens — ARGUS/TOLLY/LONG/COOL… — aren't on Warp,
 // so we chart them from chain.) Price is read from each swap's sqrtPriceX96; timestamps are
 // approximated from block height (blocks are ~sub-second on Arc), which is fine for a chart.
-const SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+const SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67'; // Uniswap V3
+const SWAP_V2_TOPIC = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822'; // Uniswap V2 (ARCAT etc.)
+// Decode a Swap log to { usdcAbs, tokAbs } (raw units) for BOTH V3 (signed amount0/amount1) and V2
+// (amount0In/1In/0Out/1Out). Pools that aren't V3 (ARCAT…) were silently charting empty before this.
+function decodeSwap(dataHex: string, topic0: string, usdcIsToken0: boolean): { usdc: bigint; tok: bigint } | null {
+  try {
+    const d = dataHex.slice(2);
+    const w = (i: number) => BigInt('0x' + d.slice(i * 64, i * 64 + 64));
+    if ((topic0 || '').toLowerCase() === SWAP_V2_TOPIC) {
+      const a0 = w(0) + w(2), a1 = w(1) + w(3);
+      return { usdc: usdcIsToken0 ? a0 : a1, tok: usdcIsToken0 ? a1 : a0 };
+    }
+    const s0 = w(0) >= (1n << 255n) ? w(0) - (1n << 256n) : w(0);
+    const s1 = w(1) >= (1n << 255n) ? w(1) - (1n << 256n) : w(1);
+    const ur = usdcIsToken0 ? s0 : s1, tr = usdcIsToken0 ? s1 : s0;
+    return { usdc: ur < 0n ? -ur : ur, tok: tr < 0n ? -tr : tr };
+  } catch { return null; }
+}
 const candleCache = new Map<string, { at: number; data: Candle[] }>();
 export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number): Promise<Candle[]> {
   const pool = MAINNET_POOL[token.toLowerCase()]; if (!pool) return [];
@@ -904,20 +921,16 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   const ranges: [bigint, bigint][] = [];
   for (let from = head - BigInt(spanBlocks); from < head; from += CH) ranges.push([from, from + CH > head ? head : from + CH]);
   const results = await runLimited(ranges.map(([from, to]) => () =>
-    mrpc('eth_getLogs', [{ address: pool, topics: [SWAP_TOPIC], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }])), 6);
+    mrpc('eth_getLogs', [{ address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }])), 6);
   const swaps: { ts: number; price: number }[] = [];
   for (const logs of results) {
     if (!Array.isArray(logs)) continue;
     for (const l of logs) {
-      try {
-        const sqrtP = BigInt('0x' + l.data.slice(2).slice(128, 192)); // 3rd word of Swap data = sqrtPriceX96
-        if (sqrtP <= 0n) continue;
-        const ratio = (Number(sqrtP) / 2 ** 96) ** 2; // token1_raw / token0_raw
-        if (!isFinite(ratio) || ratio <= 0) continue;
-        const price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp;
-        if (!isFinite(price) || price <= 0) continue;
-        swaps.push({ ts: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime), price });
-      } catch { /* skip */ }
+      const dec = decodeSwap(l.data, l.topics?.[0], usdcIsToken0); // handles V3 + V2
+      if (!dec || dec.tok <= 0n) continue;
+      const price = (Number(dec.usdc) / Number(dec.tok)) * dexp; // usdc(6-dec) / token(decimals) via dexp
+      if (!isFinite(price) || price <= 0) continue;
+      swaps.push({ ts: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime), price });
     }
   }
   if (!swaps.length) return [];
@@ -950,16 +963,12 @@ export async function fetchPoolVolume24h(token: string): Promise<number | null> 
   const CH = 2000n;
   for (let from = head - BigInt(sampleBlocks); from < head; from += CH) {
     const to = from + CH > head ? head : from + CH;
-    const logs = await mrpc('eth_getLogs', [{ address: pool, topics: [SWAP_TOPIC], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }]);
+    const logs = await mrpc('eth_getLogs', [{ address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }]);
     if (!Array.isArray(logs)) continue;
     for (const l of logs) {
-      try {
-        const d = l.data.slice(2);
-        const raw = BigInt('0x' + d.slice(usdcIsToken0 ? 0 : 64, usdcIsToken0 ? 64 : 128)); // amount0 or amount1 (int256)
-        const signed = raw >= (1n << 255n) ? raw - (1n << 256n) : raw;
-        const abs = signed < 0n ? -signed : signed;
-        usdcVol += Number(abs) / 1e6; sawAny = true;
-      } catch { /* skip */ }
+      const dec = decodeSwap(l.data, l.topics?.[0], usdcIsToken0); // V3 + V2
+      if (!dec) continue;
+      usdcVol += Number(dec.usdc) / 1e6; sawAny = true;
     }
   }
   if (!sawAny) return 0;
