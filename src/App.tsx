@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchMainnetTokens, fetchMarket, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
+import { fetchMainnetTokens, fetchMarket, fetchPoolVolume24h, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -43,6 +43,25 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 const PER_PAGE_OPTS = [100, 250, 500];
 const byLiq = (a: Token, b: Token) => (b.liq ?? -1) - (a.liq ?? -1);
+// The deepest Arc tokens (Argus/Tolly/Long/Architects…) trade only on Uniswap V3, which no indexer
+// (Warp/RadarDEX) tracks activity for — so their 24h volume column is blank. We compute it on-chain
+// from their pool's Swap events (bounded, cached 5 min) and fill it in without blocking the screener.
+const poolVolCache = new Map<string, { v: number; ts: number }>();
+function enrichPoolVolumes(list: Token[], apply: (addr: string, v: number) => void) {
+  const now = Date.now();
+  const targets = list
+    .filter((t) => t.volume24h == null && (t.liq ?? 0) > 1000)
+    .sort((a, b) => (b.liq ?? 0) - (a.liq ?? 0))
+    .slice(0, 14);
+  for (const t of targets) {
+    const c = poolVolCache.get(t.address);
+    if (c && now - c.ts < 5 * 60 * 1000) { apply(t.address, c.v); continue; }
+    fetchPoolVolume24h(t.address)
+      .then((v) => { if (v != null) { poolVolCache.set(t.address, { v, ts: Date.now() }); apply(t.address, v); } })
+      .catch(() => {});
+  }
+}
+
 // Screener cell formatters
 const chgCls = (v: number | null | undefined) => (v == null ? '' : v >= 0 ? 'up' : 'down');
 const chgFmt = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(Math.abs(v) >= 100 ? 0 : 1)}%`);
@@ -102,6 +121,8 @@ export default function App() {
     try {
       const list = await fetchMainnetTokens();
       setTokens(list);
+      // Background: fill the on-chain 24h volume for deep-pool tokens the indexers don't cover.
+      enrichPoolVolumes(list, (addr, v) => setTokens((prev) => prev.map((x) => (x.address === addr ? { ...x, volume24h: v } : x))));
     } catch (e: any) { if (!silent) setErr(e.message || 'failed to load'); }
     finally { if (!silent) setLoading(false); }
   }
