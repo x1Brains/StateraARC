@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { compact, usd, CHAIN, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx } from '../lib/arc';
+import { compact, usd, CHAIN, fetchPortfolioMainnet, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 import { IconSwapVertical, IconExternal } from './icons';
 import {
@@ -125,7 +125,12 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     if (!wallet) { setHoldings(null); setActs(null); setPfTotal(null); return; }
     let alive = true;
     setHoldings((h) => h ?? null); setActs((a) => a ?? null);
-    fetchRadarPortfolio(wallet).then((pf) => { if (alive) { setHoldings(pf.holdings); setPfTotal(pf.total); } }).catch(() => { if (alive) setHoldings([]); });
+    // Explorer lists the full bag in one call; RadarDEX /portfolio is only a fallback (it often
+    // returned USDC alone and dropped the rest).
+    fetchPortfolioMainnet(wallet)
+      .then(async (pf) => (pf.holdings.length ? pf : await fetchRadarPortfolio(wallet).catch(() => pf)))
+      .then((pf) => { if (alive) { setHoldings(pf.holdings); setPfTotal(pf.total); } })
+      .catch(() => { if (alive) setHoldings([]); });
     fetchAddressTxs(wallet, 12).then((t) => { if (alive) setActs(t); }).catch(() => { if (alive) setActs([]); });
     return () => { alive = false; };
   }, [wallet, phaseTick]); // eslint-disable-line

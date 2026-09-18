@@ -231,6 +231,34 @@ export async function fetchRadarPortfolio(addr: string): Promise<{ total: number
   } catch { return { total: null, holdings: [] }; }
 }
 
+// One-call mainnet holdings from the OFFICIAL Arc explorer (Blockscout /token-balances). Returns EVERY
+// token the wallet holds — balance, decimals, icon, and (where the explorer indexes it) price — in the
+// same shape as fetchRadarPortfolio. RadarDEX's /portfolio proved unreliable (frequently returned only
+// USDC and dropped the rest of the bag), so this explorer call is now the PRIMARY portfolio source.
+export async function fetchPortfolioMainnet(addr: string): Promise<{ total: number | null; holdings: RadarHolding[] }> {
+  try {
+    const j = await req(`${CHAIN.api}/addresses/${addr.toLowerCase()}/token-balances`);
+    const arr: any[] = Array.isArray(j) ? j : (j?.items || []);
+    const holdings: RadarHolding[] = arr
+      .filter((x: any) => !x?.token?.type || String(x.token.type).includes('ERC-20'))
+      .map((x: any) => {
+        const t = x.token || {};
+        const decimals = Number(t.decimals || 18);
+        const amount = Number(x.value || 0) / 10 ** decimals;
+        const price = rnum(t.exchange_rate);
+        return {
+          address: addrOf(t.address_hash || t.address || '').toLowerCase(),
+          symbol: t.symbol || '?', name: t.name || t.symbol || '?', decimals,
+          icon: normIcon(t.icon_url), price, amount, usd: price != null ? amount * price : null,
+        } as RadarHolding;
+      })
+      .filter((h: RadarHolding) => h.address && h.amount > 0)
+      .sort((a: RadarHolding, b: RadarHolding) => (b.usd ?? 0) - (a.usd ?? 0) || b.amount - a.amount);
+    const total = holdings.reduce((s, h) => s + (h.usd ?? 0), 0);
+    return { total: holdings.some((h) => h.usd != null) ? total : null, holdings };
+  } catch { return { total: null, holdings: [] }; }
+}
+
 // ── DEX-style token detail + holders (RadarDEX) ───────────────────────────────────────────────
 export interface RadarTokenDetail {
   burnedPct: number | null; buys24: number | null; sells24: number | null; traders24: number | null;

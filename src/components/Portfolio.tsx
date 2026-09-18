@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchHoldings, fetchHoldingsMainnet, fetchRadarPortfolio, fetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type TokenPnl } from '../lib/arc';
+import { fetchHoldings, fetchHoldingsMainnet, fetchPortfolioMainnet, fetchRadarPortfolio, fetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type RadarHolding, type TokenPnl } from '../lib/arc';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
 import { SendModal, type SendToken } from './SendModal';
@@ -45,36 +45,45 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     let alive = true;
     setLoading(true); setErr(null); setHoldings([]); setLivePx({});
     (async () => {
-      // FAST PATH (mainnet): RadarDEX indexes every wallet's holdings + value + icons in one call — instant.
-      if (mainnet) {
-        try {
-          const pf = await fetchRadarPortfolio(addr);
-          if (!alive) return;
-          if (pf.holdings.length) {
-            setHoldings(pf.holdings.map((h) => ({ address: h.address, name: h.name, symbol: h.symbol, decimals: h.decimals, balance: h.amount, iconUrl: h.icon })));
-            const px: Record<string, number> = {};
-            for (const h of pf.holdings) if (h.price != null) px[h.address] = h.price;
-            setLivePx(px);
-            setLoading(false);
-            return;
-          }
-        } catch { /* fall through to on-chain scan */ }
-        if (!alive) return;
-      }
-      // FALLBACK: on-chain balanceOf scan of the priced/liquid/ecosystem token set (RPC).
       try {
-        const scan = tokens.filter((t) => t.price != null || t.liq != null || t.isEcosystem || t.launchpad);
-        const h = mainnet
-          ? await fetchHoldingsMainnet(addr, scan.map((t) => ({ address: t.address, name: t.name, symbol: t.symbol })))
-          : await fetchHoldings(addr);
+        // Resolve the FULL set of tokens the wallet holds.
+        let h: Holding[] = [];
+        const seeded: Record<string, number> = {}; // prices that came free with the holdings source
+        if (mainnet) {
+          // PRIMARY: the official Arc explorer lists EVERY token the wallet holds in one call —
+          // balances, decimals, icons, and (where indexed) prices. RadarDEX's /portfolio was
+          // unreliable (often returned only USDC and dropped the rest of the bag), so it's now
+          // just a fallback, with the curated on-chain scan behind it.
+          const pf = await fetchPortfolioMainnet(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
+          if (!alive) return;
+          let src: RadarHolding[] = pf.holdings;
+          if (!src.length) {
+            const rp = await fetchRadarPortfolio(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
+            if (!alive) return;
+            src = rp.holdings;
+          }
+          if (src.length) {
+            h = src.map((r) => ({ address: r.address, name: r.name, symbol: r.symbol, decimals: r.decimals, balance: r.amount, iconUrl: r.icon }));
+            for (const r of src) if (r.price != null) seeded[r.address] = r.price;
+          } else {
+            // last resort: on-chain balanceOf scan of the priced/liquid/ecosystem token set (RPC).
+            const scan = tokens.filter((t) => t.price != null || t.liq != null || t.isEcosystem || t.launchpad);
+            h = await fetchHoldingsMainnet(addr, scan.map((t) => ({ address: t.address, name: t.name, symbol: t.symbol })));
+          }
+        } else {
+          h = await fetchHoldings(addr);
+        }
         if (!alive) return;
         setHoldings(h);
+        setLivePx(seeded);
         if (mainnet) {
-          const px = await priceMainnet(h.map((x) => x.address)).catch(() => ({} as Record<string, number>));
+          // Enrich prices for holdings the source didn't price: live pool prices, then Warp.
+          const need = h.filter((x) => seeded[x.address] == null).map((x) => x.address);
+          const px = need.length ? await priceMainnet(need).catch(() => ({} as Record<string, number>)) : {};
           if (!alive) return;
-          setLivePx(px);
+          if (Object.keys(px).length) setLivePx((prev) => ({ ...prev, ...px }));
           const usdcK = '0x3600000000000000000000000000000000000000';
-          const missing = h.filter((x) => px[x.address] == null && x.address !== usdcK).slice(0, 14);
+          const missing = h.filter((x) => seeded[x.address] == null && px[x.address] == null && x.address !== usdcK).slice(0, 14);
           const got = await Promise.all(missing.map((x) =>
             fetchWarpToken(x.address).then((w) => [x.address, w?.price ?? null] as const).catch(() => null)));
           const add: Record<string, number> = {};
