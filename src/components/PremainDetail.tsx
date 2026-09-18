@@ -168,7 +168,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       )}
 
       <div style={{ marginTop: 12 }}>
-        <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? 18} priceScale={chartScale} />
+        <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? 18} priceScale={chartScale} change24h={chg} />
       </div>
 
       {/* Trade activity (24h) — buy/sell pressure, traders, txns (RadarDEX) */}

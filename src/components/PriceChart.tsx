@@ -20,7 +20,7 @@ const priceFmt = (p: number) => {
     : '$' + p.toExponential(2);
 };
 
-export function PriceChart({ address, symbol, decimals, priceScale = 1 }: { address: string; symbol?: string; decimals?: number; priceScale?: number }) {
+export function PriceChart({ address, symbol, decimals, priceScale = 1, change24h }: { address: string; symbol?: string; decimals?: number; priceScale?: number; change24h?: number | null }) {
   const [tf, setTf] = useState('5m');
   const [type, setType] = useState<ChartType>('candles');
   const [log, setLog] = useState(false);
@@ -98,8 +98,9 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1 }: { addr
 
   const empty = !loading && candles != null && candles.length === 0;
   const last = candles && candles.length ? candles[candles.length - 1].close : null;
-  const first = candles && candles.length ? candles[0].open : null;
-  const chg = last != null && first ? ((last - first) / first) * 100 : null;
+  // Header %: use the token's real 24h change (matches the stat cards) — NOT first-vs-last over the whole
+  // visible window, which is a different period and blows up when the first candle is a near-zero outlier.
+  const chg = change24h ?? null;
 
   return (
     <div className="chart-card panel">
@@ -107,7 +108,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1 }: { addr
         <div className="chart-title">
           {symbol ? `$${symbol}` : 'Price'} <span className="chart-usdc">/ USDC</span>
           {last != null && <span className="chart-last">{priceFmt(last)}</span>}
-          {chg != null && <span className={`chart-chg ${chg >= 0 ? 'up' : 'down'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(1)}%</span>}
+          {chg != null && <span className={`chart-chg ${chg >= 0 ? 'up' : 'down'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(1)}% <span className="chart-chg-l">24h</span></span>}
         </div>
         <div className="chart-tfs">
           {TFS.map((t) => <button key={t.k} className={tf === t.k ? 'on' : ''} onClick={() => setTf(t.k)}>{t.l}</button>)}
