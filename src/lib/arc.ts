@@ -175,9 +175,19 @@ export async function fetchPremainTokens(): Promise<Token[]> {
 // the "recent launches from all launchpads" card, and the logos everywhere.
 const RADAR = '/api/radar';
 async function radarGet(path: string): Promise<any> {
-  const r = await fetch(`${RADAR}${path}`, { headers: { accept: 'application/json' } });
-  if (!r.ok) throw new Error(`radar ${r.status}`);
-  return r.json();
+  // The proxy is resilient, but if a Cloudflare challenge ever slips through we get HTML, not JSON —
+  // reject it (leading '<') and retry rather than throwing a parse error that blanks the UI.
+  let lastErr: any = null;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(`${RADAR}${path}`, { headers: { accept: 'application/json' } });
+      const text = await r.text();
+      if (r.ok && text && text.trimStart()[0] !== '<') return JSON.parse(text);
+      lastErr = new Error(`radar ${r.status}`);
+    } catch (e) { lastErr = e; }
+    await sleep(250 * (i + 1));
+  }
+  throw lastErr || new Error('radar unavailable');
 }
 const rnum = (v: any): number | null => (v == null || isNaN(Number(v)) ? null : Number(v));
 // Unwrap Next.js image-optimizer URLs (e.g. arguspad.io/_next/image?url=<ipfs>&w=128) to the underlying
@@ -591,15 +601,21 @@ export async function fetchHoldings(addr: string): Promise<Holding[]> {
 // No indexer lists a wallet's mainnet tokens (arc-scan's /address/{a}/tokens 500s, explorer.arc.io
 // isn't Blockscout), so we scan a curated + board candidate set ON-CHAIN via the mainnet RPC. Not
 // exhaustive, but returns REAL balances for the tokens that matter (WARP, watchlist, stablecoins).
-// Public Arc-mainnet RPCs, benchmarked 2026-09-16 (latency / getLogs range / receipts):
-//   • arc-rpc.publicnode.com — fastest (~169ms), 50k getLogs range, receipts ✓  → PRIMARY
-//   • rpc.mainnet.arc.io      — official (~197ms), 10k getLogs range, receipts ✓ → FALLBACK
-//   (dropped: arc.drpc.org has NO receipts; warp railway ~590ms; ankr/blast/thirdweb dead or gated.)
-// We rotate on timeout / 429 / 5xx / JSON-error so a slow, rate-limited or stale node fails over to the
-// next instead of stalling. A 7s per-try timeout keeps a hung node from blocking the whole call.
+// Public Arc-mainnet RPCs, re-benchmarked 2026-09-17 (chainId 0x13b2 / latency / receipts / getLogs).
+// Only nodes that reliably return HISTORICAL RECEIPTS (P&L needs them) are used — verified 3/3 on real
+// txs:
+//   • rpc.mainnet.arc.io       — official (~200ms), receipts ✓, getLogs ≤10k  → PRIMARY
+//   • arc.drpc.org             — (~180ms), receipts ✓, getLogs ≤10k           → FALLBACK
+//   • arc.gateway.tenderly.co  — (~240ms), receipts ✓, getLogs ≤20k results   → FALLBACK
+//   ⛔ DROPPED arc-rpc.publicnode.com — fastest but load-balanced over PRUNED nodes: returned 0/3
+//      historical receipts, which silently broke P&L. Keep it for the bots (fresh txs) but NOT here.
+//   ⛔ dead/wrong-chain: 0xrpc.io/arc, blastapi, ankr.
+// We rotate on timeout / 429 / 5xx / JSON-error (and a null receipt) so a slow/stale node fails over.
+// A 7s per-try timeout keeps a hung node from blocking the whole call.
 const MAINNET_RPCS = [
-  (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://arc-rpc.publicnode.com',
-  'https://rpc.mainnet.arc.io',
+  (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://rpc.mainnet.arc.io',
+  'https://arc.drpc.org',
+  'https://arc.gateway.tenderly.co',
 ].filter((v, i, a) => v && a.indexOf(v) === i);
 // Lowest common getLogs block-range across our RPCs (arc.io caps at 10k) — chunk to stay under it.
 export const MRPC_LOG_RANGE = 9000;
@@ -614,6 +630,8 @@ async function mrpc(method: string, params: any[], tries = 4): Promise<any> {
       if (r.status === 429 || r.status >= 500) { await sleep(150 * (i + 1) + Math.random() * 200); continue; }
       const j = await r.json();
       if (j.error) { await sleep(120 * (i + 1)); continue; } // method/range error on this node → try the next
+      // A node that pruned a receipt returns null — don't accept it as the answer, try another node.
+      if (j.result == null && method === 'eth_getTransactionReceipt' && i < tries - 1) { await sleep(120 * (i + 1)); continue; }
       return j.result;
     } catch { await sleep(150 * (i + 1)); }
   }
@@ -986,7 +1004,7 @@ export async function connectWallet(): Promise<string | null> {
         chainId: hexId, chainName: CHAIN.name,
         nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
         // Official Arc RPCs only (PublicNode/Allnodes + Circle's rpc.mainnet.arc.io) + the official explorer.
-        rpcUrls: NET === 'mainnet' ? ['https://arc-rpc.publicnode.com', 'https://rpc.mainnet.arc.io'] : [CHAIN.rpc],
+        rpcUrls: NET === 'mainnet' ? ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org'] : [CHAIN.rpc],
         blockExplorerUrls: NET === 'mainnet' ? ['https://explorer.arc.io'] : [CHAIN.scan],
       }] });
     }

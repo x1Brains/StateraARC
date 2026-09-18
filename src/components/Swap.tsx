@@ -45,7 +45,7 @@ async function ensureChain(chainId: number): Promise<boolean> {
         await eth().request({ method: 'wallet_addEthereumChain', params: [{
           chainId: hexId, chainName: 'Arc',
           nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-          rpcUrls: ['https://arc-rpc.publicnode.com', 'https://rpc.mainnet.arc.io'], blockExplorerUrls: ['https://explorer.arc.io'],
+          rpcUrls: ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org'], blockExplorerUrls: ['https://explorer.arc.io'],
         }] });
         return true;
       } catch { return false; }
