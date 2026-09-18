@@ -247,17 +247,19 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
   .table-scroll .table.wide { min-width: 0; }
   .table.wide .trow.head.sc { display: none; }
   .trow.tok.sc {
-    grid-template-columns: 30px 1.5fr 1fr 1fr;
-    grid-template-areas: "logo name price chg" "vol mc liq hld" "spk spk spk spk";
-    gap: 5px 8px;
-    padding: 9px 12px;
+    grid-template-columns: 34px 1.3fr 1fr 1fr;
+    grid-template-areas: "logo name price chg" "logo vol mc liq" "logo hld spk spk";
+    gap: 6px 8px;
+    padding: 10px 12px;
     border-radius: 0;
     margin: 0;
     border-bottom: 1px solid var(--line-soft);
     align-items: center;
   }
+  .trow.tok.sc > * { min-width: 0; }               /* let cells shrink so nothing bleeds */
+  .trow.tok.sc .num { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .trow.tok.sc .rank { display: none; }
-  .trow.tok.sc .tlogo, .trow.tok.sc .tmono { grid-area: logo; width: 30px; height: 30px; }
+  .trow.tok.sc .tlogo, .trow.tok.sc .tmono { grid-area: logo; width: 30px; height: 30px; align-self: start; }
   .trow.tok.sc .sc-name { grid-area: name; overflow: hidden; }
   .trow.tok.sc .sc-name .tname { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .trow.tok.sc .sc-name .tsym { font-size: 9.5px; }
