@@ -26,6 +26,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sendTok, setSendTok] = useState<SendToken | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [showSpam, setShowSpam] = useState(false);
   const isOwnWallet = !!wallet && !!addr && wallet.toLowerCase() === addr.toLowerCase();
   // Price lookup by token address (board prices + live mainnet pool prices).
   const priceMap = useMemo(() => {
@@ -36,6 +37,38 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   }, [tokens, livePx]);
   // Market cap lookup (for "MC when you bought" vs "MC now").
   const mcapMap = useMemo(() => new Map(tokens.map((t) => [t.address.toLowerCase(), t.mcap])), [tokens]);
+  // RadarDEX screener token by address — its logos + names are richer than the explorer's, so we
+  // enrich each holding from it.
+  const radarByAddr = useMemo(() => new Map(tokens.map((t) => [t.address.toLowerCase(), t])), [tokens]);
+  // The REAL address for each ticker = the most-liquid RadarDEX token with that symbol. Wallets get
+  // spammed with counterfeit airdrops (fake CRCL/ARGUS/TOLLY at other addresses); anything that carries
+  // a known ticker at a NON-canonical address and has no price is a counterfeit we hide by default.
+  const realAddrBySymbol = useMemo(() => {
+    const best = new Map<string, { addr: string; score: number }>();
+    for (const t of tokens) {
+      const s = (t.symbol || '').toUpperCase(); if (!s) continue;
+      const score = (t.liq ?? 0) + (t.mcap ?? 0) + (t.price != null ? 1 : 0);
+      const cur = best.get(s);
+      if (!cur || score > cur.score) best.set(s, { addr: t.address.toLowerCase(), score });
+    }
+    return best;
+  }, [tokens]);
+  // Balance formatter: never collapse a real sub-1 holding to "0".
+  const balFmt = (n: number) => (n === 0 ? '0' : n < 0.0001 ? n.toExponential(2) : n < 1 ? n.toFixed(4).replace(/0+$/, '') : compact(n));
+  // In-wallet ticker stats — airdrop spam mints many copies of the same symbol (fake CRCL/ARGUS/…),
+  // so a duplicated, unpriced ticker is the most reliable counterfeit signal (doesn't depend on the
+  // screener's addresses being exact).
+  const symStats = useMemo(() => {
+    const m = new Map<string, { count: number; maxBal: number; anyPriced: boolean }>();
+    for (const h of holdings) {
+      const s = (h.symbol || '').toUpperCase();
+      const priced = priceMap.get(h.address.toLowerCase()) != null;
+      const cur = m.get(s) || { count: 0, maxBal: 0, anyPriced: false };
+      cur.count++; cur.maxBal = Math.max(cur.maxBal, h.balance); cur.anyPriced = cur.anyPriced || priced;
+      m.set(s, cur);
+    }
+    return m;
+  }, [holdings, priceMap]);
 
   // When a wallet connects, track it automatically.
   useEffect(() => { if (wallet) setAddr(wallet); }, [wallet]);
@@ -111,8 +144,20 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   const rows = useMemo(() => {
     return holdings
       .map((h) => {
+        const rd = radarByAddr.get(h.address);
+        const iconUrl = h.iconUrl || rd?.iconUrl || null; // prefer the screener's logo when the explorer has none
+        const name = rd?.name || h.name;
         const p = priceMap.get(h.address) ?? null;
         const value = p != null ? h.balance * p : null;
+        // Counterfeit spam (only ever flags UNPRICED tokens — a token with real value is never hidden):
+        //  • duplicate: another held token shares this ticker and is priced or bigger → this is an airdrop copy
+        //  • collision: a known screener token owns this ticker at a different address
+        const sym = (h.symbol || '').toUpperCase();
+        const st = symStats.get(sym);
+        const dupSpam = !!st && st.count > 1 && p == null && (st.anyPriced || h.balance < st.maxBal);
+        const real = realAddrBySymbol.get(sym);
+        const collideSpam = !!real && real.addr !== h.address.toLowerCase() && p == null;
+        const counterfeit = dupSpam || collideSpam;
         const pl = pnl?.[h.address.toLowerCase()] ?? null;
         const avgCost = pl?.avgCost ?? null;
         // Unrealized = (current price − avg cost) × current balance; total P&L adds realized.
@@ -124,12 +169,17 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         const mcapNow = mcapMap.get(h.address) ?? null;
         // MC when you bought ≈ (avg buy price / current price) × current market cap.
         const mcapAtBuy = avgCost != null && p && p > 0 && mcapNow != null ? (avgCost / p) * mcapNow : null;
-        return { ...h, price: p, value, avgCost, totalPnl, pnlPct, unrealized, realized,
+        return { ...h, iconUrl, name, counterfeit, price: p, value, avgCost, totalPnl, pnlPct, unrealized, realized,
           invested: pl?.invested ?? null, qtyBought: pl?.qtyBought ?? null, qtySold: pl?.qtySold ?? null,
           costOfBag, mcapNow, mcapAtBuy };
       })
-      .sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
-  }, [holdings, priceMap, pnl]);
+      // Priced tokens first (by value), then real-but-unpriced by balance so the big holdings lead.
+      .sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || b.balance - a.balance);
+  }, [holdings, priceMap, pnl, radarByAddr, realAddrBySymbol, symStats]);
+
+  // Split real holdings from counterfeit airdrops (hidden by default).
+  const spamCount = useMemo(() => rows.filter((r) => r.counterfeit).length, [rows]);
+  const shownRows = useMemo(() => (showSpam ? rows : rows.filter((r) => !r.counterfeit)), [rows, showSpam]);
 
   const total = rows.reduce((s, r) => s + (r.value ?? 0), 0);
   const totalPnlSum = rows.reduce((s, r) => s + (r.totalPnl ?? 0), 0);
@@ -160,18 +210,25 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
             {mainnet && (
               <div className="stat"><div className={`v ${hasPnl ? (totalPnlSum >= 0 ? 'chg up' : 'chg down') : ''}`}>{hasPnl ? `${totalPnlSum >= 0 ? '+' : '−'}${usd(Math.abs(totalPnlSum))}` : pnlLoading ? '…' : '—'}</div><div className="l">Total P&amp;L</div></div>
             )}
-            <div className="stat"><div className="v">{rows.length}</div><div className="l">Tokens Held</div></div>
+            <div className="stat"><div className="v">{shownRows.length}</div><div className="l">Tokens Held</div></div>
             <div className="stat"><div className="v">{short(addr)}</div><div className="l">Address</div></div>
           </div>
 
-          {!!rows.length && (
+          {spamCount > 0 && (
+            <div className="msg" style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span>{spamCount} counterfeit / airdrop {spamCount === 1 ? 'token' : 'tokens'} {showSpam ? 'shown' : 'hidden'} (fake copies of real tickers).</span>
+              <button className="btn ghost" style={{ padding: '4px 10px' }} onClick={() => setShowSpam((s) => !s)}>{showSpam ? 'Hide' : 'Show'}</button>
+            </div>
+          )}
+
+          {!!shownRows.length && (
             <div className="table">
               <div className="trow head pf-row">
                 <span /><span>Token</span><span className="num hidesm">Balance</span>
                 <span className="num hidesm">Price</span><span className="num">Value</span>
                 <span className="num">P&amp;L</span>
               </div>
-              {rows.map((h) => {
+              {shownRows.map((h) => {
                 const openable = !!onOpenToken && h.address.toLowerCase() !== USDC_ADDR;
                 const isOpen = expanded === h.address;
                 const fmtMc = (n: number | null) => (n == null ? '—' : n >= 1e6 ? '$' + (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? '$' + (n / 1e3).toFixed(1) + 'K' : usd(n));
@@ -196,7 +253,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
                       )}
                     </span>
                   </span>
-                  <span className="num hidesm">{compact(h.balance)}</span>
+                  <span className="num hidesm">{balFmt(h.balance)}</span>
                   <span className="num hidesm">{tprice(h.price)}</span>
                   <span className="num">{h.value == null ? '—' : usd(h.value)}</span>
                   <span className={`num pf-pnl ${h.totalPnl == null ? '' : h.totalPnl >= 0 ? 'up' : 'down'}`}>
