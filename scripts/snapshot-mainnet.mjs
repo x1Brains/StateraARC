@@ -117,20 +117,24 @@ async function poolActivity(token, pool) {
       try {
         const d = l.data.slice(2);
         const w = (i) => hexToInt('0x' + d.slice(i * 64, i * 64 + 64));
-        let usdcAbs, tokAbs;
-        if ((l.topics[0] || '').toLowerCase() === SWAP_V2) {
-          // V2: amount0In, amount1In, amount0Out, amount1Out (all unsigned)
+        const isV2 = (l.topics[0] || '').toLowerCase() === SWAP_V2;
+        let usdcAbs, price = null;
+        if (isV2) {
+          // V2: amount0In/1In/0Out/1Out (unsigned). Price = execution price (no sqrtPrice available).
           const a0 = w(0) + w(2), a1 = w(1) + w(3);
-          usdcAbs = usdcIsT0 ? a0 : a1; tokAbs = usdcIsT0 ? a1 : a0;
+          usdcAbs = usdcIsT0 ? a0 : a1; const tokAbs = usdcIsT0 ? a1 : a0;
+          if (tokAbs > 0n) price = (Number(usdcAbs) / 1e6) / (Number(tokAbs) / 1e18);
         } else {
-          // V3: amount0, amount1 (signed int256)
+          // V3: volume from signed amounts; PRICE from sqrtPriceX96 (word 2) = accurate pool mid-price
+          // (swap amounts include slippage → 2×+ off on thin pools like CRCL).
           const s0 = w(0) >= (1n << 255n) ? w(0) - (1n << 256n) : w(0);
           const s1 = w(1) >= (1n << 255n) ? w(1) - (1n << 256n) : w(1);
-          const ur = usdcIsT0 ? s0 : s1, tr = usdcIsT0 ? s1 : s0;
-          usdcAbs = ur < 0n ? -ur : ur; tokAbs = tr < 0n ? -tr : tr;
+          const ur = usdcIsT0 ? s0 : s1; usdcAbs = ur < 0n ? -ur : ur;
+          const sq = w(2);
+          if (sq > 0n) { const ratio = (Number(sq) / 2 ** 96) ** 2; if (isFinite(ratio) && ratio > 0) price = (usdcIsT0 ? 1 / ratio : ratio) * 1e12; }
         }
         vol += Number(usdcAbs) / 1e6; txns++;
-        if (tokAbs > 0n) pts.push({ b: parseInt(l.blockNumber, 16), price: (Number(usdcAbs) / 1e6) / (Number(tokAbs) / 1e18) });
+        if (price && isFinite(price) && price > 0) pts.push({ b: parseInt(l.blockNumber, 16), price });
       } catch { /* skip */ }
     }
   }

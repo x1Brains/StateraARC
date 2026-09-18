@@ -926,9 +926,22 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   for (const logs of results) {
     if (!Array.isArray(logs)) continue;
     for (const l of logs) {
-      const dec = decodeSwap(l.data, l.topics?.[0], usdcIsToken0); // handles V3 + V2
-      if (!dec || dec.tok <= 0n) continue;
-      const price = (Number(dec.usdc) / Number(dec.tok)) * dexp; // usdc(6-dec) / token(decimals) via dexp
+      const topic = (l.topics?.[0] || '').toLowerCase();
+      let price: number;
+      if (topic === SWAP_V2_TOPIC) {
+        // V2 has no sqrtPrice — use the swap's amounts (V2 pools are the constant-product AMM).
+        const dec = decodeSwap(l.data, topic, usdcIsToken0);
+        if (!dec || dec.tok <= 0n) continue;
+        price = (Number(dec.usdc) / Number(dec.tok)) * dexp;
+      } else {
+        // V3: read sqrtPriceX96 (3rd data word) = the POOL mid-price after the swap. This is accurate
+        // even on thin pools; the swap amounts include slippage and can be 2×+ off (e.g. CRCL).
+        const sqrtP = BigInt('0x' + l.data.slice(2).slice(128, 192));
+        if (sqrtP <= 0n) continue;
+        const ratio = (Number(sqrtP) / 2 ** 96) ** 2; // token1_raw / token0_raw
+        if (!isFinite(ratio) || ratio <= 0) continue;
+        price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp;
+      }
       if (!isFinite(price) || price <= 0) continue;
       swaps.push({ ts: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime), price });
     }
