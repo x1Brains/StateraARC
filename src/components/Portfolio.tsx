@@ -165,7 +165,10 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         const realized = pl?.realized ?? 0;
         const totalPnl = avgCost != null ? (realized + (unrealized ?? 0)) : null;
         const costOfBag = avgCost != null ? avgCost * h.balance : null; // cost basis of what's held now
-        const pnlPct = costOfBag && totalPnl != null && costOfBag > 0 ? (totalPnl / costOfBag) * 100 : null;
+        // Only show a % when there's a meaningful cost basis (>= $1). Airdrops / dust have a near-zero
+        // cost, which makes the percentage explode (e.g. +1,930,679,167,577%). Clamp for safety too.
+        const pnlPct = costOfBag != null && costOfBag >= 1 && totalPnl != null
+          ? Math.max(-100, Math.min(9999, (totalPnl / costOfBag) * 100)) : null;
         const mcapNow = mcapMap.get(h.address) ?? null;
         // MC when you bought ≈ (avg buy price / current price) × current market cap.
         const mcapAtBuy = avgCost != null && p && p > 0 && mcapNow != null ? (avgCost / p) * mcapNow : null;
