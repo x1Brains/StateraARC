@@ -847,14 +847,14 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
 // small file with price/liq/mcap/holders/change/volume/sparkline for EVERY token, including the deep
 // V3 pools no indexer covers. The browser reads this instead of hammering live (Cloudflare-blockable)
 // APIs, so the screener is complete + correct every load. Falls back to the live merge if it's missing.
-export async function fetchScreenerTokens(): Promise<Token[]> {
+export async function fetchScreenerTokens(): Promise<{ tokens: Token[]; asOf: number | null }> {
   try {
     const url = (import.meta.env.VITE_SNAPSHOT_URL as string) || '/tokens-snapshot.json';
     const r = await fetch(url, { cache: 'default' });
     if (r.ok) {
       const snap = await r.json();
       if (snap && Array.isArray(snap.tokens) && snap.tokens.length) {
-        return snap.tokens.map((t: any): Token => ({
+        const tokens = snap.tokens.map((t: any): Token => ({
           address: t.address, name: t.name, symbol: t.symbol,
           holders: t.holders ?? null, totalSupply: null, type: 'ERC-20',
           iconUrl: normIcon(t.iconUrl) ?? null, launchpad: t.launchpad ?? null,
@@ -864,10 +864,12 @@ export async function fetchScreenerTokens(): Promise<Token[]> {
           txns24: rnum(t.txns24), spark: Array.isArray(t.spark) ? t.spark.filter((n: any) => typeof n === 'number' && isFinite(n)) : null,
           createdAt: rnum(t.createdAt),
         }));
+        const asOf = snap.generatedAt ? Date.parse(snap.generatedAt) : null;
+        return { tokens, asOf: Number.isFinite(asOf) ? asOf : null };
       }
     }
   } catch { /* fall through to the live merge */ }
-  return fetchMainnetTokens();
+  return { tokens: await fetchMainnetTokens(), asOf: null };
 }
 
 // Top holders of a mainnet token (arc-scan indexer). share is a fraction (0.0512 = 5.12%).

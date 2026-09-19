@@ -1196,3 +1196,5 @@ footer .flink:hover { text-decoration: underline; }
 .dupe-toggle { background: transparent; border: 1px solid var(--line); color: var(--gray-2); border-radius: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .dupe-toggle:hover { color: var(--white); border-color: var(--gray); }
 .dupe-toggle.on { color: var(--fire-solid, #ff7a1e); border-color: var(--fire-solid, #ff7a1e); }
+
+.asof { font-size: 11px; color: var(--gray); white-space: nowrap; align-self: center; }

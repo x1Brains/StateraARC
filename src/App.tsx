@@ -61,6 +61,14 @@ function enrichPoolVolumes(list: Token[], apply: (addr: string, v: number) => vo
   }
 }
 
+// "updated Xm ago" from a snapshot timestamp (ms).
+function agoStr(ms: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
+}
+
 // Screener cell formatters
 const chgCls = (v: number | null | undefined) => (v == null ? '' : v >= 0 ? 'up' : 'down');
 const chgFmt = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(Math.abs(v) >= 100 ? 0 : 1)}%`);
@@ -89,6 +97,7 @@ export default function App() {
   const [swapPreload, setSwapPreload] = useState<{ address: string; symbol: string; name?: string; price?: number | null } | null>(null);
   const tradeToken = (t: { address: string; symbol: string; name?: string; price?: number | null }) => { setSwapPreload({ address: t.address, symbol: t.symbol, name: t.name, price: t.price }); setPage('swap'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const [tokens, setTokens] = useState<Token[]>([]);
+  const [asOf, setAsOf] = useState<number | null>(null); // snapshot freshness
   const [market, setMarket] = useState<MarketPx[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -136,8 +145,8 @@ export default function App() {
     setErr(null);
     fetchMarket().then(setMarket).catch(() => {});
     try {
-      const list = await fetchScreenerTokens();
-      setTokens(list);
+      const { tokens: list, asOf: ts } = await fetchScreenerTokens();
+      setTokens(list); setAsOf(ts);
       // Safety net: if the snapshot ever lacks volume for a deep pool, fill it on-chain (usually a no-op
       // now that the snapshot bakes it).
       enrichPoolVolumes(list, (addr, v) => setTokens((prev) => prev.map((x) => (x.address === addr ? { ...x, volume24h: v } : x))));
@@ -407,6 +416,7 @@ export default function App() {
                   {hideDupes ? `Show ${dupCount} duplicate tickers` : 'Hide duplicate tickers'}
                 </button>
               )}
+              {asOf && <span className="asof" title="Data is baked server-side every ~30 min">Updated {agoStr(asOf)}</span>}
             </div>
 
             {err && <div className="msg err">Error: {err}</div>}
