@@ -180,8 +180,12 @@ async function poolStats(token, pool) {
     if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; if (isFinite(ratio) && ratio > 0) price = (usdcIsT0 ? 1 / ratio : ratio) * 1e12; }
   }
   // Uniswap V2 (no slot0): the reserve ratio IS the price.
-  if (price == null) { const toks = bHex && bHex !== '0x' ? Number(hexToInt(bHex)) / 1e18 : 0; price = toks > 0 ? usdc / toks : null; }
-  return { price, liq: usdc * 2, mcap: price != null && supply ? price * supply : null };
+  const toks = bHex && bHex !== '0x' ? Number(hexToInt(bHex)) / 1e18 : 0;
+  if (price == null) { price = toks > 0 ? usdc / toks : null; }
+  // TVL = both sides of the pool = USDC held + token held × price (usdc×2 assumed a balanced V2 pool and
+  // understated V3 concentrated liquidity, e.g. CRCL $77k vs the real ~$129k).
+  const liq = price != null ? usdc + toks * price : usdc * 2;
+  return { price, liq, mcap: price != null && supply ? price * supply : null };
 }
 
 (async () => {
