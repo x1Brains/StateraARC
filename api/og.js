@@ -72,7 +72,7 @@ export default async function handler(req, res) {
     const sym = esc(t?.symbol || 'TOKEN');
     const name = esc((t?.name || 'Arc token').slice(0, 42));
     const ch = t?.change24h;
-    const chStr = ch == null ? '' : `${ch >= 0 ? '▲ +' : '▼ '}${Math.abs(ch).toFixed(1)}% 24h`;
+    const chStr = ch == null ? '' : `${ch >= 0 ? '+' : '-'}${Math.abs(ch).toFixed(1)}% 24h`;
     const chColor = ch == null ? '#8f8478' : ch >= 0 ? '#4ecb71' : '#ff5a5a';
     const [logo] = await Promise.all([logoDataUri(t, addr), ensureWasm()]);
     const symX = logo ? 244 : 64;
