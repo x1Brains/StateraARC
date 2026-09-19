@@ -14,7 +14,7 @@ import { IconArrowRight, IconArrowLeft } from './components/icons';
 
 type Page = 'home' | 'screener' | 'portfolio' | 'swap' | 'token';
 type Filter = 'all' | 'new' | 'eco';
-type SortKey = 'liq' | 'mcap' | 'holders' | 'price' | 'name';
+type SortKey = 'liq' | 'mcap' | 'holders' | 'price' | 'name' | 'volume' | 'change24h' | 'change1h' | 'age';
 
 // ── deep-linkable URLs (clean path routing, e.g. stateraarc.com/swap). Vercel serves index.html for
 //    any non-file/non-/api path (SPA fallback rewrite in vercel.json), so refresh/direct-load work. ──
@@ -95,6 +95,18 @@ export default function App() {
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('liq');
+  const [dir, setDir] = useState<'desc' | 'asc'>('desc');
+  // Click a column header to sort by it; click again to flip direction (name defaults A→Z, numbers high→low).
+  const clickSort = (k: SortKey) => {
+    if (sort === k) setDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    else { setSort(k); setDir(k === 'name' ? 'asc' : 'desc'); }
+  };
+  // Sortable column header (click to sort, arrow shows active key + direction).
+  const th = (k: SortKey, label: string) => (
+    <span className={`num sortable${sort === k ? ' hot' : ''}`} onClick={() => clickSort(k)}>
+      {label}{sort === k ? (dir === 'desc' ? ' ▾' : ' ▴') : ''}
+    </span>
+  );
   const [pageNum, setPageNum] = useState(1);
   const [perPage, setPerPage] = useState(() => (typeof window !== 'undefined' && window.innerWidth <= 640 ? 50 : 100));
   const [selected, setSelected] = useState<string | null>(() => parsePath().selected);
@@ -138,12 +150,22 @@ export default function App() {
       const s = q.toLowerCase();
       r = r.filter((t) => t.name.toLowerCase().includes(s) || t.symbol.toLowerCase().includes(s) || t.address.includes(s));
     }
+    // Value a token exposes for the active sort key (null = "no data", always sorts last).
+    const val = (t: Token): number | null => (
+      sort === 'volume' ? t.volume24h
+      : sort === 'change24h' ? t.change24h
+      : sort === 'change1h' ? t.change1h
+      : sort === 'age' ? t.createdAt
+      : (t as any)[sort]) ?? null; // liq | mcap | holders | price
     return [...r].sort((a, b) => {
-      if (sort === 'name') return a.name.localeCompare(b.name);
-      const k = sort as 'liq' | 'mcap' | 'holders' | 'price';
-      return (b[k] ?? -1) - (a[k] ?? -1);
+      if (sort === 'name') { const c = a.name.localeCompare(b.name); return dir === 'asc' ? c : -c; }
+      const av = val(a), bv = val(b);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;   // nulls last, regardless of direction
+      if (bv == null) return -1;
+      return dir === 'desc' ? bv - av : av - bv;
     });
-  }, [tokens, filter, q, sort]);
+  }, [tokens, filter, q, sort, dir]);
 
   useEffect(() => { setPageNum(1); }, [filter, q, sort, perPage]);
   const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
@@ -325,11 +347,15 @@ export default function App() {
               <input className="search" placeholder="Search name, symbol, or address" value={q} onChange={(e) => setQ(e.target.value)} />
               <div className="sortby">
                 <span className="sortby-l">Sort</span>
-                <Dropdown value={sort} onChange={setSort} align="right" options={[
+                <Dropdown value={sort} onChange={(v) => { setSort(v); setDir(v === 'name' ? 'asc' : 'desc'); }} align="right" options={[
                   { value: 'liq', label: 'Liquidity' },
+                  { value: 'volume', label: 'Volume 24h' },
+                  { value: 'change24h', label: '24h Change' },
+                  { value: 'change1h', label: '1h Change' },
                   { value: 'mcap', label: 'Market Cap' },
                   { value: 'holders', label: 'Holders' },
                   { value: 'price', label: 'Price' },
+                  { value: 'age', label: 'Newest' },
                   { value: 'name', label: 'Name' },
                 ]} />
               </div>
@@ -343,14 +369,14 @@ export default function App() {
               <div className="table wide">
                 <div className="trow head sc">
                   <span>#</span><span /><span>Token</span>
-                  <span className="num">Price</span>
-                  <span className="num">1h</span>
-                  <span className="num">24h</span>
-                  <span className="num">Vol 24h</span>
-                  <span className={`num${sort === 'mcap' ? ' hot' : ''}`}>Market Cap</span>
-                  <span className={`num${sort === 'liq' ? ' hot' : ''}`}>Liquidity</span>
-                  <span className="num">Holders</span>
-                  <span className="num">Age</span>
+                  {th('price', 'Price')}
+                  {th('change1h', '1h')}
+                  {th('change24h', '24h')}
+                  {th('volume', 'Vol 24h')}
+                  {th('mcap', 'Market Cap')}
+                  {th('liq', 'Liquidity')}
+                  {th('holders', 'Holders')}
+                  {th('age', 'Age')}
                   <span className="num">Last 24h</span>
                   <span>Tags</span>
                 </div>

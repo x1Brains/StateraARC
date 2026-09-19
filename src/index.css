@@ -1186,3 +1186,6 @@ footer .flink:hover { text-decoration: underline; }
 .tok-city-video .tcv-cap { display: block; margin-top: 8px; font-size: 12px; color: var(--gray); letter-spacing: .3px; }
 
 .chart-chg-l { font-size: 9px; color: var(--gray); font-weight: 400; text-transform: uppercase; margin-left: 1px; letter-spacing: .5px; }
+
+.trow.head .sortable { cursor: pointer; user-select: none; transition: color .1s; }
+.trow.head .sortable:hover { color: var(--white); }
