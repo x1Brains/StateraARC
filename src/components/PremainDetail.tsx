@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, type TokenTransfer, type RadarTokenDetail, type RadarHolder } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy } from './icons';
 
@@ -28,7 +28,9 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [holders, setHolders] = useState<RadarHolder[] | null>(null);
   const [holderCount, setHolderCount] = useState<number | null>(null);
   const [txs, setTxs] = useState<TokenTransfer[] | null>(null);
+  const [swaps, setSwaps] = useState<RadarSwap[] | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders'>('txns');
+  const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
 
   // Warp (chain 5042) price/mcap + it backs the candlestick chart below.
   useEffect(() => {
@@ -40,12 +42,14 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // DEX-style detail: RadarDEX token stats (buys/sells/burned/change) + rich holders (with pool/dev
   // flags + accurate %), plus recent on-chain transfers (mainnet RPC).
   useEffect(() => {
-    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null);
+    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null);
     (async () => {
       const detail = await fetchRadarTokenDetail(address).catch(() => null);
       if (alive) setRd(detail);
       const dec = detail?.decimals ?? 18;
       fetchRadarHolders(address, dec, 100).then((h) => { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
+      // Real DEX trades (indexed swaps) are the primary Transactions feed; raw transfers are the fallback.
+      fetchRadarSwaps(address, dec, 50).then((s) => { if (alive) setSwaps(s); }).catch(() => { if (alive) setSwaps([]); });
     })();
     fetchTokenTransfers(address, 18, 40).then((t) => { if (alive) setTxs(t); }).catch(() => { if (alive) setTxs([]); });
     return () => { alive = false; };
@@ -105,6 +109,41 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const buys = rd?.buys24 ?? null, sells = rd?.sells24 ?? null;
   const buyPct = buys != null && sells != null && buys + sells > 0 ? (buys / (buys + sells)) * 100 : null;
   const top10 = holders && holders.length ? holders.slice(0, 10).reduce((s, h) => s + (h.percent ?? 0), 0) : null;
+  const lpCount = holders ? holders.filter((h) => h.isPool).length : null;
+
+  // ── Liquidity depth + pool age + FDV (real numbers straight from RadarDEX) ──────────────────────
+  const tvl = rd?.liquidityUsdc ?? liq ?? null;
+  const fdv = rd?.fdv ?? (px != null && (rd?.totalSupply ?? supplyNum) ? px * (rd?.totalSupply ?? supplyNum)! : null);
+  const valuation = mc ?? fdv ?? null;
+  const depthPct = tvl != null && valuation ? (tvl / valuation) * 100 : null; // pool depth as % of valuation
+  const agoStr = (sec: number) => {
+    const s = Math.max(0, Math.floor(Date.now() / 1000) - sec);
+    if (s < 60) return `${s}s`; if (s < 3600) return `${Math.floor(s / 60)}m`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h`; return `${Math.floor(s / 86400)}d`;
+  };
+  const ageStr = rd?.ageSec != null ? (rd.ageSec >= 86400 ? `${Math.floor(rd.ageSec / 86400)}d` : rd.ageSec >= 3600 ? `${Math.floor(rd.ageSec / 3600)}h` : `${Math.floor(rd.ageSec / 60)}m`) : null;
+
+  // ── Pool health: a transparent 0–100 score from on-chain signals (NOT a safety guarantee) ────────
+  // Mirrors a DEX screener's health read. Each signal is a real, verifiable measurement; weights sum to 100.
+  const sig = {
+    depth: depthPct == null ? null : Math.max(0, Math.min(100, Math.round((Math.min(depthPct, 10) / 10) * 100))),          // ≥10% of valuation in pool = full marks
+    dist: top10 == null ? null : Math.max(0, Math.min(100, Math.round(100 - Math.max(0, top10 - 20) * (100 / 60)))),        // ≤20% top-10 = full; 80%+ = 0
+    quality: rd?.traders24 == null || rd?.txns24 == null || rd.txns24 === 0 ? null : Math.round(Math.min(100, (rd.traders24 / rd.txns24) * 100)), // unique-trader/txn ratio
+    age: rd?.ageSec == null ? null : Math.round(Math.min(100, (rd.ageSec / (30 * 86400)) * 100)),                            // 30d+ = full marks
+    vol: chg == null ? null : Math.round(Math.max(0, 100 - Math.min(100, Math.abs(chg)))),                                   // calmer 24h = healthier
+  };
+  const HW = { depth: 35, dist: 20, quality: 20, age: 15, vol: 10 };
+  const healthParts = (Object.keys(HW) as (keyof typeof HW)[]).map((k) => ({ k, v: sig[k], w: HW[k] })).filter((p) => p.v != null) as { k: keyof typeof HW; v: number; w: number }[];
+  const healthScore = healthParts.length ? Math.round(healthParts.reduce((s, p) => s + p.v * p.w, 0) / healthParts.reduce((s, p) => s + p.w, 0)) : null;
+  const redFlags: string[] = [];
+  if (depthPct != null && depthPct < 3) redFlags.push('Pool depth under 3% of valuation');
+  if (lpCount != null && lpCount <= 1) redFlags.push('Single LP — concentrated liquidity control');
+  if (top10 != null && top10 > 80) redFlags.push(`Top 10 wallets hold ${top10.toFixed(0)}%`);
+  if (rd?.mintable) redFlags.push('Supply is mintable');
+  const healthLabel = healthScore == null ? '' : healthScore >= 70 ? 'Healthy' : healthScore >= 40 ? 'Caution' : 'High risk';
+  const healthClass = healthScore == null ? '' : healthScore >= 70 ? 'good' : healthScore >= 40 ? 'mid' : 'bad';
+  const SIG_LABEL: Record<keyof typeof HW, string> = { depth: 'Liquidity Depth', dist: 'Holder Distribution', quality: 'Trading Quality', age: 'Pool Age', vol: 'Stability' };
+
   const socials = [
     { k: 'Website', u: rd?.website }, { k: 'Twitter', u: rd?.twitter },
     { k: 'Telegram', u: rd?.telegram }, { k: 'Discord', u: rd?.discord },
@@ -125,12 +164,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
     <div className="wrap"><section className="section">
       <button className="back" onClick={onBack}><IconArrowLeft className="i" /> Back to board</button>
 
-      <div className="prepublic-banner" style={{ marginTop: 14 }}>
-        <span className="pp-dot" />
-        <div><b>Arc Mainnet · chain 5042</b> — unofficial data from independent indexers (arc-scan.org · Warp), <b>not Circle</b>. Holder/supply figures are indexer-computed and unverified. Impersonation is common on this chain — trust the <b>exact address</b>, not the symbol.</div>
-      </div>
-
-      <div className="td-head">
+      <div className="td-head" style={{ marginTop: 14 }}>
         <TokenLogo symbol={sym} seed={address} url={warp?.image ?? seed?.iconUrl ?? null} />
         <div className="td-id">
           <div className="td-name">{name || sym}
@@ -187,10 +221,55 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
           </div>
           <div className="ta-grid">
             <div className="ta-cell"><div className="ta-v">{rd.txns24 != null ? rd.txns24.toLocaleString() : '—'}</div><div className="ta-l">Txns</div></div>
-            <div className="ta-cell"><div className="ta-v">{rd.traders24 != null ? rd.traders24.toLocaleString() : '—'}</div><div className="ta-l">Traders</div></div>
+            <div className="ta-cell"><div className="ta-v">{rd.traders24 != null ? rd.traders24.toLocaleString() : '—'}</div><div className="ta-l">Makers</div></div>
             <div className="ta-cell"><div className="ta-v">{rd.burnedPct != null ? rd.burnedPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Burned</div></div>
             <div className="ta-cell"><div className="ta-v">{top10 != null ? top10.toFixed(1) + '%' : '—'}</div><div className="ta-l">Top 10</div></div>
           </div>
+        </div>
+      )}
+
+      {/* Liquidity & Pool — real reserves, depth, age, FDV (RadarDEX). */}
+      {rd && (tvl != null || fdv != null || rd.ageSec != null) && (
+        <div className="panel side-card" style={{ marginTop: 12 }}>
+          <h3>Liquidity &amp; Pool</h3>
+          <div className="ta-grid ta-grid-5">
+            <div className="ta-cell"><div className="ta-v">{tvl != null ? usd(tvl) : '—'}</div><div className="ta-l">TVL</div></div>
+            <div className="ta-cell"><div className="ta-v">{depthPct != null ? depthPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Depth / val</div></div>
+            <div className="ta-cell"><div className="ta-v">{fdv != null ? usd(fdv) : '—'}</div><div className="ta-l">FDV</div></div>
+            <div className="ta-cell"><div className="ta-v">{ageStr ?? '—'}</div><div className="ta-l">Pool age</div></div>
+            <div className="ta-cell"><div className="ta-v">{rd.poolSwaps != null ? compact(rd.poolSwaps) : (rd.poolCount ? rd.poolCount + ' pools' : '—')}</div><div className="ta-l">Swaps</div></div>
+          </div>
+          {(rd.reserveBase != null || rd.reserveQuote != null) && (
+            <div className="lq-res">
+              <span className="lq-r"><b>{rd.reserveBase != null ? compact(rd.reserveBase) : '—'}</b> {sym}</span>
+              <span className="lq-r"><b>{rd.reserveQuote != null ? compact(rd.reserveQuote) : '—'}</b> {rd.quoteSymbol || 'USDC'}</span>
+              {lpCount != null && <span className="lq-r"><b>{lpCount}</b> LP{lpCount === 1 ? '' : 's'}</span>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Pool health — a transparent score from on-chain signals. NOT a safety guarantee. */}
+      {healthScore != null && (
+        <div className="panel side-card" style={{ marginTop: 12 }}>
+          <div className="ph-head">
+            <h3 style={{ margin: 0 }}>Pool Health</h3>
+            <span className={`ph-score ${healthClass}`}>{healthScore}<i>/100</i> · {healthLabel}</span>
+          </div>
+          <div className="ph-sigs">
+            {healthParts.map((p) => (
+              <div className="ph-sig" key={p.k}>
+                <div className="ph-sig-top"><span>{SIG_LABEL[p.k]}</span><span className="ph-sig-w">{p.v}</span></div>
+                <div className="ph-track"><div className={`ph-fill ${p.v >= 70 ? 'good' : p.v >= 40 ? 'mid' : 'bad'}`} style={{ width: `${p.v}%` }} /></div>
+              </div>
+            ))}
+          </div>
+          {!!redFlags.length && (
+            <div className="ph-flags">
+              {redFlags.map((f) => <div className="ph-flag" key={f}><span className="ph-flag-dot" />{f}</div>)}
+            </div>
+          )}
+          <div className="ph-note">Weighted signal from live on-chain data — not a legitimacy or safety certification. DYOR.</div>
         </div>
       )}
 
@@ -222,9 +301,33 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
 
         {tab === 'txns' && (
           <div className="td-tabbody">
-            {txs == null ? <div className="side-note">Loading transactions…</div>
-              : !txs.length ? <div className="side-note">No recent transfers found on-chain.</div>
-              : <div className="txn-table">
+            {swaps && swaps.length ? (() => {
+              const rows = swaps.filter((s) => txFilter === 'all' || s.side === txFilter);
+              return (<>
+                <div className="txf">
+                  {(['all', 'buy', 'sell'] as const).map((f) => (
+                    <button key={f} className={txFilter === f ? 'on' : ''} onClick={() => setTxFilter(f)}>{f === 'all' ? 'All' : f === 'buy' ? 'Buys' : 'Sells'}</button>
+                  ))}
+                </div>
+                <div className="tr-table">
+                  <div className="tr-row tr-head"><span>Age</span><span>Type</span><span className="num">USD</span><span className="num">{sym}</span><span className="num">Price</span><span>Maker</span><span className="num tx">Tx</span></div>
+                  {rows.map((s, i) => (
+                    <div className="tr-row" key={s.tx + i}>
+                      <span className="tr-age">{s.time ? agoStr(s.time) : '—'}</span>
+                      <span className={`tr-side ${s.side}`}>{s.side === 'buy' ? 'Buy' : 'Sell'}</span>
+                      <span className={`num mono tr-usd ${s.side}`}>{s.usd != null ? usd(s.usd) : '—'}</span>
+                      <span className="num mono">{compact(s.amount)}</span>
+                      <span className="num mono tr-px">{s.price != null ? tprice(s.price) : '—'}</span>
+                      <a className="tr-mk mono" href={`https://explorer.arc.io/address/${s.trader}`} target="_blank" rel="noreferrer">{s.trader.slice(0, 6)}…{s.trader.slice(-4)}</a>
+                      <a className="tr-tx num tx" href={`https://explorer.arc.io/tx/${s.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
+                    </div>
+                  ))}
+                </div>
+              </>);
+            })()
+              : swaps == null && txs == null ? <div className="side-note">Loading transactions…</div>
+              // Fallback: no indexed swaps for this pool yet — show raw on-chain transfers instead.
+              : txs && txs.length ? <div className="txn-table">
                   <div className="txn-row txn-head"><span>Type</span><span className="num">Amount</span><span>Maker</span><span className="num tx">Tx</span></div>
                   {txs.map((t, i) => { const k = txKind(t); const mk = txMaker(t); return (
                     <div className="txn-row" key={t.tx + i}>
@@ -233,7 +336,8 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                       <a className="txn-mk mono" href={`https://explorer.arc.io/address/${mk}`} target="_blank" rel="noreferrer">{mk.slice(0, 6)}…{mk.slice(-4)}</a>
                       <a className="txn-tx num tx" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
                     </div> ); })}
-                </div>}
+                </div>
+              : <div className="side-note">No recent trades found on-chain.</div>}
           </div>
         )}
 

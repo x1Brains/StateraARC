@@ -276,20 +276,52 @@ export interface RadarTokenDetail {
   change6h: number | null; change24h: number | null; verified: boolean; deployer: string | null;
   bondingProgress: number | null; fdv: number | null; decimals: number; bestPool: string | null;
   website: string | null; twitter: string | null; telegram: string | null; discord: string | null;
+  // Extended (for the pool-health / liquidity panels): pulled straight from the RadarDEX payload.
+  ageSec: number | null; liquidityUsdc: number | null; mcap: number | null; totalSupply: number | null;
+  mintable: boolean; poolCount: number; poolSwaps: number | null; quoteSymbol: string | null;
+  reserveBase: number | null; reserveQuote: number | null; volume6h: number | null; volume1h: number | null;
 }
 export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDetail | null> {
   try {
     const t = await radarGet(`/token/${addr.toLowerCase()}`);
     if (!t || !t.address) return null;
+    const pools = Array.isArray(t.pools) ? t.pools : [];
+    const bp = (t.bestPool ? pools.find((p: any) => (p.pool || '').toLowerCase() === String(t.bestPool).toLowerCase()) : null) || pools[0] || null;
+    const dec = t.decimals ?? 18;
+    // Pool reserves for the liquidity-depth panel: base = token side, quote = USDC/BRAINS side.
+    const reserveQuote = bp ? (rnum(bp.liquidityUsdc) ?? (bp._reserveRaw != null ? Number(BigInt(bp._reserveRaw)) / 1e6 : null)) : null;
+    const price = rnum(t.price);
+    const reserveBase = reserveQuote != null && price ? reserveQuote / price : null; // tokens ≈ USDC depth / price
     return {
       burnedPct: rnum(t.burnedPct), buys24: rnum(t.buys24), sells24: rnum(t.sells24), traders24: rnum(t.traders24),
       txns24: rnum(t.txns24), volume24: rnum(t.volume24), change5m: rnum(t.change5m), change1h: rnum(t.change1h),
       change6h: rnum(t.change6h), change24h: rnum(t.change24h), verified: !!t.verified, deployer: t.deployer || null,
-      bondingProgress: rnum(t.bondingProgress), fdv: rnum(t.fdv), decimals: t.decimals ?? 18,
-      bestPool: (t.bestPool || (Array.isArray(t.pools) && t.pools[0]?.pool) || null)?.toLowerCase?.() || null,
+      bondingProgress: rnum(t.bondingProgress), fdv: rnum(t.fdv), decimals: dec,
+      bestPool: (t.bestPool || bp?.pool || null)?.toLowerCase?.() || null,
       website: t.website || null, twitter: t.twitter || null, telegram: t.telegram || null, discord: t.discord || null,
+      ageSec: rnum(t.ageSec), liquidityUsdc: rnum(t.liquidityUsdc) ?? reserveQuote, mcap: rnum(t.mcap),
+      totalSupply: t.totalSupply != null ? (() => { try { return Number(BigInt(t.totalSupply)) / 10 ** dec; } catch { return rnum(t.totalSupply); } })() : null,
+      mintable: !!t.mintable, poolCount: pools.length, poolSwaps: bp ? rnum(bp.swaps) : null,
+      quoteSymbol: t.quoteSymbol || (bp?.quoteToken === '0x3600000000000000000000000000000000000000' ? 'USDC' : null),
+      reserveBase, reserveQuote, volume6h: rnum(t.volume6h), volume1h: rnum(t.volume1h),
     };
   } catch { return null; }
+}
+
+// Real DEX trades for the token (RadarDEX indexes every swap): the Transactions table's live feed.
+// side buy/sell, usd = trade value in USD, amount = token qty, price = execution price, trader = maker.
+export interface RadarSwap { side: 'buy' | 'sell'; usd: number | null; amount: number; price: number | null; trader: string; tx: string; time: number; }
+export async function fetchRadarSwaps(addr: string, decimals = 18, limit = 40): Promise<RadarSwap[]> {
+  try {
+    const j = await radarGet(`/token/${addr.toLowerCase()}/swaps?limit=${limit}`);
+    const arr: any[] = Array.isArray(j.swaps) ? j.swaps : [];
+    return arr.map((s) => ({
+      side: (s.side === 'sell' ? 'sell' : 'buy') as 'buy' | 'sell',
+      usd: rnum(s.usdc), price: rnum(s.price),
+      amount: (() => { const n = Number(s.token); return isFinite(n) ? n / 10 ** decimals : 0; })(),
+      trader: (s.trader || '').toLowerCase(), tx: s.txHash || '', time: Number(s.time) || 0,
+    })).filter((s) => s.tx);
+  } catch { return []; }
 }
 export interface RadarHolder { rank: number; address: string; amount: number; percent: number | null; isPool: boolean; isDeployer: boolean; }
 export async function fetchRadarHolders(addr: string, decimals = 18, limit = 50): Promise<{ holderCount: number | null; holders: RadarHolder[] }> {
