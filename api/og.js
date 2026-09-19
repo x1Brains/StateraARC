@@ -7,7 +7,7 @@ import FONT_B64 from '../lib/ogfont.js';
 
 // Font is base64-embedded (lib/ogfont.js, OUT of /api so it isn't compiled as its own function):
 // a lambda fetching its OWN public/ asset returned blank text, and public/ isn't in the lambda fs.
-const OG_VER = 'v3-embed';
+const OG_VER = 'v4-family';
 const FONT = Buffer.from(FONT_B64, 'base64');
 
 const fmtUsd = (n) => {
@@ -48,8 +48,8 @@ export default async function handler(req, res) {
     if (url.searchParams.get('debug')) {
       let selftest = 'skip';
       try {
-        const t0 = new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="60"><text x="4" y="44" font-family="S" font-size="40" fill="#fff">Ag9</text></svg>',
-          { font: { fontBuffers: [FONT], defaultFontFamily: 'S', loadSystemFonts: false }, fitTo: { mode: 'width', value: 200 } });
+        const t0 = new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="60"><text x="4" y="44" font-family="Open Sans" font-size="40" fill="#fff">Ag9</text></svg>',
+          { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 200 } });
         selftest = 'png:' + t0.render().asPng().length;
       } catch (e) { selftest = 'ERR:' + (e?.message || e); }
       res.setHeader('content-type', 'application/json');
@@ -71,8 +71,8 @@ export default async function handler(req, res) {
     const symX = logo ? 244 : 64;
 
     const stat = (x, label, value) => `
-      <text x="${x}" y="502" font-family="S" font-size="22" fill="#8f8478" letter-spacing="2">${label}</text>
-      <text x="${x}" y="552" font-family="S" font-size="42" fill="#ffffff">${value}</text>`;
+      <text x="${x}" y="502" font-family="Open Sans" font-size="22" fill="#8f8478" letter-spacing="2">${label}</text>
+      <text x="${x}" y="552" font-family="Open Sans" font-size="42" fill="#ffffff">${value}</text>`;
 
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630">
       <defs>
@@ -86,27 +86,27 @@ export default async function handler(req, res) {
       <rect width="1200" height="630" fill="url(#glow)"/>
       <rect x="0" y="0" width="1200" height="6" fill="#ff7a1e"/>
 
-      <text x="64" y="98" font-family="S" font-size="30" fill="#ff7a1e" letter-spacing="6">STATERA · ARC</text>
-      <text x="1136" y="98" text-anchor="end" font-family="S" font-size="26" fill="#8f8478">Arc Mainnet · USDC</text>
+      <text x="64" y="98" font-family="Open Sans" font-size="30" fill="#ff7a1e" letter-spacing="6">STATERA · ARC</text>
+      <text x="1136" y="98" text-anchor="end" font-family="Open Sans" font-size="26" fill="#8f8478">Arc Mainnet · USDC</text>
 
       ${logo ? `<rect x="64" y="150" width="150" height="150" rx="28" fill="#161310"/><image x="64" y="150" width="150" height="150" clip-path="url(#lc)" preserveAspectRatio="xMidYMid slice" xlink:href="${logo}"/>` : ''}
-      <text x="${symX}" y="238" font-family="S" font-size="88" fill="#ffffff">$${sym}</text>
-      <text x="${symX}" y="288" font-family="S" font-size="32" fill="#8f8478">${name}</text>
+      <text x="${symX}" y="238" font-family="Open Sans" font-size="88" fill="#ffffff">$${sym}</text>
+      <text x="${symX}" y="288" font-family="Open Sans" font-size="32" fill="#8f8478">${name}</text>
 
-      <text x="64" y="418" font-family="S" font-size="96" fill="#ffffff">${esc(fmtUsd(t?.price))}</text>
-      ${chStr ? `<text x="1136" y="410" text-anchor="end" font-family="S" font-size="46" fill="${chColor}">${esc(chStr)}</text>` : ''}
+      <text x="64" y="418" font-family="Open Sans" font-size="96" fill="#ffffff">${esc(fmtUsd(t?.price))}</text>
+      ${chStr ? `<text x="1136" y="410" text-anchor="end" font-family="Open Sans" font-size="46" fill="${chColor}">${esc(chStr)}</text>` : ''}
 
       ${stat(64, 'MARKET CAP', esc(fmtUsd(t?.mcap)))}
       ${stat(360, 'LIQUIDITY', esc(fmtUsd(t?.liq)))}
       ${stat(656, 'VOL 24H', esc(fmtUsd(t?.volume24h)))}
       ${stat(952, 'HOLDERS', esc(fmtNum(t?.holders)))}
 
-      <text x="64" y="602" font-family="S" font-size="26" fill="#6a635a">stateraarc.com</text>
-      <text x="1136" y="602" text-anchor="end" font-family="S" font-size="26" fill="#6a635a">Screener · Swap · Portfolio</text>
+      <text x="64" y="602" font-family="Open Sans" font-size="26" fill="#6a635a">stateraarc.com</text>
+      <text x="1136" y="602" text-anchor="end" font-family="Open Sans" font-size="26" fill="#6a635a">Screener · Swap · Portfolio</text>
     </svg>`;
 
     const png = new Resvg(svg, {
-      font: { fontBuffers: [FONT], defaultFontFamily: 'S', loadSystemFonts: false },
+      font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false },
       fitTo: { mode: 'width', value: 1200 },
     }).render().asPng();
 
