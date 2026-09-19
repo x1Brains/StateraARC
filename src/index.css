@@ -1198,3 +1198,7 @@ footer .flink:hover { text-decoration: underline; }
 .dupe-toggle.on { color: var(--fire-solid, #ff7a1e); border-color: var(--fire-solid, #ff7a1e); }
 
 .asof { font-size: 11px; color: var(--gray); white-space: nowrap; align-self: center; }
+
+.asof.live { color: #4ecb71; display: inline-flex; align-items: center; gap: 5px; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ecb71; box-shadow: 0 0 0 0 rgba(78,203,113,.6); animation: livePulse 1.8s infinite; }
+@keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(78,203,113,.55); } 70% { box-shadow: 0 0 0 6px rgba(78,203,113,0); } 100% { box-shadow: 0 0 0 0 rgba(78,203,113,0); } }

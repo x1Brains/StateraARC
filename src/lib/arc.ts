@@ -741,6 +741,27 @@ export async function priceMainnet(addrs: string[]): Promise<Record<string, numb
   return out;
 }
 
+// LIVE prices for the deep-pool tokens (Argus/Tolly/Long/CRCL… not on RadarDEX) straight from chain,
+// for the screener's live overlay. V3 price = slot0 sqrtPriceX96 (⛔ NOT reserve ratio); V2 = reserves.
+export async function fetchDeepPoolPrices(): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  const balOf = (token: string, who: string) => mCall(token, '0x70a08231000000000000000000000000' + who.slice(2).toLowerCase());
+  await runLimited(Object.entries(MAINNET_POOL).map(([token, pool]) => async () => {
+    const [slot0, t0] = await Promise.all([mCall(pool, '0x3850c7bd'), mCall(pool, '0x0dfe1681')]); // slot0(), token0()
+    const usdcIsT0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase() : false;
+    let price: number | null = null;
+    if (slot0 && slot0 !== '0x' && slot0.length >= 66) {
+      try { const sqrtP = BigInt('0x' + slot0.slice(2, 66)); if (sqrtP > 0n) { const r = (Number(sqrtP) / 2 ** 96) ** 2; if (isFinite(r) && r > 0) price = (usdcIsT0 ? 1 / r : r) * 1e12; } } catch { /* skip */ }
+    }
+    if (price == null) { // V2 pool: reserve ratio
+      const [uHex, bHex] = await Promise.all([balOf(NATIVE_USDC_ADDR, pool), balOf(token, pool)]);
+      try { const u = Number(BigInt(uHex)) / 1e6, tk = Number(BigInt(bHex)) / 1e18; if (tk > 0) price = u / tk; } catch { /* skip */ }
+    }
+    if (price != null && isFinite(price) && price > 0) out[token] = price;
+  }), 5);
+  return out;
+}
+
 // Combined price + USD liquidity + market cap for every tracked mainnet pool (one throttled pass).
 // mcap = price × total supply (all these tokens are 18-dec).
 async function mainnetStats(): Promise<Record<string, { price: number | null; liq: number | null; mcap: number | null }>> {

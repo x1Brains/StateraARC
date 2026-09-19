@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchScreenerTokens, fetchMarket, fetchPoolVolume24h, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
+import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchPoolVolume24h, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -154,6 +154,27 @@ export default function App() {
     finally { if (!silent) setLoading(false); }
   }
   useEffect(() => { load(); }, []); // eslint-disable-line
+  // LIVE FEED: the snapshot gives the full list instantly; then we overlay fresh RadarDEX price/change/
+  // volume/liq (via the relay — live, not the 30-min bake) every ~40s and merge in place by address, so
+  // the active tokens update near-live and "Updated" reflects the live pull. Deep pools not on RadarDEX
+  // keep their snapshot values until the next bake.
+  const refreshLive = async () => {
+    try {
+      // RadarDEX (~500 active tokens) + on-chain slot0 prices for the deep pools RadarDEX doesn't list.
+      const [live, deep] = await Promise.all([fetchRadarTokens(500).catch(() => [] as Token[]), fetchDeepPoolPrices().catch(() => ({} as Record<string, number>))]);
+      if (!live.length && !Object.keys(deep).length) return;
+      const m = new Map(live.map((t) => [t.address.toLowerCase(), t]));
+      setTokens((prev) => prev.map((t) => {
+        const a = t.address.toLowerCase();
+        const l = m.get(a);
+        let n = l ? { ...t, price: l.price ?? t.price, change24h: l.change24h ?? t.change24h, change1h: l.change1h ?? t.change1h, volume24h: l.volume24h ?? t.volume24h, liq: l.liq ?? t.liq, mcap: l.mcap ?? t.mcap } : t;
+        if (deep[a] != null) n = { ...n, price: deep[a] }; // deep-pool live price wins (correct slot0)
+        return n;
+      }));
+      setAsOf(Date.now());
+    } catch { /* keep snapshot values */ }
+  };
+  useEffect(() => { const id = setInterval(refreshLive, 40000); refreshLive(); return () => clearInterval(id); }, []); // eslint-disable-line
   // Live-ish: silently refresh prices/mcap/liquidity every 60s (no loading flicker).
   useEffect(() => { const id = setInterval(() => load(true), 60000); return () => clearInterval(id); }, []); // eslint-disable-line
 
@@ -416,7 +437,9 @@ export default function App() {
                   {hideDupes ? `Show ${dupCount} duplicate tickers` : 'Hide duplicate tickers'}
                 </button>
               )}
-              {asOf && <span className="asof" title="Data is baked server-side every ~30 min">Updated {agoStr(asOf)}</span>}
+              {asOf && (Date.now() - asOf < 90000
+                ? <span className="asof live" title="Prices refresh live every ~40s"><span className="live-dot" /> Live</span>
+                : <span className="asof" title="Live prices refresh every ~40s">Updated {agoStr(asOf)}</span>)}
             </div>
 
             {err && <div className="msg err">Error: {err}</div>}
