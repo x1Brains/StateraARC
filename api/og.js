@@ -1,12 +1,13 @@
 import { Resvg } from '@resvg/resvg-js';
-import FONT_B64 from './_ogfont.js';
+import FONT_B64 from '../lib/ogfont.js';
 
 // Dynamic social card for a token: paste stateraarc.com/token/0x… anywhere and it unfurls into this.
 // Built as an SVG and rasterised to PNG with @resvg/resvg-js (ships its own native binary — robust on
 // Vercel's Node runtime, unlike @vercel/og whose harfbuzz wasm isn't traced into a bare Vite /api fn).
 
-// Font is base64-embedded (api/_ogfont.js): a lambda fetching its OWN public/ asset fails on Vercel
-// (text came out blank), and public/ isn't in the lambda fs — embedding is the only reliable path.
+// Font is base64-embedded (lib/ogfont.js, OUT of /api so it isn't compiled as its own function):
+// a lambda fetching its OWN public/ asset returned blank text, and public/ isn't in the lambda fs.
+const OG_VER = 'v3-embed';
 const FONT = Buffer.from(FONT_B64, 'base64');
 
 const fmtUsd = (n) => {
@@ -42,6 +43,18 @@ export default async function handler(req, res) {
     const origin = `https://${req.headers.host}`;
     const url = new URL(req.url, origin);
     const addr = (url.searchParams.get('token') || '').toLowerCase();
+    res.setHeader('x-og-ver', OG_VER);
+
+    if (url.searchParams.get('debug')) {
+      let selftest = 'skip';
+      try {
+        const t0 = new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="60"><text x="4" y="44" font-family="S" font-size="40" fill="#fff">Ag9</text></svg>',
+          { font: { fontBuffers: [FONT], defaultFontFamily: 'S', loadSystemFonts: false }, fitTo: { mode: 'width', value: 200 } });
+        selftest = 'png:' + t0.render().asPng().length;
+      } catch (e) { selftest = 'ERR:' + (e?.message || e); }
+      res.setHeader('content-type', 'application/json');
+      return res.status(200).send(JSON.stringify({ ver: OG_VER, node: process.version, fontLen: FONT.length, fontB64Len: (FONT_B64 || '').length, selftest }));
+    }
 
     let t = null;
     try {
