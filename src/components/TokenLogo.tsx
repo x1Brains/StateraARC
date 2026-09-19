@@ -20,18 +20,23 @@ const tollyImg = (addr: string) => `https://api.tollylabs.com/token-image/${addr
 
 export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string; url?: string | null }) {
   const [primaryBroke, setPrimaryBroke] = useState(false);
+  const [ipfsBroke, setIpfsBroke] = useState(false);
   const [onchain, setOnchain] = useState<string | null>(null);
   const [onchainBroke, setOnchainBroke] = useState(false);
   const [tollyBroke, setTollyBroke] = useState(false);
   const color = colorFor(seed || symbol);
   const isAddr = /^0x[0-9a-fA-F]{40}$/.test(seed || '');
   const primary = url || KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol] || '';
+  // Dedicated Pinata gateways (…mypinata.cloud/ipfs/CID) hotlink-block / rate-limit the browser (the
+  // image loads via curl but the <img> onErrors — e.g. BLOB). Retry the SAME CID on the reliable public
+  // Pinata gateway before falling through to on-chain/tolly/letter.
+  const ipfsCid = (() => { const m = (primary || '').match(/\/ipfs\/([A-Za-z0-9]+)/); return m && !/\/\/gateway\.pinata\.cloud\//.test(primary) ? m[1] : null; })();
   // Reset failure state when the token (url/seed) changes — the component is reused across list rows.
-  useEffect(() => { setPrimaryBroke(false); setOnchainBroke(false); setTollyBroke(false); }, [primary, seed]);
+  useEffect(() => { setPrimaryBroke(false); setIpfsBroke(false); setOnchainBroke(false); setTollyBroke(false); }, [primary, seed]);
   // Resolve the on-chain logo when we have no primary OR the primary image failed to load (flaky IPFS
   // gateways 429 on bursts, e.g. the swap picker opening 10+ icons at once). This is the real fallback:
   // url → on-chain → letter, so a dead/rate-limited icon URL still shows the token's logo.
-  const needFallback = (!primary || primaryBroke) && isAddr;
+  const needFallback = (!primary || (primaryBroke && (!ipfsCid || ipfsBroke))) && isAddr;
   useEffect(() => {
     if (!needFallback) return;
     let alive = true;
@@ -41,6 +46,9 @@ export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string;
 
   if (primary && !primaryBroke) {
     return <img className="tlogo" src={primary} alt={symbol} loading="lazy" onError={() => setPrimaryBroke(true)} />;
+  }
+  if (ipfsCid && !ipfsBroke) {
+    return <img className="tlogo" src={`https://gateway.pinata.cloud/ipfs/${ipfsCid}`} alt={symbol} loading="lazy" onError={() => setIpfsBroke(true)} />;
   }
   if (onchain && !onchainBroke) {
     return <img className="tlogo" src={onchain} alt={symbol} loading="lazy" onError={() => setOnchainBroke(true)} />;
