@@ -1027,8 +1027,9 @@ footer .flink:hover { text-decoration: underline; }
 .chart-last { font-family: var(--mono); color: var(--white); font-size: 14px; margin-left: 2px; }
 .chart-chg { font-family: var(--mono); font-size: 13px; }
 .chart-chg.up { color: #5ad18a; } .chart-chg.down { color: #ff5a5a; }
-.chart-tfs { display: flex; gap: 4px; }
-.chart-tfs button { font-family: var(--disp); font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--gray-2); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 5px 11px; cursor: pointer; }
+.chart-tfs { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.chart-tfs button { font-family: var(--disp); font-size: 10.5px; font-weight: 700; letter-spacing: .3px; color: var(--gray-2); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+@media (max-width: 480px) { .chart-tfs button { padding: 4px 7px; font-size: 10px; } }
 .chart-tfs button.on { background: var(--fire); color: #180a03; border-color: transparent; }
 /* DEX-style chart controls: candles/line + linear/log segmented toggles */
 .chart-tools { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
@@ -1160,8 +1161,12 @@ footer .flink:hover { text-decoration: underline; }
 .ta-v { font: 700 15px var(--disp); color: var(--white); }
 .ta-l { font: 700 8.5px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); margin-top: 2px; }
 @media (max-width: 400px) { .ta-grid { grid-template-columns: repeat(2, 1fr); } }
-.ta-grid-5 { grid-template-columns: repeat(5, 1fr); }
-@media (max-width: 520px) { .ta-grid-5 { grid-template-columns: repeat(3, 1fr); } }
+.ta-grid-5 { grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); }
+
+/* 2-column token dashboard: info + activity (left) · pool + health (right) */
+.td-dash { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; align-items: start; }
+.td-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+@media (max-width: 860px) { .td-dash { grid-template-columns: 1fr; } }
 
 /* Liquidity reserves row */
 .lq-res { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; font: 600 12px var(--mono); color: var(--gray-2); }
@@ -1172,9 +1177,9 @@ footer .flink:hover { text-decoration: underline; }
 .txf button { font: 700 10px var(--disp); letter-spacing: .6px; text-transform: uppercase; color: var(--gray-2); background: #060a0e; border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
 .txf button.on { color: var(--white); border-color: var(--red-hi); background: rgba(255,90,40,.12); }
 .tr-table { display: flex; flex-direction: column; }
-.tr-row { display: grid; grid-template-columns: 44px 40px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 74px 26px; gap: 8px; align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+.tr-row { display: grid; grid-template-columns: 52px 44px minmax(56px,1fr) minmax(60px,1.1fr) minmax(56px,1fr) 84px 30px; gap: 12px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px; }
 .tr-row:last-child { border-bottom: 0; }
-.tr-head { font: 700 9px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); position: sticky; top: -12px; background: var(--panel); z-index: 1; }
+.tr-head { font: 700 9px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); position: sticky; top: -12px; background: var(--panel); z-index: 1; padding-bottom: 10px; }
 .tr-head .num, .tr-row .num { text-align: right; }
 .tr-head .tx, .tr-row .tx { text-align: center; }
 .tr-age { color: var(--gray-3); font: 500 11px var(--mono); white-space: nowrap; }

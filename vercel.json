@@ -3,6 +3,7 @@
     { "source": "/api/xdex/:path*", "destination": "https://api.xdex.xyz/:path*" },
     { "source": "/api/warp/:path*", "destination": "https://warp-arc-production.up.railway.app/api/:path*" },
     { "source": "/api/radar/:path*", "destination": "/api/radar?path=:path*" },
+    { "source": "/token/:addr", "destination": "/api/token?addr=:addr" },
     { "source": "/((?!api/|assets/|coins/|.*\\.[a-zA-Z0-9]+$).*)", "destination": "/index.html" }
   ]
 }

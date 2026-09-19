@@ -8,8 +8,11 @@ import { fetchPoolCandles, tprice } from '../lib/arc';
 // Arc mainnet launched 2026-09-16, so there are only a couple days of history — 1W/1M/ALL would just
 // repeat the same ~2 days. These span from fine-grain to a multi-day view; longer ones become useful
 // as the chain ages.
-const TFS = [{ k: '1m', l: '1m' }, { k: '5m', l: '5m' }, { k: '15m', l: '15m' }, { k: '1h', l: '1H' }, { k: '4h', l: '4H' }, { k: '1d', l: '1D' }];
-const TF_SEC: Record<string, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+const TFS = [{ k: '1m', l: '1m' }, { k: '5m', l: '5m' }, { k: '15m', l: '15m' }, { k: '1h', l: '1H' }, { k: '4h', l: '4H' }, { k: '1d', l: '1D' }, { k: '1w', l: '1W' }, { k: 'all', l: 'ALL' }];
+// Bucket size per timeframe (on-chain fallback). 1W/ALL bucket at 1h so a full history fits ~70 candles.
+const TF_SEC: Record<string, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1w': 3600, 'all': 3600 };
+// Warp serves candles by interval; for the wide views ask for its coarsest (1h) = full history.
+const WARP_TF: Record<string, string> = { '1w': '1h', 'all': '1h' };
 type ChartType = 'candles' | 'line';
 
 // Shared DEX-style formatter (subscript zeros for tiny prices) — chart axis + labels match the header.
@@ -31,7 +34,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     let alive = true;
     setLoading(true);
     (async () => {
-      let c = await fetchWarpCandles(address, tf).catch(() => [] as Candle[]);
+      let c = await fetchWarpCandles(address, WARP_TF[tf] ?? tf).catch(() => [] as Candle[]);
       // Warp candles use Warp's price scale, which ignores token decimals — rescale to the real price
       // (priceScale = trusted seed price ÷ warp price; =1 for normal 18-dec tokens). Fixes cirBTC etc.
       if (c && c.length && priceScale && priceScale !== 1) {
@@ -42,6 +45,8 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       if ((!c || c.length === 0)) {
         c = await fetchPoolCandles(address, decimals ?? 18, TF_SEC[tf] ?? 300).catch(() => [] as Candle[]);
       }
+      // 1W = the last 7 days of whatever history we have; ALL shows everything.
+      if (tf === '1w' && c && c.length) { const cut = Math.floor(Date.now() / 1000) - 7 * 86400; c = c.filter((k) => k.time >= cut); }
       if (alive) { setCandles(c); setLoading(false); }
     })();
     return () => { alive = false; };

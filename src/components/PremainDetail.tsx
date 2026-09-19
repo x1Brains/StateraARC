@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy } from './icons';
 
@@ -48,8 +48,16 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       if (alive) setRd(detail);
       const dec = detail?.decimals ?? 18;
       fetchRadarHolders(address, dec, 100).then((h) => { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
-      // Real DEX trades (indexed swaps) are the primary Transactions feed; raw transfers are the fallback.
-      fetchRadarSwaps(address, dec, 50).then((s) => { if (alive) setSwaps(s); }).catch(() => { if (alive) setSwaps([]); });
+      // Real trades feed: RadarDEX indexed swaps first; if it doesn't index this token (ARGUS etc.),
+      // decode the pool's on-chain Swap events so we still show Buy/Sell — never "Transfer".
+      fetchRadarSwaps(address, dec, 50).then(async (s) => {
+        if (s && s.length) { if (alive) setSwaps(s); return; }
+        const oc = await fetchPoolTrades(address, dec, 40).catch(() => [] as RadarSwap[]);
+        if (alive) setSwaps(oc);
+      }).catch(async () => {
+        const oc = await fetchPoolTrades(address, dec, 40).catch(() => [] as RadarSwap[]);
+        if (alive) setSwaps(oc);
+      });
     })();
     fetchTokenTransfers(address, 18, 40).then((t) => { if (alive) setTxs(t); }).catch(() => { if (alive) setTxs([]); });
     return () => { alive = false; };
@@ -205,91 +213,98 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
         <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? 18} priceScale={chartScale} change24h={chg} />
       </div>
 
-      {/* Trade activity (24h) — buy/sell pressure, traders, txns (RadarDEX) */}
-      {rd && (buys != null || sells != null || rd.txns24 != null) && (
-        <div className="panel side-card" style={{ marginTop: 12 }}>
-          <h3>Trade Activity · 24h</h3>
-          {buyPct != null && (
-            <div className="bs-bar" title={`Buys ${buys} · Sells ${sells}`}>
-              <div className="bs-buy" style={{ width: `${buyPct}%` }} />
-              <div className="bs-sell" style={{ width: `${100 - buyPct}%` }} />
-            </div>
-          )}
-          <div className="bs-legend">
-            <span className="bs-b">Buys {buys != null ? buys.toLocaleString() : '—'}</span>
-            <span className="bs-s">Sells {sells != null ? sells.toLocaleString() : '—'}</span>
+      {/* Dashboard: token info + activity (left) · pool metrics + health (right) */}
+      <div className="td-dash">
+        <div className="td-col">
+          {/* Info — contract, market details, links */}
+          <div className="panel side-card td-info">
+            <h3>Info</h3>
+            <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
+            <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
+            <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{d?.decimals ?? '—'}</span></div>
+            {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
+            {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
+            {rd?.burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{rd.burnedPct.toFixed(2)}%</span></div>}
+            {rd?.verified && <div className="ir"><span className="ir-k">Verified</span><span className="ir-v" style={{ color: '#4ecb71' }}>Yes</span></div>}
+            {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
+            {!!socials.length && (
+              <div className="ir"><span className="ir-k">Links</span><span className="ir-v td-socials">
+                {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
+              </span></div>
+            )}
+            <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" warp /></div>
           </div>
-          <div className="ta-grid">
-            <div className="ta-cell"><div className="ta-v">{rd.txns24 != null ? rd.txns24.toLocaleString() : '—'}</div><div className="ta-l">Txns</div></div>
-            <div className="ta-cell"><div className="ta-v">{rd.traders24 != null ? rd.traders24.toLocaleString() : '—'}</div><div className="ta-l">Makers</div></div>
-            <div className="ta-cell"><div className="ta-v">{rd.burnedPct != null ? rd.burnedPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Burned</div></div>
-            <div className="ta-cell"><div className="ta-v">{top10 != null ? top10.toFixed(1) + '%' : '—'}</div><div className="ta-l">Top 10</div></div>
-          </div>
-        </div>
-      )}
 
-      {/* Liquidity & Pool — real reserves, depth, age, FDV (RadarDEX). */}
-      {rd && (tvl != null || fdv != null || rd.ageSec != null) && (
-        <div className="panel side-card" style={{ marginTop: 12 }}>
-          <h3>Liquidity &amp; Pool</h3>
-          <div className="ta-grid ta-grid-5">
-            <div className="ta-cell"><div className="ta-v">{tvl != null ? usd(tvl) : '—'}</div><div className="ta-l">TVL</div></div>
-            <div className="ta-cell"><div className="ta-v">{depthPct != null ? depthPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Depth / val</div></div>
-            <div className="ta-cell"><div className="ta-v">{fdv != null ? usd(fdv) : '—'}</div><div className="ta-l">FDV</div></div>
-            <div className="ta-cell"><div className="ta-v">{ageStr ?? '—'}</div><div className="ta-l">Pool age</div></div>
-            <div className="ta-cell"><div className="ta-v">{rd.poolSwaps != null ? compact(rd.poolSwaps) : (rd.poolCount ? rd.poolCount + ' pools' : '—')}</div><div className="ta-l">Swaps</div></div>
-          </div>
-          {(rd.reserveBase != null || rd.reserveQuote != null) && (
-            <div className="lq-res">
-              <span className="lq-r"><b>{rd.reserveBase != null ? compact(rd.reserveBase) : '—'}</b> {sym}</span>
-              <span className="lq-r"><b>{rd.reserveQuote != null ? compact(rd.reserveQuote) : '—'}</b> {rd.quoteSymbol || 'USDC'}</span>
-              {lpCount != null && <span className="lq-r"><b>{lpCount}</b> LP{lpCount === 1 ? '' : 's'}</span>}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Pool health — a transparent score from on-chain signals. NOT a safety guarantee. */}
-      {healthScore != null && (
-        <div className="panel side-card" style={{ marginTop: 12 }}>
-          <div className="ph-head">
-            <h3 style={{ margin: 0 }}>Pool Health</h3>
-            <span className={`ph-score ${healthClass}`}>{healthScore}<i>/100</i> · {healthLabel}</span>
-          </div>
-          <div className="ph-sigs">
-            {healthParts.map((p) => (
-              <div className="ph-sig" key={p.k}>
-                <div className="ph-sig-top"><span>{SIG_LABEL[p.k]}</span><span className="ph-sig-w">{p.v}</span></div>
-                <div className="ph-track"><div className={`ph-fill ${p.v >= 70 ? 'good' : p.v >= 40 ? 'mid' : 'bad'}`} style={{ width: `${p.v}%` }} /></div>
+          {/* Trade activity (24h) — buy/sell pressure, traders, txns (RadarDEX) */}
+          {rd && (buys != null || sells != null || rd.txns24 != null) && (
+            <div className="panel side-card">
+              <h3>Trade Activity · 24h</h3>
+              {buyPct != null && (
+                <div className="bs-bar" title={`Buys ${buys} · Sells ${sells}`}>
+                  <div className="bs-buy" style={{ width: `${buyPct}%` }} />
+                  <div className="bs-sell" style={{ width: `${100 - buyPct}%` }} />
+                </div>
+              )}
+              <div className="bs-legend">
+                <span className="bs-b">Buys {buys != null ? buys.toLocaleString() : '—'}</span>
+                <span className="bs-s">Sells {sells != null ? sells.toLocaleString() : '—'}</span>
               </div>
-            ))}
-          </div>
-          {!!redFlags.length && (
-            <div className="ph-flags">
-              {redFlags.map((f) => <div className="ph-flag" key={f}><span className="ph-flag-dot" />{f}</div>)}
+              <div className="ta-grid">
+                <div className="ta-cell"><div className="ta-v">{rd.txns24 != null ? rd.txns24.toLocaleString() : '—'}</div><div className="ta-l">Txns</div></div>
+                <div className="ta-cell"><div className="ta-v">{rd.traders24 != null ? rd.traders24.toLocaleString() : '—'}</div><div className="ta-l">Makers</div></div>
+                <div className="ta-cell"><div className="ta-v">{rd.burnedPct != null ? rd.burnedPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Burned</div></div>
+                <div className="ta-cell"><div className="ta-v">{top10 != null ? top10.toFixed(1) + '%' : '—'}</div><div className="ta-l">Top 10</div></div>
+              </div>
             </div>
           )}
-          <div className="ph-note">Weighted signal from live on-chain data — not a legitimacy or safety certification. DYOR.</div>
         </div>
-      )}
 
-      {/* Info — its own always-visible section (contract, market details, links) */}
-      <div className="panel side-card td-info" style={{ marginTop: 12 }}>
-        <h3>Info</h3>
-        <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
-        <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
-        <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{d?.decimals ?? '—'}</span></div>
-        {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
-        {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
-        {rd?.burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{rd.burnedPct.toFixed(2)}%</span></div>}
-        {rd?.verified && <div className="ir"><span className="ir-k">Verified</span><span className="ir-v" style={{ color: '#4ecb71' }}>Yes</span></div>}
-        {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
-        {!!socials.length && (
-          <div className="ir"><span className="ir-k">Links</span><span className="ir-v td-socials">
-            {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
-          </span></div>
-        )}
-        <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" warp /></div>
+        <div className="td-col">
+          {/* Liquidity & Pool — real reserves, depth, age, FDV (RadarDEX). */}
+          {rd && (tvl != null || fdv != null || rd.ageSec != null) && (
+            <div className="panel side-card">
+              <h3>Liquidity &amp; Pool</h3>
+              <div className="ta-grid ta-grid-5">
+                <div className="ta-cell"><div className="ta-v">{tvl != null ? usd(tvl) : '—'}</div><div className="ta-l">TVL</div></div>
+                <div className="ta-cell"><div className="ta-v">{depthPct != null ? depthPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Depth / val</div></div>
+                <div className="ta-cell"><div className="ta-v">{fdv != null ? usd(fdv) : '—'}</div><div className="ta-l">FDV</div></div>
+                <div className="ta-cell"><div className="ta-v">{ageStr ?? '—'}</div><div className="ta-l">Pool age</div></div>
+                <div className="ta-cell"><div className="ta-v">{rd.poolSwaps != null ? compact(rd.poolSwaps) : (rd.poolCount ? rd.poolCount + ' pools' : '—')}</div><div className="ta-l">Swaps</div></div>
+              </div>
+              {(rd.reserveBase != null || rd.reserveQuote != null) && (
+                <div className="lq-res">
+                  <span className="lq-r"><b>{rd.reserveBase != null ? compact(rd.reserveBase) : '—'}</b> {sym}</span>
+                  <span className="lq-r"><b>{rd.reserveQuote != null ? compact(rd.reserveQuote) : '—'}</b> {rd.quoteSymbol || 'USDC'}</span>
+                  {lpCount != null && <span className="lq-r"><b>{lpCount}</b> LP{lpCount === 1 ? '' : 's'}</span>}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Pool health — a transparent score from on-chain signals. NOT a safety guarantee. */}
+          {healthScore != null && (
+            <div className="panel side-card">
+              <div className="ph-head">
+                <h3 style={{ margin: 0 }}>Pool Health</h3>
+                <span className={`ph-score ${healthClass}`}>{healthScore}<i>/100</i> · {healthLabel}</span>
+              </div>
+              <div className="ph-sigs">
+                {healthParts.map((p) => (
+                  <div className="ph-sig" key={p.k}>
+                    <div className="ph-sig-top"><span>{SIG_LABEL[p.k]}</span><span className="ph-sig-w">{p.v}</span></div>
+                    <div className="ph-track"><div className={`ph-fill ${p.v >= 70 ? 'good' : p.v >= 40 ? 'mid' : 'bad'}`} style={{ width: `${p.v}%` }} /></div>
+                  </div>
+                ))}
+              </div>
+              {!!redFlags.length && (
+                <div className="ph-flags">
+                  {redFlags.map((f) => <div className="ph-flag" key={f}><span className="ph-flag-dot" />{f}</div>)}
+                </div>
+              )}
+              <div className="ph-note">Weighted signal from live on-chain data — not a legitimacy or safety certification. DYOR.</div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Compact tabbed section — Transactions / Holders (scrolls inside itself, not the page) */}

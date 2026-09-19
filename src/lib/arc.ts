@@ -1004,7 +1004,9 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
   const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
   const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
-  const spanBlocks = Math.min(80000, Math.ceil((intervalSec * 70) / blockTime)); // ~70 candles of history
+  // ~70 candles of history; the wide views (1h+ buckets) reach back much further on this fast chain.
+  const spanCap = intervalSec >= 3600 ? 260000 : 80000;
+  const spanBlocks = Math.min(spanCap, Math.ceil((intervalSec * 90) / blockTime));
   const dexp = 10 ** (decimals - 6); // USDC is 6-dec, the token `decimals`-dec
   // Build the block ranges and fetch them IN PARALLEL (bounded) — the RPC caps ranges at ~2.5k blocks,
   // so a sequential loop is slow; runLimited cuts it ~6×.
@@ -1078,6 +1080,52 @@ export async function fetchPoolVolume24h(token: string): Promise<number | null> 
   if (!sawAny) return 0;
   const sampleSecs = sampleBlocks * blockTime;
   return usdcVol * (86400 / sampleSecs); // scale sample → 24h
+}
+
+// Real buy/sell TRADES for a token straight from its pool's Swap events — the fallback trades feed for
+// tokens RadarDEX doesn't index (ARGUS etc.), so the Transactions table shows Buy/Sell not "Transfer".
+// side from the USDC delta sign (USDC INTO pool = a BUY of the token); maker = the swap recipient;
+// price = executed USD/token. Timestamps approximated from block height (fine for a table).
+export async function fetchPoolTrades(token: string, decimals = 18, want = 40): Promise<RadarSwap[]> {
+  const pool = await findTokenPool(token); if (!pool) return [];
+  const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]);
+  if (!t0hex || !headHex) return [];
+  const usdcIsToken0 = ('0x' + t0hex.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
+  const head = BigInt(headHex);
+  const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
+  const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
+  const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+  const dexp = 10 ** (decimals - 6);
+  const out: RadarSwap[] = [];
+  const CH = 2500n;
+  // Walk backward from head in chunks until we have enough trades (or run out of budget).
+  for (let hi = head; hi > head - 80000n && out.length < want; hi -= CH) {
+    const lo = hi - CH < 0n ? 0n : hi - CH;
+    const logs = await mrpc('eth_getLogs', [{ address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]], fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) }]);
+    if (!Array.isArray(logs)) continue;
+    for (const l of logs) {
+      const topic = (l.topics?.[0] || '').toLowerCase();
+      const dec = decodeSwap(l.data, topic, usdcIsToken0);
+      if (!dec || dec.tok <= 0n) continue;
+      // Determine side: USDC entering the pool => a BUY of the token.
+      let usdcIn = false;
+      const d = l.data.slice(2);
+      const w = (i: number) => BigInt('0x' + d.slice(i * 64, i * 64 + 64));
+      if (topic === SWAP_V2_TOPIC) { usdcIn = (usdcIsToken0 ? w(0) : w(1)) > 0n; }
+      else { const sw = usdcIsToken0 ? w(0) : w(1); usdcIn = sw < (1n << 255n) && sw > 0n; }
+      const usd = Number(dec.usdc) / 1e6;
+      const amount = Number(dec.tok) / 10 ** decimals;
+      out.push({
+        side: usdcIn ? 'buy' : 'sell', usd, amount,
+        price: amount > 0 ? usd / amount : (Number(dec.usdc) / Number(dec.tok)) * dexp,
+        trader: ('0x' + (l.topics?.[2] || l.topics?.[1] || '').slice(-40)).toLowerCase(),
+        tx: l.transactionHash || '',
+        time: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime),
+      });
+    }
+  }
+  out.sort((a, b) => b.time - a.time);
+  return out.slice(0, want).filter((s) => s.tx);
 }
 
 // On-chain token logo, read straight from the token address (no third-party dependency). Arc
