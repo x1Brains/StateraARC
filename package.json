@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@resvg/resvg-js": "^2.6.2",
+    "@resvg/resvg-wasm": "^2.6.2",
     "lightweight-charts": "^4.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

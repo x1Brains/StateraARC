@@ -1,14 +1,20 @@
-import { Resvg } from '@resvg/resvg-js';
+import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import FONT_B64 from '../lib/ogfont.js';
+import WASM_B64 from '../lib/ogwasm.js';
 
 // Dynamic social card for a token: paste stateraarc.com/token/0x… anywhere and it unfurls into this.
-// Built as an SVG and rasterised to PNG with @resvg/resvg-js (ships its own native binary — robust on
-// Vercel's Node runtime, unlike @vercel/og whose harfbuzz wasm isn't traced into a bare Vite /api fn).
-
-// Font is base64-embedded (lib/ogfont.js, OUT of /api so it isn't compiled as its own function):
-// a lambda fetching its OWN public/ asset returned blank text, and public/ isn't in the lambda fs.
-const OG_VER = 'v4-family';
+// Rasterised with the WASM build of resvg. The NATIVE @resvg/resvg-js renders blank text under
+// Vercel's Node 24 (self-test came back blank there while identical code works locally); the WASM
+// build is the same bytecode everywhere. Both the font and the wasm are base64-embedded from lib/
+// (OUT of /api so they aren't compiled as functions) — self-fetch and fs-tracing both failed here.
+const OG_VER = 'v5-wasm';
 const FONT = Buffer.from(FONT_B64, 'base64');
+
+let wasmReady = null;
+function ensureWasm() {
+  if (!wasmReady) wasmReady = initWasm(Buffer.from(WASM_B64, 'base64'));
+  return wasmReady;
+}
 
 const fmtUsd = (n) => {
   if (n == null || !isFinite(n) || n <= 0) return '—';
@@ -48,6 +54,7 @@ export default async function handler(req, res) {
     if (url.searchParams.get('debug')) {
       let selftest = 'skip';
       try {
+        await ensureWasm();
         const t0 = new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="60"><text x="4" y="44" font-family="Open Sans" font-size="40" fill="#fff">Ag9</text></svg>',
           { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 200 } });
         selftest = 'png:' + t0.render().asPng().length;
@@ -67,7 +74,7 @@ export default async function handler(req, res) {
     const ch = t?.change24h;
     const chStr = ch == null ? '' : `${ch >= 0 ? '▲ +' : '▼ '}${Math.abs(ch).toFixed(1)}% 24h`;
     const chColor = ch == null ? '#8f8478' : ch >= 0 ? '#4ecb71' : '#ff5a5a';
-    const logo = await logoDataUri(t, addr);
+    const [logo] = await Promise.all([logoDataUri(t, addr), ensureWasm()]);
     const symX = logo ? 244 : 64;
 
     const stat = (x, label, value) => `
@@ -112,7 +119,7 @@ export default async function handler(req, res) {
 
     res.setHeader('content-type', 'image/png');
     res.setHeader('cache-control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=86400');
-    res.status(200).send(png);
+    res.status(200).send(Buffer.from(png)); // .asPng() is a Uint8Array; Buffer for correct binary send
   } catch (e) {
     res.status(500).send('og render failed: ' + (e?.message || String(e)));
   }
