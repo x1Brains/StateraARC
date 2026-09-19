@@ -1,17 +1,13 @@
 import { Resvg } from '@resvg/resvg-js';
+import FONT_B64 from './_ogfont.js';
 
 // Dynamic social card for a token: paste stateraarc.com/token/0x… anywhere and it unfurls into this.
 // Built as an SVG and rasterised to PNG with @resvg/resvg-js (ships its own native binary — robust on
 // Vercel's Node runtime, unlike @vercel/og whose harfbuzz wasm isn't traced into a bare Vite /api fn).
 
-// Font lives in public/ (a CDN asset, NOT guaranteed in the lambda filesystem) — fetch it once over
-// HTTP and cache it on the module, same as the snapshot. Avoids an ENOENT that would 500 every request.
-let FONT = null;
-async function getFont(origin) {
-  if (FONT) return FONT;
-  FONT = Buffer.from(await fetch(`${origin}/og-font.ttf`).then((r) => r.arrayBuffer()));
-  return FONT;
-}
+// Font is base64-embedded (api/_ogfont.js): a lambda fetching its OWN public/ asset fails on Vercel
+// (text came out blank), and public/ isn't in the lambda fs — embedding is the only reliable path.
+const FONT = Buffer.from(FONT_B64, 'base64');
 
 const fmtUsd = (n) => {
   if (n == null || !isFinite(n) || n <= 0) return '—';
@@ -58,7 +54,7 @@ export default async function handler(req, res) {
     const ch = t?.change24h;
     const chStr = ch == null ? '' : `${ch >= 0 ? '▲ +' : '▼ '}${Math.abs(ch).toFixed(1)}% 24h`;
     const chColor = ch == null ? '#8f8478' : ch >= 0 ? '#4ecb71' : '#ff5a5a';
-    const [logo, font] = await Promise.all([logoDataUri(t, addr), getFont(origin)]);
+    const logo = await logoDataUri(t, addr);
     const symX = logo ? 244 : 64;
 
     const stat = (x, label, value) => `
@@ -97,7 +93,7 @@ export default async function handler(req, res) {
     </svg>`;
 
     const png = new Resvg(svg, {
-      font: { fontBuffers: [font], defaultFontFamily: 'S', loadSystemFonts: false },
+      font: { fontBuffers: [FONT], defaultFontFamily: 'S', loadSystemFonts: false },
       fitTo: { mode: 'width', value: 1200 },
     }).render().asPng();
 
