@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy } from './icons';
 
@@ -29,6 +29,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [holderCount, setHolderCount] = useState<number | null>(null);
   const [txs, setTxs] = useState<TokenTransfer[] | null>(null);
   const [swaps, setSwaps] = useState<RadarSwap[] | null>(null);
+  const [ocPool, setOcPool] = useState<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null } | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders'>('txns');
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
 
@@ -42,11 +43,15 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // DEX-style detail: RadarDEX token stats (buys/sells/burned/change) + rich holders (with pool/dev
   // flags + accurate %), plus recent on-chain transfers (mainnet RPC).
   useEffect(() => {
-    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null);
+    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null);
     (async () => {
       const detail = await fetchRadarTokenDetail(address).catch(() => null);
       if (alive) setRd(detail);
       const dec = detail?.decimals ?? 18;
+      // If RadarDEX doesn't index this token, read the pool reserves on-chain so Liquidity & Pool fills.
+      if (!detail || detail.liquidityUsdc == null) {
+        fetchOnchainPoolStats(address, dec).then((s) => { if (alive) setOcPool(s); }).catch(() => {});
+      }
       fetchRadarHolders(address, dec, 100).then((h) => { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
       // Real trades feed: RadarDEX indexed swaps first; if it doesn't index this token (ARGUS etc.),
       // decode the pool's on-chain Swap events so we still show Buy/Sell — never "Transfer".
@@ -119,8 +124,10 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const top10 = holders && holders.length ? holders.slice(0, 10).reduce((s, h) => s + (h.percent ?? 0), 0) : null;
   const lpCount = holders ? holders.filter((h) => h.isPool).length : null;
 
-  // ── Liquidity depth + pool age + FDV (real numbers straight from RadarDEX) ──────────────────────
-  const tvl = rd?.liquidityUsdc ?? liq ?? null;
+  // ── Liquidity depth + pool age + FDV (RadarDEX first, then on-chain reserves, then seed) ─────────
+  const tvl = rd?.liquidityUsdc ?? ocPool?.tvl ?? liq ?? null;
+  const reserveBase = rd?.reserveBase ?? ocPool?.reserveBase ?? null;
+  const reserveQuote = rd?.reserveQuote ?? ocPool?.reserveQuote ?? null;
   const fdv = rd?.fdv ?? (px != null && (rd?.totalSupply ?? supplyNum) ? px * (rd?.totalSupply ?? supplyNum)! : null);
   const valuation = mc ?? fdv ?? null;
   const depthPct = tvl != null && valuation ? (tvl / valuation) * 100 : null; // pool depth as % of valuation
@@ -130,6 +137,15 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
     if (s < 86400) return `${Math.floor(s / 3600)}h`; return `${Math.floor(s / 86400)}d`;
   };
   const ageStr = rd?.ageSec != null ? (rd.ageSec >= 86400 ? `${Math.floor(rd.ageSec / 86400)}d` : rd.ageSec >= 3600 ? `${Math.floor(rd.ageSec / 3600)}h` : `${Math.floor(rd.ageSec / 60)}m`) : null;
+  // Liquidity & Pool cells — only the ones we actually have (so the panel fills even without RadarDEX).
+  const liqCells = ([
+    tvl != null ? { v: usd(tvl), l: 'TVL' } : null,
+    depthPct != null ? { v: depthPct.toFixed(1) + '%', l: 'Depth / val' } : null,
+    fdv != null ? { v: usd(fdv), l: 'FDV' } : null,
+    mc != null ? { v: usd(mc), l: 'Mkt Cap' } : null,
+    ageStr ? { v: ageStr, l: 'Pool age' } : null,
+    rd?.poolSwaps != null ? { v: compact(rd.poolSwaps), l: 'Swaps' } : null,
+  ].filter(Boolean)) as { v: string; l: string }[];
 
   // ── Pool health: a transparent 0–100 score from on-chain signals (NOT a safety guarantee) ────────
   // Mirrors a DEX screener's health read. Each signal is a real, verifiable measurement; weights sum to 100.
@@ -260,21 +276,17 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
         </div>
 
         <div className="td-col">
-          {/* Liquidity & Pool — real reserves, depth, age, FDV (RadarDEX). */}
-          {rd && (tvl != null || fdv != null || rd.ageSec != null) && (
+          {/* Liquidity & Pool — RadarDEX detail, or on-chain reserves for tokens it doesn't index. */}
+          {liqCells.length > 0 && (
             <div className="panel side-card">
               <h3>Liquidity &amp; Pool</h3>
               <div className="ta-grid ta-grid-5">
-                <div className="ta-cell"><div className="ta-v">{tvl != null ? usd(tvl) : '—'}</div><div className="ta-l">TVL</div></div>
-                <div className="ta-cell"><div className="ta-v">{depthPct != null ? depthPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Depth / val</div></div>
-                <div className="ta-cell"><div className="ta-v">{fdv != null ? usd(fdv) : '—'}</div><div className="ta-l">FDV</div></div>
-                <div className="ta-cell"><div className="ta-v">{ageStr ?? '—'}</div><div className="ta-l">Pool age</div></div>
-                <div className="ta-cell"><div className="ta-v">{rd.poolSwaps != null ? compact(rd.poolSwaps) : (rd.poolCount ? rd.poolCount + ' pools' : '—')}</div><div className="ta-l">Swaps</div></div>
+                {liqCells.map((c) => <div className="ta-cell" key={c.l}><div className="ta-v">{c.v}</div><div className="ta-l">{c.l}</div></div>)}
               </div>
-              {(rd.reserveBase != null || rd.reserveQuote != null) && (
+              {(reserveBase != null || reserveQuote != null) && (
                 <div className="lq-res">
-                  <span className="lq-r"><b>{rd.reserveBase != null ? compact(rd.reserveBase) : '—'}</b> {sym}</span>
-                  <span className="lq-r"><b>{rd.reserveQuote != null ? compact(rd.reserveQuote) : '—'}</b> {rd.quoteSymbol || 'USDC'}</span>
+                  {reserveBase != null && <span className="lq-r"><b>{compact(reserveBase)}</b> {sym}</span>}
+                  {reserveQuote != null && <span className="lq-r"><b>{compact(reserveQuote)}</b> {rd?.quoteSymbol || 'USDC'}</span>}
                   {lpCount != null && <span className="lq-r"><b>{lpCount}</b> LP{lpCount === 1 ? '' : 's'}</span>}
                 </div>
               )}

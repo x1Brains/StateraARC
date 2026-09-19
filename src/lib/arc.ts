@@ -991,6 +991,27 @@ export async function findTokenPool(token: string): Promise<string | null> {
   poolDiscovery.set(t, best);
   return best;
 }
+// Real pool reserves for tokens RadarDEX doesn't index (ARGUS…), so the Liquidity & Pool panel still
+// fills in. reserveQuote = the pool's USDC balance (RadarDEX calls this same number both Liq and TVL);
+// reserveBase = the pool's token balance. Cached briefly.
+const poolStatsCache = new Map<string, { at: number; v: { tvl: number | null; reserveQuote: number | null; reserveBase: number | null; pool: string | null } }>();
+export async function fetchOnchainPoolStats(token: string, decimals = 18): Promise<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null; pool: string | null }> {
+  const ck = token.toLowerCase();
+  const hit = poolStatsCache.get(ck); if (hit && Date.now() - hit.at < 45000) return hit.v;
+  const empty = { tvl: null, reserveQuote: null, reserveBase: null, pool: null };
+  const pool = await findTokenPool(token); if (!pool) { poolStatsCache.set(ck, { at: Date.now(), v: empty }); return empty; }
+  const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
+  const [usdcB, tokB] = await Promise.all([
+    mCall(NATIVE_USDC_ADDR, '0x70a08231' + pad(pool)).catch(() => null),
+    mCall(token, '0x70a08231' + pad(pool)).catch(() => null),
+  ]);
+  let reserveQuote: number | null = null, reserveBase: number | null = null;
+  try { if (usdcB) reserveQuote = Number(BigInt(usdcB)) / 1e6; } catch { /* */ }
+  try { if (tokB) reserveBase = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
+  const v = { tvl: reserveQuote, reserveQuote, reserveBase, pool };
+  poolStatsCache.set(ck, { at: Date.now(), v });
+  return v;
+}
 const candleCache = new Map<string, { at: number; data: Candle[] }>();
 export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number): Promise<Candle[]> {
   const pool = await findTokenPool(token); if (!pool) return [];
