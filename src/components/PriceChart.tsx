@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, LineStyle, type IChartApi, type ISeriesApi } from 'lightweight-charts';
 import { fetchWarpCandles, type Candle } from '../lib/warp';
-import { fetchPoolCandles } from '../lib/arc';
+import { fetchPoolCandles, tprice } from '../lib/arc';
 
 // TradingView-style price chart for an Arc token. Data = Warp OHLC candles (chain 5042) with an
 // on-chain pool-swap fallback for deep V3 tokens. DEX-style controls: timeframe, candles/line, lin/log.
@@ -12,13 +12,8 @@ const TFS = [{ k: '1m', l: '1m' }, { k: '5m', l: '5m' }, { k: '15m', l: '15m' },
 const TF_SEC: Record<string, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
 type ChartType = 'candles' | 'line';
 
-const priceFmt = (p: number) => {
-  if (!isFinite(p) || Math.abs(p) < 1e-12) return '$0'; // kill the "-1.73e-18" near-zero axis label
-  return p >= 1000 ? '$' + (p / 1000).toFixed(2) + 'K'
-    : p >= 1 ? '$' + p.toFixed(3)
-    : p >= 0.001 ? '$' + p.toFixed(5)
-    : '$' + p.toExponential(2);
-};
+// Shared DEX-style formatter (subscript zeros for tiny prices) — chart axis + labels match the header.
+const priceFmt = (p: number) => (!isFinite(p) || Math.abs(p) < 1e-15 ? '$0' : tprice(p));
 
 export function PriceChart({ address, symbol, decimals, priceScale = 1, change24h }: { address: string; symbol?: string; decimals?: number; priceScale?: number; change24h?: number | null }) {
   const [tf, setTf] = useState('5m');

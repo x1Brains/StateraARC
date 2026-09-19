@@ -455,15 +455,24 @@ export const compact = (n: number | null) =>
 // Token price — handles both normal and sub-cent values.
 // Clean, consistent price formatting: ~4 significant figures for sub-dollar prices (no long messy
 // tails like $0.00609479), K/M for big ones. Keeps every row the same visual width on the screener.
+// DEX-style USD price. Tiny prices use subscript-zero notation ($0.0₄994 = 0.0000994) instead of
+// scientific ($9.94e-5), which reads far clearer. Subscript = count of leading zeros after the decimal.
+const SUBSCRIPTS = '₀₁₂₃₄₅₆₇₈₉';
+const subDigits = (z: number) => String(z).split('').map((d) => SUBSCRIPTS[+d] || d).join('');
 export const tprice = (n: number | null) => {
   if (n == null) return '—';
+  if (!isFinite(n) || n <= 0) return '$0';
   if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
   if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
   if (n >= 1) return '$' + n.toFixed(2);
-  if (n >= 0.01) return '$' + n.toFixed(4);
-  if (n >= 1e-6) return '$' + Number(n.toPrecision(4)).toString();
-  if (n > 0) return '$' + n.toExponential(2);
-  return '$0';
+  if (n >= 0.001) return '$' + n.toFixed(4);
+  // tiny: e.g. 0.00009940 -> $0.0₄994  (4 leading zeros compressed into the subscript, then sig figs)
+  const s = n.toFixed(12);
+  const m = s.match(/^0\.(0*)(\d+?)0*$/);
+  if (!m) return '$' + n.toPrecision(3);
+  const zeros = m[1].length;
+  const sig = m[2].slice(0, 4);
+  return zeros >= 4 ? `$0.0${subDigits(zeros)}${sig}` : `$0.${m[1]}${sig}`;
 };
 
 // ── token detail ──
