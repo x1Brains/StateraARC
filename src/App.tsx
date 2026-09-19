@@ -96,6 +96,7 @@ export default function App() {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('liq');
   const [dir, setDir] = useState<'desc' | 'asc'>('desc');
+  const [hideDupes, setHideDupes] = useState(true); // hide counterfeit/duplicate-ticker impersonators
   // Click a column header to sort by it; click again to flip direction (name defaults A→Z, numbers high→low).
   const clickSort = (k: SortKey) => {
     if (sort === k) setDir((d) => (d === 'desc' ? 'asc' : 'desc'));
@@ -147,14 +148,46 @@ export default function App() {
   // Live-ish: silently refresh prices/mcap/liquidity every 60s (no loading flicker).
   useEffect(() => { const id = setInterval(() => load(true), 60000); return () => clearInterval(id); }, []); // eslint-disable-line
 
+  // Ticker impersonation: Arc has 100+ duplicate tickers (11 fake "USDC", etc.). For each ticker we keep
+  // the CANONICAL token (most liquid, holders as tiebreak); the rest are flagged as likely impersonators.
+  const { canonical, tickerCount } = useMemo(() => {
+    const best = new Map<string, { addr: string; score: number }>();
+    const count = new Map<string, number>();
+    for (const t of tokens) {
+      const s = (t.symbol || '').toUpperCase(); if (!s) continue;
+      count.set(s, (count.get(s) || 0) + 1);
+      // Ecosystem/core tokens (native USDC, Animus…) are always the real one for their ticker, even with
+      // no pool liquidity; otherwise most-liquid wins, holders as tiebreak.
+      const score = (t.isEcosystem ? 1e18 : 0) + (t.liq ?? 0) * 1e6 + (t.holders ?? 0);
+      const cur = best.get(s);
+      if (!cur || score > cur.score) best.set(s, { addr: t.address.toLowerCase(), score });
+    }
+    return { canonical: new Set([...best.values()].map((v) => v.addr)), tickerCount: count };
+  }, [tokens]);
+  const isDup = (t: Token) => (tickerCount.get((t.symbol || '').toUpperCase()) ?? 0) > 1 && !canonical.has(t.address.toLowerCase());
+  const dupCount = useMemo(() => tokens.filter(isDup).length, [tokens, canonical, tickerCount]); // eslint-disable-line
+
   const rows = useMemo(() => {
     let r = tokens;
     if (filter === 'new') r = r.filter((t) => t.launchpad);
     else if (filter === 'eco') r = r.filter((t) => t.isEcosystem);
-    if (q.trim()) {
-      const s = q.toLowerCase();
-      r = r.filter((t) => t.name.toLowerCase().includes(s) || t.symbol.toLowerCase().includes(s) || t.address.includes(s));
+    const s = q.trim().toLowerCase();
+    if (s) {
+      // While searching, show EVERY match (incl. duplicates) so a specific token is findable.
+      r = r.filter((t) => t.name.toLowerCase().includes(s) || t.symbol.toLowerCase().includes(s) || t.address.toLowerCase().includes(s));
+      const rank = (t: Token) => {
+        const sym = t.symbol.toLowerCase(), nm = t.name.toLowerCase();
+        if (sym === s || t.address.toLowerCase() === s) return 0;
+        if (sym.startsWith(s)) return 1;
+        if (nm.startsWith(s)) return 2;
+        return 3;
+      };
+      // Exact/prefix matches first, then by liquidity — real USDC beats 11 lookalikes.
+      return [...r].sort((a, b) => (rank(a) - rank(b)) || ((b.liq ?? -1) - (a.liq ?? -1)));
     }
+    // Default view: drop fully-dead tokens (no price/liq/holders/volume) and, unless toggled, impersonators.
+    r = r.filter((t) => t.price != null || t.liq != null || (t.holders ?? 0) > 0 || t.volume24h != null);
+    if (hideDupes) r = r.filter((t) => !isDup(t));
     // Value a token exposes for the active sort key (null = "no data", always sorts last).
     const val = (t: Token): number | null => (
       sort === 'volume' ? t.volume24h
@@ -170,9 +203,9 @@ export default function App() {
       if (bv == null) return -1;
       return dir === 'desc' ? bv - av : av - bv;
     });
-  }, [tokens, filter, q, sort, dir]);
+  }, [tokens, filter, q, sort, dir, hideDupes, canonical, tickerCount]);
 
-  useEffect(() => { setPageNum(1); }, [filter, q, sort, perPage]);
+  useEffect(() => { setPageNum(1); }, [filter, q, sort, dir, perPage, hideDupes]);
   const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
   const pageRows = rows.slice((pageNum - 1) * perPage, pageNum * perPage);
 
@@ -368,6 +401,12 @@ export default function App() {
                   { value: 'name', label: 'Name' },
                 ]} />
               </div>
+              {dupCount > 0 && !q.trim() && (
+                <button className={`dupe-toggle${hideDupes ? '' : ' on'}`} onClick={() => setHideDupes((v) => !v)}
+                  title="Duplicate tickers on Arc are usually impersonators — only the most-liquid one is shown">
+                  {hideDupes ? `Show ${dupCount} duplicate tickers` : 'Hide duplicate tickers'}
+                </button>
+              )}
             </div>
 
             {err && <div className="msg err">Error: {err}</div>}

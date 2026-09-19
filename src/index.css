@@ -1192,3 +1192,7 @@ footer .flink:hover { text-decoration: underline; }
 
 .tabs .tab-sep { width: 1px; align-self: stretch; background: var(--line); margin: 4px 4px; }
 @media (max-width: 640px) { .tabs .tab-sep { display: none; } }
+
+.dupe-toggle { background: transparent; border: 1px solid var(--line); color: var(--gray-2); border-radius: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.dupe-toggle:hover { color: var(--white); border-color: var(--gray); }
+.dupe-toggle.on { color: var(--fire-solid, #ff7a1e); border-color: var(--fire-solid, #ff7a1e); }
