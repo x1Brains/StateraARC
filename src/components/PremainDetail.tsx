@@ -122,7 +122,6 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const buys = rd?.buys24 ?? null, sells = rd?.sells24 ?? null;
   const buyPct = buys != null && sells != null && buys + sells > 0 ? (buys / (buys + sells)) * 100 : null;
   const top10 = holders && holders.length ? holders.slice(0, 10).reduce((s, h) => s + (h.percent ?? 0), 0) : null;
-  const lpCount = holders ? holders.filter((h) => h.isPool).length : null;
 
   // ── Liquidity depth + pool age + FDV (RadarDEX first, then on-chain reserves, then seed) ─────────
   const tvl = rd?.liquidityUsdc ?? ocPool?.tvl ?? liq ?? null;
@@ -161,7 +160,6 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const healthScore = healthParts.length ? Math.round(healthParts.reduce((s, p) => s + p.v * p.w, 0) / healthParts.reduce((s, p) => s + p.w, 0)) : null;
   const redFlags: string[] = [];
   if (depthPct != null && depthPct < 3) redFlags.push('Pool depth under 3% of valuation');
-  if (lpCount != null && lpCount <= 1) redFlags.push('Single LP — concentrated liquidity control');
   if (top10 != null && top10 > 80) redFlags.push(`Top 10 wallets hold ${top10.toFixed(0)}%`);
   if (rd?.mintable) redFlags.push('Supply is mintable');
   const healthLabel = healthScore == null ? '' : healthScore >= 70 ? 'Healthy' : healthScore >= 40 ? 'Caution' : 'High risk';
@@ -287,7 +285,6 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                 <div className="lq-res">
                   {reserveBase != null && <span className="lq-r"><b>{compact(reserveBase)}</b> {sym}</span>}
                   {reserveQuote != null && <span className="lq-r"><b>{compact(reserveQuote)}</b> {rd?.quoteSymbol || 'USDC'}</span>}
-                  {lpCount != null && <span className="lq-r"><b>{lpCount}</b> LP{lpCount === 1 ? '' : 's'}</span>}
                 </div>
               )}
             </div>
