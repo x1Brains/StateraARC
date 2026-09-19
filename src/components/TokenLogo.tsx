@@ -14,15 +14,20 @@ const KNOWN: Record<string, string> = {
   EURC: '/coins/EURC.svg', USDT: '/coins/USDT.png', WBTC: '/coins/BTC.png', WETH: '/coins/ETH.png', PAXG: '/coins/PAXG.png', GOLD: '/coins/PAXG.png',
 };
 
+// Arc-wide per-address token-image service (Tolly Labs) — the source other Arc sites use. Covers tokens
+// that have no icon URL and no on-chain imageURI (e.g. ARCAT/MMM), so we fall back to it before a letter.
+const tollyImg = (addr: string) => `https://api.tollylabs.com/token-image/${addr.toLowerCase()}.png`;
+
 export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string; url?: string | null }) {
   const [primaryBroke, setPrimaryBroke] = useState(false);
   const [onchain, setOnchain] = useState<string | null>(null);
   const [onchainBroke, setOnchainBroke] = useState(false);
+  const [tollyBroke, setTollyBroke] = useState(false);
   const color = colorFor(seed || symbol);
   const isAddr = /^0x[0-9a-fA-F]{40}$/.test(seed || '');
   const primary = url || KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol] || '';
   // Reset failure state when the token (url/seed) changes — the component is reused across list rows.
-  useEffect(() => { setPrimaryBroke(false); setOnchainBroke(false); }, [primary, seed]);
+  useEffect(() => { setPrimaryBroke(false); setOnchainBroke(false); setTollyBroke(false); }, [primary, seed]);
   // Resolve the on-chain logo when we have no primary OR the primary image failed to load (flaky IPFS
   // gateways 429 on bursts, e.g. the swap picker opening 10+ icons at once). This is the real fallback:
   // url → on-chain → letter, so a dead/rate-limited icon URL still shows the token's logo.
@@ -39,6 +44,9 @@ export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string;
   }
   if (onchain && !onchainBroke) {
     return <img className="tlogo" src={onchain} alt={symbol} loading="lazy" onError={() => setOnchainBroke(true)} />;
+  }
+  if (isAddr && !tollyBroke) {
+    return <img className="tlogo" src={tollyImg(seed)} alt={symbol} loading="lazy" onError={() => setTollyBroke(true)} />;
   }
   const letter = (symbol || '?').replace(/[^A-Za-z0-9]/g, '').charAt(0).toUpperCase() || '?';
   return (
