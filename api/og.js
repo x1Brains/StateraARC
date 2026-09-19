@@ -1,7 +1,7 @@
 import { ImageResponse } from '@vercel/og';
 import React from 'react';
 
-export const config = { runtime: 'edge' };
+// Node runtime (default, same as api/radar.js) — the edge runtime wasn't building on this Vite project.
 const h = (type, style, ...children) => React.createElement(type, { style }, ...children);
 
 // Dynamic social card for a token: paste stateraarc.com/token/0x… anywhere and it unfurls into this.
