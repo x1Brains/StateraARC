@@ -1189,3 +1189,6 @@ footer .flink:hover { text-decoration: underline; }
 
 .trow.head .sortable { cursor: pointer; user-select: none; transition: color .1s; }
 .trow.head .sortable:hover { color: var(--white); }
+
+.tabs .tab-sep { width: 1px; align-self: stretch; background: var(--line); margin: 4px 4px; }
+@media (max-width: 640px) { .tabs .tab-sep { display: none; } }

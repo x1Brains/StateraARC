@@ -107,6 +107,11 @@ export default function App() {
       {label}{sort === k ? (dir === 'desc' ? ' ▾' : ' ▴') : ''}
     </span>
   );
+  // Quick views = sort presets (independent of the all/new/eco subset filter).
+  const setView = (s: SortKey, d: 'desc' | 'asc') => { setSort(s); setDir(d); };
+  const activeView = sort === 'volume' && dir === 'desc' ? 'trending'
+    : sort === 'change24h' && dir === 'desc' ? 'gainers'
+    : sort === 'change24h' && dir === 'asc' ? 'losers' : '';
   const [pageNum, setPageNum] = useState(1);
   const [perPage, setPerPage] = useState(() => (typeof window !== 'undefined' && window.innerWidth <= 640 ? 50 : 100));
   const [selected, setSelected] = useState<string | null>(() => parsePath().selected);
@@ -343,6 +348,10 @@ export default function App() {
             <div className="controls">
               <div className="tabs">
                 {FILTERS.map((f) => <button key={f.key} className={filter === f.key ? 'on' : ''} onClick={() => setFilter(f.key)}>{f.label}</button>)}
+                <span className="tab-sep" />
+                <button className={activeView === 'trending' ? 'on' : ''} onClick={() => setView('volume', 'desc')}>Trending</button>
+                <button className={activeView === 'gainers' ? 'on' : ''} onClick={() => setView('change24h', 'desc')}>Gainers</button>
+                <button className={activeView === 'losers' ? 'on' : ''} onClick={() => setView('change24h', 'asc')}>Losers</button>
               </div>
               <input className="search" placeholder="Search name, symbol, or address" value={q} onChange={(e) => setQ(e.target.value)} />
               <div className="sortby">
