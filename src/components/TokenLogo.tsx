@@ -15,20 +15,30 @@ const KNOWN: Record<string, string> = {
 };
 
 export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string; url?: string | null }) {
-  const [broken, setBroken] = useState(false);
+  const [primaryBroke, setPrimaryBroke] = useState(false);
   const [onchain, setOnchain] = useState<string | null>(null);
+  const [onchainBroke, setOnchainBroke] = useState(false);
   const color = colorFor(seed || symbol);
-  const known = url || KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol] || '';
-  // No supplied/known logo → read it on-chain from the token address (cached).
+  const isAddr = /^0x[0-9a-fA-F]{40}$/.test(seed || '');
+  const primary = url || KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol] || '';
+  // Reset failure state when the token (url/seed) changes — the component is reused across list rows.
+  useEffect(() => { setPrimaryBroke(false); setOnchainBroke(false); }, [primary, seed]);
+  // Resolve the on-chain logo when we have no primary OR the primary image failed to load (flaky IPFS
+  // gateways 429 on bursts, e.g. the swap picker opening 10+ icons at once). This is the real fallback:
+  // url → on-chain → letter, so a dead/rate-limited icon URL still shows the token's logo.
+  const needFallback = (!primary || primaryBroke) && isAddr;
   useEffect(() => {
-    if (known || !/^0x[0-9a-fA-F]{40}$/.test(seed || '')) return;
+    if (!needFallback) return;
     let alive = true;
     resolveTokenLogo(seed).then((l) => { if (alive && l) setOnchain(l); }).catch(() => {});
     return () => { alive = false; };
-  }, [seed, known]);
-  const src = known || onchain;
-  if (src && !broken) {
-    return <img className="tlogo" src={src} alt={symbol} loading="lazy" onError={() => setBroken(true)} />;
+  }, [seed, needFallback]);
+
+  if (primary && !primaryBroke) {
+    return <img className="tlogo" src={primary} alt={symbol} loading="lazy" onError={() => setPrimaryBroke(true)} />;
+  }
+  if (onchain && !onchainBroke) {
+    return <img className="tlogo" src={onchain} alt={symbol} loading="lazy" onError={() => setOnchainBroke(true)} />;
   }
   const letter = (symbol || '?').replace(/[^A-Za-z0-9]/g, '').charAt(0).toUpperCase() || '?';
   return (
