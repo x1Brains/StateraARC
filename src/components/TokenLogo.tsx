@@ -36,11 +36,12 @@ export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string;
   const isAddr = /^0x[0-9a-fA-F]{40}$/.test(seed || '');
   // Addressed tokens: own icon → canonical-address logo → (no symbol match; impersonators don't inherit
   // real logos). Non-addressed (alias/display) tokens: fall back to the symbol map.
-  const primary = url || KNOWN_ADDR[(seed || '').toLowerCase()] || (isAddr ? '' : (KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol] || ''));
-  // Dedicated Pinata gateways (…mypinata.cloud/ipfs/CID) hotlink-block / rate-limit the browser (the
-  // image loads via curl but the <img> onErrors — e.g. BLOB). Retry the SAME CID on the reliable public
-  // Pinata gateway before falling through to on-chain/tolly/letter.
-  const ipfsCid = (() => { const m = (primary || '').match(/\/ipfs\/([A-Za-z0-9]+)/); return m && !/\/\/gateway\.pinata\.cloud\//.test(primary) ? m[1] : null; })();
+  const rawPrimary = url || KNOWN_ADDR[(seed || '').toLowerCase()] || (isAddr ? '' : (KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol] || ''));
+  // ⛔ Dedicated Pinata gateways (…mypinata.cloud/ipfs/CID) intermittently drop browser <img> loads under
+  // list bursts (BLOB kept showing a letter). Use the reliable public gateway as the PRIMARY, and keep a
+  // second public IPFS gateway as the fallback before on-chain/tolly/letter.
+  const primary = (rawPrimary || '').replace(/https?:\/\/[a-z0-9-]+\.mypinata\.cloud\/ipfs\//i, 'https://gateway.pinata.cloud/ipfs/');
+  const ipfsCid = (() => { const m = (primary || '').match(/\/ipfs\/([A-Za-z0-9]+)/); return m ? m[1] : null; })();
   // Reset failure state when the token (url/seed) changes — the component is reused across list rows.
   useEffect(() => { setPrimaryBroke(false); setIpfsBroke(false); setOnchainBroke(false); setTollyBroke(false); }, [primary, seed]);
   // Resolve the on-chain logo when we have no primary OR the primary image failed to load (flaky IPFS
@@ -58,7 +59,7 @@ export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string;
     return <img className="tlogo" src={primary} alt={symbol} loading="lazy" onError={() => setPrimaryBroke(true)} />;
   }
   if (ipfsCid && !ipfsBroke) {
-    return <img className="tlogo" src={`https://gateway.pinata.cloud/ipfs/${ipfsCid}`} alt={symbol} loading="lazy" onError={() => setIpfsBroke(true)} />;
+    return <img className="tlogo" src={`https://ipfs.io/ipfs/${ipfsCid}`} alt={symbol} loading="lazy" onError={() => setIpfsBroke(true)} />;
   }
   if (onchain && !onchainBroke) {
     return <img className="tlogo" src={onchain} alt={symbol} loading="lazy" onError={() => setOnchainBroke(true)} />;

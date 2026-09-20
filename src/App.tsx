@@ -485,7 +485,14 @@ export default function App() {
               </div>
               </div>
             )}
-            {!loading && !!tokens.length && !rows.length && <div className="msg">No tokens match{q ? ` "${q}"` : ' this filter'}.</div>}
+            {!loading && !!tokens.length && !rows.length && (
+              /^0x[0-9a-fA-F]{40}$/.test(q.trim())
+                ? <div className="msg" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                    <span>Not in the indexed list — open it directly from chain:</span>
+                    <button className="btn solid" onClick={() => openToken(q.trim().toLowerCase())}>Open token {q.trim().slice(0, 8)}…{q.trim().slice(-6)} <IconArrowRight className="arw" /></button>
+                  </div>
+                : <div className="msg">No tokens match{q ? ` "${q}"` : ' this filter'}.</div>
+            )}
 
             {rows.length > perPage && (
               <div className="pager">
