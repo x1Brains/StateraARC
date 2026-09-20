@@ -1019,7 +1019,10 @@ export async function findTokenPool(token: string): Promise<string | null> {
   if (MAINNET_POOL[t]) return MAINNET_POOL[t];
   if (poolDiscovery.has(t)) return poolDiscovery.get(t)!;
   const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
-  const usdcOf = async (p: string) => { const b = await mCall(NATIVE_USDC_ADDR, '0x70a08231' + pad(p)).catch(() => null); try { return b ? Number(BigInt(b)) / 1e6 : 0; } catch { return 0; } };
+  // USDC on Arc is the NATIVE gas token (0x3600). balanceOf() on it reads only ERC-20 dust — the real
+  // pool USDC is the native balance, so measure depth with eth_getBalance (18-dec). Using balanceOf here
+  // made us pick a token's tiny stale pool over its real deep one (e.g. ARGUS: $113 pool vs the $547K one).
+  const usdcOf = async (p: string) => { const b = await mrpc('eth_getBalance', [p, 'latest']).catch(() => null); try { return b ? Number(BigInt(b)) / 1e18 : 0; } catch { return 0; } };
   let best: string | null = null, bestUsdc = -1;
   const candidates = await Promise.all([
     ...[100, 500, 3000, 10000].map((fee) => mCall(V3_FACTORY, '0x1698ee82' + pad(t) + pad(NATIVE_USDC_ADDR) + fee.toString(16).padStart(64, '0')).catch(() => null)),

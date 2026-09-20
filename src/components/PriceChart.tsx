@@ -65,10 +65,21 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
         c = c.map((k) => ({ time: k.time, open: k.open * priceScale, high: k.high * priceScale, low: k.low * priceScale, close: k.close * priceScale }));
       }
       if (c && c.length) c = rebucket(c, cfg.sec);
-      // Not on Warp (deep V3 tokens like ARGUS) → build candles from the pool's on-chain swaps at this
-      // timeframe's bucket + lookback (decimals-correct, so no rescale).
-      if (!c || c.length === 0) {
-        c = await fetchPoolCandles(address, decimals ?? 18, cfg.sec, cfg.look).catch(() => [] as Candle[]);
+      // Warp's candle API only serves ~1 day of history (27×1h / 305×5m, capped even with limit=1000),
+      // so WARP tokens (ARGUS etc.) can't show all-time from Warp. On the wide timeframes, reconstruct
+      // candles from the pool's ON-CHAIN swaps (decimals-correct, full chain life) and use whichever
+      // series reaches further back. Deep V3 tokens not on Warp at all fall here too (c empty).
+      const WIDE = tf === '4h' || tf === '1d' || tf === '1w' || tf === 'all';
+      if (!c || c.length === 0 || WIDE) {
+        const oc = await fetchPoolCandles(address, decimals ?? 18, cfg.sec, cfg.look).catch(() => [] as Candle[]);
+        if (oc && oc.length) {
+          if (!c || !c.length) c = oc;                        // not on Warp at all → on-chain only
+          else if (oc[0].time < c[0].time) {                  // on-chain reaches further back → MERGE:
+            // keep Warp's recent/current candles, prepend on-chain buckets older than Warp's earliest.
+            const cut = c[0].time;
+            c = [...oc.filter((k) => k.time < cut), ...c];
+          }
+        }
       }
       // Show only this timeframe's window.
       if (c && c.length) { const cut = Math.floor(Date.now() / 1000) - cfg.look; c = c.filter((k) => k.time >= cut); }
