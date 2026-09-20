@@ -88,6 +88,26 @@ export default async function handler(req, res) {
   if (!/^0x[0-9a-f]{40}$/.test(addr)) { res.statusCode = 400; return res.end(JSON.stringify({ error: 'bad address' })); }
 
   try {
+    // PRIMARY: the VPS indexer (clean IP, no serverless timeout, caches each wallet's token list so
+    // repeat loads are ~1s). Fall back to the in-function on-chain scan below only if it's unreachable.
+    const UP = process.env.HOLDINGS_UPSTREAM, HK = process.env.HOLDINGS_KEY;
+    if (UP && HK) {
+      const t0 = Date.now();
+      try {
+        const r = await fetch(`${UP.replace(/\/+$/, '')}/holdings?addr=${addr}`, { headers: { 'x-relay-key': HK }, signal: AbortSignal.timeout(100000) });
+        const txt = await r.text();
+        const j = JSON.parse(txt);
+        if (r.ok && Array.isArray(j.holdings)) {
+          res.setHeader('content-type', 'application/json');
+          res.setHeader('cache-control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=3600');
+          res.statusCode = 200; return res.end(txt);
+        }
+      } catch { /* VPS unreachable/slow — fall back to the local scan below */ }
+      // If the VPS was merely SLOW (not a fast connection failure), don't also run the heavy local scan
+      // (that could blow the function timeout) — return 503 so the client keeps its fast partial view.
+      if (Date.now() - t0 > 15000) { res.statusCode = 503; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ error: 'indexer busy' })); }
+    }
+
     // Snapshot = free metadata + prices for the tokens we already track.
     const snap = await fetch(`${origin}/tokens-snapshot.json`, { cache: 'no-store' }).then((r) => r.json()).catch(() => ({ tokens: [] }));
     const meta = new Map((snap.tokens || []).map((t) => [t.address.toLowerCase(), t]));
