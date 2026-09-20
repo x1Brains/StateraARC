@@ -125,7 +125,10 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const mc = seed?.mcap ?? warp?.mcap ?? (px != null && supplyNum ? px * supplyNum : null);
   const vol = rd?.volume24 ?? seed?.volume24h ?? warp?.volume24h ?? null;
   const chg = rd?.change24h ?? seed?.change24h ?? null;
-  const holdersTotal = holderCount ?? seed?.holders ?? warp?.holders ?? d?.holders ?? null;
+  // Holder count: on-chain (arc-scan) and Warp agree and are ground truth; RadarDEX's count is stale/
+  // partial (it only lists ~50 rows and undercounted ARGUS 12k vs the real 18k), so it goes LAST — else
+  // it loaded late and OVERRODE the correct number, making the header flip 18k -> 12k.
+  const holdersTotal = d?.holders ?? warp?.holders ?? seed?.holders ?? holderCount ?? null;
   // Buy/sell pressure (24h) + top-10 concentration for the DEX-style panels.
   const buys = rd?.buys24 ?? null, sells = rd?.sells24 ?? null;
   const buyPct = buys != null && sells != null && buys + sells > 0 ? (buys / (buys + sells)) * 100 : null;

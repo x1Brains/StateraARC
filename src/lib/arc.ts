@@ -1146,7 +1146,7 @@ async function scanPoolSwaps(token: string, decimals: number, spanCap: number): 
   const ranges: [bigint, bigint][] = [];
   for (let from = head - BigInt(spanCap); from < head; from += CH) ranges.push([from, from + CH > head ? head : from + CH]);
   const results = await runLimited(ranges.map(([from, to], idx) => () =>
-    getLogsBig({ address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }, idx)), 6);
+    getLogsBig({ address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }, idx)), 10);
   const swaps: { ts: number; price: number }[] = [];
   for (const logs of results) {
     if (!Array.isArray(logs)) continue;

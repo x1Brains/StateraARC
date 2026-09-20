@@ -51,6 +51,14 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   const seriesRef = useRef<ISeriesApi<any> | null>(null);
   const seriesTypeRef = useRef<ChartType | null>(null);
 
+  // Warm the wide-timeframe swap cache in the background shortly after load. The default view (5m) uses
+  // Warp candles (instant), so the ~4s on-chain 900k-block scan for 4H/1D/1W/ALL would otherwise only
+  // start when the user clicks one. Prefetching it (once per token) makes that first wide click instant.
+  useEffect(() => {
+    const t = setTimeout(() => { fetchPoolCandles(address, decimals ?? 18, 43200, 3650 * 86400).catch(() => {}); }, 1200);
+    return () => clearTimeout(t);
+  }, [address, decimals]);
+
   // fetch candles on address / timeframe change
   useEffect(() => {
     let alive = true;
