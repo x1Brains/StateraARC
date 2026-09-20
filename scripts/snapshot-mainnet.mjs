@@ -157,10 +157,21 @@ async function poolActivity(token, pool) {
 // Token metadata (icon + holder count) for tokens no aggregator covers. Icon = baked CoinGecko map;
 // holders from arc-scan REST (node can reach it; explorer.arc.io Cloudflare-blocks node fetch → 403).
 async function metaFor(addr) {
-  let holders = null;
+  let holders = null, createdAt = null;
   const j = await getJson(`${ARCSCAN}/tokens/${addr}`);
-  if (j) holders = num(j.holders ?? j.token?.holders ?? j.holders_count);
-  return { icon: ICON_MAP[addr.toLowerCase()] || null, holders };
+  if (j) {
+    holders = num(j.holders ?? j.token?.holders ?? j.holders_count);
+    // Deploy time for the deep tokens no indexer dates: arc-scan gives the creation tx (block unset),
+    // so resolve the tx's block timestamp on-chain (fixes AGE showing "—" for ARGUS/TOLLY/…).
+    const tx = j.contract?.creation?.tx_hash;
+    if (tx) {
+      try {
+        const t = await rpc('eth_getTransactionByHash', [tx]);
+        if (t?.blockNumber) { const b = await rpc('eth_getBlockByNumber', [t.blockNumber, false]); if (b?.timestamp) createdAt = Number(BigInt(b.timestamp)) * 1000; }
+      } catch { /* leave null */ }
+    }
+  }
+  return { icon: ICON_MAP[addr.toLowerCase()] || null, holders, createdAt };
 }
 
 async function poolStats(token, pool) {
@@ -234,7 +245,7 @@ async function poolStats(token, pool) {
     const [stats, act, ex] = await Promise.all([poolStats(token, meta.pool), poolActivity(token, meta.pool), metaFor(token)]);
     const cur = map.get(token) || {};
     set(mk({ address: token, name: cur.name || meta.name, symbol: cur.symbol || meta.symbol,
-      iconUrl: ex?.icon ?? null, holders: ex?.holders ?? null,
+      iconUrl: ex?.icon ?? null, holders: ex?.holders ?? null, createdAt: ex?.createdAt ?? null, source: 'V3',
       price: stats?.price ?? null, liq: stats?.liq ?? null, mcap: stats?.mcap ?? null,
       volume24h: act?.volume24h ?? null, change1h: act?.change1h ?? null, change24h: act?.change24h ?? null, spark: act?.spark ?? null, txns24: act?.txns24 ?? null }));
     // deep-pool on-chain values are authoritative — overwrite radar/warp for price/liq/mcap/vol/change/spark

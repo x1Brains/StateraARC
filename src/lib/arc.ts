@@ -1068,13 +1068,14 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
   const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
   const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
-  // Scan back far enough to cover this timeframe's window (lookbackSec), capped so getLogs stays cheap.
-  const spanCap = intervalSec >= 3600 ? 300000 : 80000;
+  // Scan back to cover this timeframe's window. Wide views (4H+) reach the whole chain-life (~4 days) so
+  // 1D/1W/ALL show real all-time history for deep on-chain tokens; fine views stay bounded (fast).
+  const spanCap = intervalSec >= 14400 ? 900000 : intervalSec >= 3600 ? 300000 : 80000;
   const spanBlocks = Math.min(spanCap, Math.ceil((lookbackSec ?? intervalSec * 90) / blockTime));
   const dexp = 10 ** (decimals - 6); // USDC is 6-dec, the token `decimals`-dec
-  // Build the block ranges and fetch them IN PARALLEL (bounded) — the RPC caps ranges at ~2.5k blocks,
-  // so a sequential loop is slow; runLimited cuts it ~6×.
-  const CH = 2500n;
+  // Build the block ranges and fetch them IN PARALLEL (bounded). Arc RPCs allow up to 10k-block ranges
+  // (pool-address-filtered → few results), so 9.5k chunks keep the wide-timeframe scan to ~95 calls.
+  const CH = 9500n;
   const ranges: [bigint, bigint][] = [];
   for (let from = head - BigInt(spanBlocks); from < head; from += CH) ranges.push([from, from + CH > head ? head : from + CH]);
   const results = await runLimited(ranges.map(([from, to]) => () =>
