@@ -7,13 +7,21 @@
 //   4. price from the snapshot, else the token's on-chain V3/V2 USDC pool.
 // Multi-RPC rotation + retry (our 3 receipt-reliable Arc endpoints) so no single RPC's rate limit breaks it.
 
+import { keccak_256 } from '@noble/hashes/sha3';
+
 const RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org', 'https://arc.gateway.tenderly.co'];
 const USDC = '0x3600000000000000000000000000000000000000';
 const MC = '0xcA11bde05977b3631167028862bE2a173976CA11'; // Multicall3 (canonical, present on Arc)
 const V3_FACTORY = '0xf0db7b58379503491d857db50ac9ece64c653918';
 const V2_FACTORY = '0x942bd5bfdc5317c5507e326f8eb4bb6058ab5c10';
+const PM_V4 = '0x8366a39cc670b4001a1121b8f6a443a643e40951'; // Uniswap v4 PoolManager singleton
+const V4_INIT = '0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438'; // v4 Initialize(id,c0,c1,…)
 const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const ZERO = '0x0000000000000000000000000000000000000000';
+const hexToU8 = (h) => { h = h.replace(/^0x/, ''); const a = new Uint8Array(h.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; };
+// v4 pool state lives at _pools[poolId] (mapping slot 6); slot0 (sqrtPriceX96 in low 160 bits) is its
+// base slot. Verified: keccak256(poolId . 6) == ARCX10's known stateSlot.
+const v4StateSlot = (poolId) => '0x' + Buffer.from(keccak_256(hexToU8(poolId.replace(/^0x/, '').padStart(64, '0') + (6).toString(16).padStart(64, '0')))).toString('hex');
 
 const pad = (a) => a.toLowerCase().replace('0x', '').padStart(64, '0');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -85,6 +93,11 @@ export default async function handler(req, res) {
     const head = BigInt((await rpc('eth_blockNumber', [])).result || '0x0');
     if (head === 0n) throw new Error('no head');
 
+    // Price sanity clamp — no Arc token is worth >$1M/unit; a bigger number is a decimals / degenerate-
+    // pool error (DUKE came out 1e44 and blew up the whole total). Reject it rather than show garbage.
+    const PX_MAX = 1e6;
+    const sane = (p) => (p != null && isFinite(p) && p > 0 && p < PX_MAX ? p : null);
+
     // Wallet's active range (bounds the log scan to a handful of calls, not the whole chain).
     let oldest = null, page = '', guard = 0;
     do {
@@ -94,14 +107,30 @@ export default async function handler(req, res) {
     } while (page && guard < 15);
     const from = BigInt(oldest != null ? oldest : Number(head) - 800000);
 
-    // Discover received tokens via Transfer logs (topic2 = wallet) in 9.5k chunks, rotated across RPCs.
+    // Discover, over the wallet's active range, IN PARALLEL: (a) tokens RECEIVED (Transfer topic2=wallet),
+    // and (b) every Uniswap-v4 pool (PoolManager Initialize) so we can price v4/non-USDC tokens later
+    // without a second scan. Both share the RPC rotation; keep concurrency modest to dodge rate limits.
     const CH = 9500n; const ranges = [];
     for (let f = from; f < head; f += CH) ranges.push([f, f + CH > head ? head : f + CH]);
     const contracts = new Set([USDC]);
-    await mapPool(ranges, async ([f, t]) => {
-      const r = await rpc('eth_getLogs', [{ fromBlock: hexN(f), toBlock: hexN(t), topics: [TRANSFER, null, '0x' + pad(addr)] }]);
-      if (Array.isArray(r.result)) for (const l of r.result) contracts.add((l.address || '').toLowerCase());
-    }, 6);
+    const v4pools = new Map(); // token -> [{ poolId, other, isC0 }]
+    await Promise.all([
+      mapPool(ranges, async ([f, t]) => {
+        const r = await rpc('eth_getLogs', [{ fromBlock: hexN(f), toBlock: hexN(t), topics: [TRANSFER, null, '0x' + pad(addr)] }]);
+        if (Array.isArray(r.result)) for (const l of r.result) contracts.add((l.address || '').toLowerCase());
+      }, 4),
+      mapPool(ranges, async ([f, t]) => {
+        const r = await rpc('eth_getLogs', [{ address: PM_V4, fromBlock: hexN(f), toBlock: hexN(t), topics: [V4_INIT] }]);
+        if (!Array.isArray(r.result)) return;
+        for (const l of r.result) {
+          const c0 = ('0x' + (l.topics[2] || '').slice(-40)).toLowerCase();
+          const c1 = ('0x' + (l.topics[3] || '').slice(-40)).toLowerCase();
+          const poolId = l.topics[1];
+          (v4pools.get(c0) || v4pools.set(c0, []).get(c0)).push({ poolId, other: c1, isC0: true });
+          (v4pools.get(c1) || v4pools.set(c1, []).get(c1)).push({ poolId, other: c0, isC0: false });
+        }
+      }, 4),
+    ]);
     contracts.delete(''); contracts.delete(ZERO);
     const list = [...contracts];
 
@@ -191,17 +220,45 @@ export default async function handler(req, res) {
       } catch { /* no warp price */ }
     }, 6);
 
-    // Price sanity: no Arc token is worth >$1M/unit — anything above is a decimals / degenerate-pool
-    // error (e.g. DUKE mispriced at 1e44 blew up the whole total). Reject it rather than show garbage.
-    const PX_MAX = 1e6;
-    const sane = (p) => (p != null && isFinite(p) && p > 0 && p < PX_MAX ? p : null);
+    // V4 pricing: tokens whose liquidity is a Uniswap V4 pool (non-USDC pairs — e.g. MEAL/HOOKER) have no
+    // V3/V2/Warp price. Find the pool from the PoolManager's Initialize event (topic1 = poolId), read the
+    // live sqrtPrice via extsload, and hop the quote currency to USD.
+    const v4Price = new Map();
+    const needV4 = held.filter((h) => h.address !== USDC && meta.get(h.address)?.price == null && !priceMap.has(h.address) && !warpPrice.has(h.address) && v4pools.has(h.address));
+    if (needV4.length) {
+      const pools = v4pools; // already discovered in the parallel scan above
+      // Resolve USD price of a quote currency: USDC=1, else snapshot/on-chain-pool/warp price we already have.
+      const usdOf = async (a) => {
+        if (a === USDC) return 1;
+        const s = sane(meta.get(a)?.price) ?? sane(priceMap.get(a)) ?? sane(warpPrice.get(a));
+        if (s != null) return s;
+        try { const w = await fetch(`${origin}/api/warp/tokens/${a}`, { signal: AbortSignal.timeout(6000) }).then((r) => r.json()); const n = Number(w?.price ?? w?.data?.price); if (isFinite(n) && n > 0) { const dec = meta.get(a)?.decimals ?? 18; return n * Math.pow(10, dec - 18); } } catch { /* */ }
+        return null;
+      };
+      for (const h of needV4) {
+        const cands = pools.get(h.address); if (!cands) continue;
+        for (const { poolId, other, isC0 } of cands) {
+          const otherUsd = await usdOf(other); if (otherUsd == null) continue;
+          const s0 = await call(PM_V4, '0x1e2eaeaf' + v4StateSlot(poolId).slice(2)); // extsload(stateSlot)
+          if (!s0 || !s0.result || s0.result === '0x') continue;
+          let sqrtP; try { sqrtP = BigInt(s0.result) & ((1n << 160n) - 1n); } catch { continue; }
+          if (sqrtP <= 0n) continue;
+          const ratio = (Number(sqrtP) / 2 ** 96) ** 2; // raw currency1 / currency0
+          const decTok = meta.get(h.address)?.decimals ?? h.on?.decimals ?? 18;
+          const decOther = other === USDC ? 6 : (meta.get(other)?.decimals ?? 18);
+          const tokenInOther = (isC0 ? ratio : 1 / ratio) * Math.pow(10, decTok - decOther);
+          const price = tokenInOther * otherUsd;
+          if (isFinite(price) && price > 0) { v4Price.set(h.address, price); break; }
+        }
+      }
+    }
 
     // Assemble holdings.
     const holdings = held.map((h) => {
       const m = meta.get(h.address);
       const decimals = h.native ? 6 : (m?.decimals ?? h.on?.decimals ?? 18);
       const amount = Number(h.raw) / 10 ** (h.native ? 18 : decimals); // native USDC is 18-dec on-chain
-      let price = h.address === USDC ? 1 : (sane(m?.price) ?? sane(priceMap.get(h.address)) ?? sane(warpPrice.get(h.address)));
+      let price = h.address === USDC ? 1 : (sane(m?.price) ?? sane(priceMap.get(h.address)) ?? sane(warpPrice.get(h.address)) ?? sane(v4Price.get(h.address)));
       let usd = price != null ? amount * price : null;
       if (usd != null && usd > 1e9) { price = null; usd = null; } // no single nanocap position is worth $1B
       return {
