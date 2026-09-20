@@ -9,7 +9,9 @@
 
 import { keccak_256 } from '@noble/hashes/sha3';
 
-const RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org', 'https://arc.gateway.tenderly.co'];
+// 5 endpoints that all serve address-less topic-filtered getLogs at a 9.5k range — spread the ~100-chunk
+// scan across them so no single RPC rate-limits us (was the cause of tokens intermittently going missing).
+const RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org', 'https://arc.gateway.tenderly.co', 'https://rpc.blockdaemon.mainnet.arc.io', 'https://rpc.quicknode.mainnet.arc.io'];
 const USDC = '0x3600000000000000000000000000000000000000';
 const MC = '0xcA11bde05977b3631167028862bE2a173976CA11'; // Multicall3 (canonical, present on Arc)
 const V3_FACTORY = '0xf0db7b58379503491d857db50ac9ece64c653918';
@@ -98,14 +100,19 @@ export default async function handler(req, res) {
     const PX_MAX = 1e6;
     const sane = (p) => (p != null && isFinite(p) && p > 0 && p < PX_MAX ? p : null);
 
-    // Wallet's active range (bounds the log scan to a handful of calls, not the whole chain).
+    // Wallet's active range. arc-scan /txs only lists txs the wallet SENT and is page-capped, so for an
+    // active trader its "oldest" starts too late and misses earlier buys/airdrops (BOA/EU went missing).
+    // Arc is only ~4 days old (~900k blocks), so scan back to at least the whole possible wallet lifetime
+    // — that guarantees complete coverage without ever scanning the whole 21M-block chain.
     let oldest = null, page = '', guard = 0;
     do {
       const j = await fetch(`https://api.arc-scan.org/v1/address/${addr}/txs?limit=100${page ? '&page=' + page : ''}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) }).then((r) => r.json()).catch(() => ({}));
       const items = j.items || []; if (items.length) oldest = items[items.length - 1].block;
       page = j.page && j.page.next ? j.page.next : ''; guard++;
     } while (page && guard < 15);
-    const from = BigInt(oldest != null ? oldest : Number(head) - 800000);
+    const LIFETIME = 1000000n; // ~5 days of Arc blocks — covers the whole chain-life so far
+    const floor = head > LIFETIME ? head - LIFETIME : 0n;
+    const from = oldest != null ? (BigInt(oldest) < floor ? BigInt(oldest) : floor) : floor;
 
     // Discover, over the wallet's active range, IN PARALLEL: (a) tokens RECEIVED (Transfer topic2=wallet),
     // and (b) every Uniswap-v4 pool (PoolManager Initialize) so we can price v4/non-USDC tokens later
@@ -114,23 +121,35 @@ export default async function handler(req, res) {
     for (let f = from; f < head; f += CH) ranges.push([f, f + CH > head ? head : f + CH]);
     const contracts = new Set([USDC]);
     const v4pools = new Map(); // token -> [{ poolId, other, isC0 }]
-    await Promise.all([
-      mapPool(ranges, async ([f, t]) => {
-        const r = await rpc('eth_getLogs', [{ fromBlock: hexN(f), toBlock: hexN(t), topics: [TRANSFER, null, '0x' + pad(addr)] }]);
-        if (Array.isArray(r.result)) for (const l of r.result) contracts.add((l.address || '').toLowerCase());
-      }, 4),
-      mapPool(ranges, async ([f, t]) => {
-        const r = await rpc('eth_getLogs', [{ address: PM_V4, fromBlock: hexN(f), toBlock: hexN(t), topics: [V4_INIT] }]);
-        if (!Array.isArray(r.result)) return;
-        for (const l of r.result) {
-          const c0 = ('0x' + (l.topics[2] || '').slice(-40)).toLowerCase();
-          const c1 = ('0x' + (l.topics[3] || '').slice(-40)).toLowerCase();
-          const poolId = l.topics[1];
-          (v4pools.get(c0) || v4pools.set(c0, []).get(c0)).push({ poolId, other: c1, isC0: true });
-          (v4pools.get(c1) || v4pools.set(c1, []).get(c1)).push({ poolId, other: c0, isC0: false });
-        }
-      }, 4),
-    ]);
+    // Robust scan: retry any getLogs chunk that DIDN'T return an array (rate limit / hiccup) — a silently
+    // dropped chunk means a whole token goes missing from the wallet (this is why COKE/Dyor/ARCHER came
+    // and went between loads). Retry failed ranges in extra passes at low concurrency before giving up.
+    const scanLogs = async (paramsFor, onLogs, conc, deadline) => {
+      let todo = ranges.slice();
+      for (let pass = 0; pass < 4 && todo.length && Date.now() < deadline; pass++) {
+        const failed = [];
+        await mapPool(todo, async (rg) => {
+          if (Date.now() > deadline) { failed.push(rg); return; }
+          const r = await rpc('eth_getLogs', [paramsFor(rg)]);
+          if (Array.isArray(r.result)) onLogs(r.result); else failed.push(rg);
+        }, pass === 0 ? conc : 3);
+        todo = failed;
+      }
+      return todo.length; // chunks that never succeeded (deadline hit or persistent errors)
+    };
+    // Hard wall-clock budget so we never trip Vercel's 60s timeout (that would 500 the whole portfolio).
+    // Discovery FIRST to completion (it's what makes tokens appear); V4 pricing gets the remaining time.
+    const started = Date.now();
+    const txMiss = await scanLogs(([f, t]) => ({ fromBlock: hexN(f), toBlock: hexN(t), topics: [TRANSFER, null, '0x' + pad(addr)] }),
+      (logs) => { for (const l of logs) contracts.add((l.address || '').toLowerCase()); }, 6, started + 34000);
+    await scanLogs(([f, t]) => ({ address: PM_V4, fromBlock: hexN(f), toBlock: hexN(t), topics: [V4_INIT] }),
+      (logs) => { for (const l of logs) {
+        const c0 = ('0x' + (l.topics[2] || '').slice(-40)).toLowerCase();
+        const c1 = ('0x' + (l.topics[3] || '').slice(-40)).toLowerCase();
+        const poolId = l.topics[1];
+        (v4pools.get(c0) || v4pools.set(c0, []).get(c0)).push({ poolId, other: c1, isC0: true });
+        (v4pools.get(c1) || v4pools.set(c1, []).get(c1)).push({ poolId, other: c0, isC0: false });
+      } }, 5, started + 46000);
     contracts.delete(''); contracts.delete(ZERO);
     const list = [...contracts];
 
@@ -275,7 +294,7 @@ export default async function handler(req, res) {
     const total = holdings.reduce((s, h) => s + (h.usd ?? 0), 0);
 
     res.setHeader('content-type', 'application/json');
-    res.setHeader('cache-control', 'public, max-age=30, s-maxage=90, stale-while-revalidate=600');
+    res.setHeader('cache-control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=3600');
     res.statusCode = 200;
     res.end(JSON.stringify({ address: addr, count: holdings.length, total, holdings, generatedAt: Date.now() }));
   } catch (e) {

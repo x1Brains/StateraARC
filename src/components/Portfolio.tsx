@@ -189,9 +189,12 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
       .sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || b.balance - a.balance);
   }, [holdings, priceMap, pnl, radarByAddr, realAddrBySymbol, symStats]);
 
-  // Split real holdings from counterfeit airdrops (hidden by default).
-  const spamCount = useMemo(() => rows.filter((r) => r.counterfeit).length, [rows]);
-  const shownRows = useMemo(() => (showSpam ? rows : rows.filter((r) => !r.counterfeit)), [rows, showSpam]);
+  // Hide counterfeit airdrops AND sub-$1 dust by default (a token PRICED under $1 is dust; unpriced
+  // holdings stay visible since we can't judge their value). "Show" reveals everything.
+  const isDust = (r: typeof rows[number]) => r.value != null && r.value < 1;
+  const hiddenCount = useMemo(() => rows.filter((r) => r.counterfeit || isDust(r)).length, [rows]);
+  const spamCount = hiddenCount;
+  const shownRows = useMemo(() => (showSpam ? rows : rows.filter((r) => !r.counterfeit && !isDust(r))), [rows, showSpam]);
 
   const total = rows.reduce((s, r) => s + (r.value ?? 0), 0);
   const totalPnlSum = rows.reduce((s, r) => s + (r.totalPnl ?? 0), 0);
@@ -229,7 +232,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
 
           {spamCount > 0 && (
             <div className="msg" style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span>{spamCount} counterfeit / airdrop {spamCount === 1 ? 'token' : 'tokens'} {showSpam ? 'shown' : 'hidden'} (fake copies of real tickers).</span>
+              <span>{spamCount} {spamCount === 1 ? 'token' : 'tokens'} {showSpam ? 'shown' : 'hidden'} — counterfeit tickers &amp; sub-$1 dust.</span>
               <button className="btn ghost" style={{ padding: '4px 10px' }} onClick={() => setShowSpam((s) => !s)}>{showSpam ? 'Hide' : 'Show'}</button>
             </div>
           )}
