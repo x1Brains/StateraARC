@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/holdings.js": { "maxDuration": 60 }
+    "api/holdings.js": { "maxDuration": 120 }
   },
   "rewrites": [
     { "source": "/api/xdex/:path*", "destination": "https://api.xdex.xyz/:path*" },
