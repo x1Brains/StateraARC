@@ -152,8 +152,11 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         const rd = radarByAddr.get(h.address);
         const iconUrl = h.iconUrl || rd?.iconUrl || null; // prefer the screener's logo when the explorer has none
         const name = rd?.name || h.name;
-        const p = priceMap.get(h.address) ?? null;
-        const value = p != null ? h.balance * p : null;
+        // Price sanity: no Arc token is worth >$1M/unit — a bigger number is a decimals/degenerate-pool
+        // error (DUKE mispriced at 1e44 blew up the whole total). Drop it, and cap any $1B+ position too.
+        const rawP = priceMap.get(h.address) ?? null;
+        const p = rawP != null && isFinite(rawP) && rawP > 0 && rawP < 1e6 ? rawP : null;
+        const value = p != null && h.balance * p < 1e9 ? h.balance * p : null;
         // Counterfeit spam (only ever flags UNPRICED tokens — a token with real value is never hidden):
         //  • duplicate: another held token shares this ticker and is priced or bigger → this is an airdrop copy
         //  • collision: a known screener token owns this ticker at a different address

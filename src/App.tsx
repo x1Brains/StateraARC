@@ -10,7 +10,7 @@ import { TokenPage } from './components/TokenPage';
 import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
 import { WalletButton } from './components/WalletButton';
-import { IconArrowRight, IconArrowLeft } from './components/icons';
+import { IconArrowRight, IconArrowLeft, IconX } from './components/icons';
 
 type Page = 'home' | 'screener' | 'portfolio' | 'swap' | 'token';
 type Filter = 'all' | 'new' | 'eco';
@@ -308,6 +308,7 @@ export default function App() {
           </div>
           <div className="spacer" />
           <VisitCounter />
+          <a className="nav-x" href="https://x.com/StateraArc" target="_blank" rel="noreferrer" title="StateraArc on X" aria-label="StateraArc on X"><IconX /></a>
           <span className="net-live" role="status" aria-label="Arc Mainnet"><span className="dot" /> Arc Mainnet</span>
           {(page === 'swap' || page === 'portfolio') && <WalletButton wallet={wallet} onConnect={onConnect} onDisconnect={onDisconnect} onSwitch={onSwitch} />}
         </div></div>

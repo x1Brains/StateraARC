@@ -1072,6 +1072,9 @@ footer .flink:hover { text-decoration: underline; }
   border: 1px solid rgba(62,196,111,.35); border-radius: 999px; padding: 5px 11px; white-space: nowrap;
   background: linear-gradient(180deg, rgba(62,196,111,.10), rgba(62,196,111,.02)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.03), 0 0 14px -6px rgba(62,196,111,.5); }
 .net-live .dot { width: 6px; height: 6px; border-radius: 50%; background: #3ec46f; box-shadow: 0 0 8px #3ec46f, 0 0 2px #3ec46f; animation: pulse 2.4s infinite; }
+/* X link in the nav, next to the mainnet badge */
+.nav-x { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border-radius: 999px; color: var(--chrome); border: 1px solid var(--line); background: rgba(255,255,255,.02); font-size: 13px; text-decoration: none; transition: color .15s, border-color .15s, background .15s; }
+.nav-x:hover { color: #fff; border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.06); }
 
 /* Nav wallet control */
 .connect.sm { padding: 8px 13px; font-size: 11px; border-radius: 8px; }

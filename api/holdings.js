@@ -175,21 +175,45 @@ export default async function handler(req, res) {
       }
     }
 
+    // Warp bonding-curve price for anything a V3/V2 USDC pool didn't cover — many nanocaps only trade on
+    // the Warp curve. ⚠️ Warp reports price IGNORING token decimals, so correct by 10^(dec-18).
+    const warpPrice = new Map();
+    const stillUnpriced = held.filter((h) => h.address !== USDC && meta.get(h.address)?.price == null && !priceMap.has(h.address));
+    await mapPool(stillUnpriced, async (h) => {
+      try {
+        const w = await fetch(`${origin}/api/warp/tokens/${h.address}`, { signal: AbortSignal.timeout(6000) }).then((r) => r.json());
+        const raw = w?.price ?? w?.data?.price;
+        const n = Number(raw);
+        if (raw != null && isFinite(n) && n > 0) {
+          const dec = meta.get(h.address)?.decimals ?? h.on?.decimals ?? 18;
+          warpPrice.set(h.address, n * Math.pow(10, dec - 18));
+        }
+      } catch { /* no warp price */ }
+    }, 6);
+
+    // Price sanity: no Arc token is worth >$1M/unit — anything above is a decimals / degenerate-pool
+    // error (e.g. DUKE mispriced at 1e44 blew up the whole total). Reject it rather than show garbage.
+    const PX_MAX = 1e6;
+    const sane = (p) => (p != null && isFinite(p) && p > 0 && p < PX_MAX ? p : null);
+
     // Assemble holdings.
     const holdings = held.map((h) => {
       const m = meta.get(h.address);
       const decimals = h.native ? 6 : (m?.decimals ?? h.on?.decimals ?? 18);
       const amount = Number(h.raw) / 10 ** (h.native ? 18 : decimals); // native USDC is 18-dec on-chain
-      const price = h.address === USDC ? 1 : (m?.price ?? priceMap.get(h.address) ?? null);
+      let price = h.address === USDC ? 1 : (sane(m?.price) ?? sane(priceMap.get(h.address)) ?? sane(warpPrice.get(h.address)));
+      let usd = price != null ? amount * price : null;
+      if (usd != null && usd > 1e9) { price = null; usd = null; } // no single nanocap position is worth $1B
       return {
         address: h.address,
         symbol: h.native ? 'USDC' : (m?.symbol ?? h.on?.symbol ?? '?'),
         name: h.native ? 'USD Coin' : (m?.name ?? h.on?.name ?? m?.symbol ?? h.on?.symbol ?? ''),
-        decimals, amount, price,
-        usd: price != null ? amount * price : null,
+        decimals, amount, price: price ?? null, usd,
         iconUrl: m?.iconUrl ?? null,
       };
-    }).filter((h) => h.amount > 0);
+    })
+      .filter((h) => h.amount > 0)
+      .filter((h) => !(h.usd == null && h.amount < 1e-6)); // drop unpriced 1e-18 airdrop dust
     holdings.sort((a, b) => (b.usd ?? -1) - (a.usd ?? -1));
     const total = holdings.reduce((s, h) => s + (h.usd ?? 0), 0);
 
