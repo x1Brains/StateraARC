@@ -18,6 +18,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   };
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(false);
+  const [enriching, setEnriching] = useState(false); // fast view shown; full on-chain scan still running
   const [err, setErr] = useState<string | null>(null);
   const [livePx, setLivePx] = useState<Record<string, number>>({}); // mainnet: live pool prices
   const [pnl, setPnl] = useState<Record<string, TokenPnl> | null>(null); // reconstructed cost basis
@@ -76,60 +77,60 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   useEffect(() => {
     if (!addr || !isAddress(addr)) return;
     let alive = true;
-    setLoading(true); setErr(null); setHoldings([]); setLivePx({});
+    setLoading(true); setErr(null); setHoldings([]); setLivePx({}); setEnriching(false);
+    // Map a holdings source into the view + seed the prices it already carries.
+    const apply = (src: RadarHolding[]) => {
+      const h = src.map((r) => ({ address: r.address, name: r.name, symbol: r.symbol, decimals: r.decimals, balance: r.amount, iconUrl: r.icon }));
+      const seeded: Record<string, number> = {};
+      for (const r of src) if (r.price != null) seeded[r.address] = r.price;
+      setHoldings(h); setLivePx((prev) => ({ ...prev, ...seeded }));
+      return { h, seeded };
+    };
     (async () => {
       try {
-        // Resolve the FULL set of tokens the wallet holds.
-        let h: Holding[] = [];
-        const seeded: Record<string, number> = {}; // prices that came free with the holdings source
-        if (mainnet) {
-          // PRIMARY: /api/holdings reads the wallet's FULL bag straight from the chain (Transfer-log
-          // discovery + Multicall3 balanceOf across our 3 RPCs) — explorer.arc.io is Cloudflare-walled and
-          // RadarDEX /portfolio only knows pooled tokens, so both dropped nanocaps/airdrops. Those, plus
-          // the explorer and RadarDEX, are now fallbacks behind the on-chain read.
-          const oc = await fetchHoldingsOnchain(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
-          if (!alive) return;
-          let src: RadarHolding[] = oc.holdings;
-          if (!src.length) {
-            const pf = await fetchPortfolioMainnet(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
-            if (!alive) return;
-            src = pf.holdings;
-          }
-          if (!src.length) {
-            const rp = await fetchRadarPortfolio(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
-            if (!alive) return;
-            src = rp.holdings;
-          }
-          if (src.length) {
-            h = src.map((r) => ({ address: r.address, name: r.name, symbol: r.symbol, decimals: r.decimals, balance: r.amount, iconUrl: r.icon }));
-            for (const r of src) if (r.price != null) seeded[r.address] = r.price;
-          } else {
-            // last resort: on-chain balanceOf scan of the priced/liquid/ecosystem token set (RPC).
-            const scan = tokens.filter((t) => t.price != null || t.liq != null || t.isEcosystem || t.launchpad);
-            h = await fetchHoldingsMainnet(addr, scan.map((t) => ({ address: t.address, name: t.name, symbol: t.symbol })));
-          }
-        } else {
-          h = await fetchHoldings(addr);
-        }
+        if (!mainnet) { const h = await fetchHoldings(addr); if (alive) { setHoldings(h); setLoading(false); } return; }
+
+        // PHASE 1 — fast indexer sources (RadarDEX + explorer) so the wallet's bag paints in ~1-2s
+        // instead of a long blank spinner while the full on-chain scan runs.
+        const [rp, pf] = await Promise.all([
+          fetchRadarPortfolio(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] })),
+          fetchPortfolioMainnet(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] })),
+        ]);
         if (!alive) return;
-        setHoldings(h);
-        setLivePx(seeded);
-        if (mainnet) {
-          // Enrich prices for holdings the source didn't price: live pool prices, then Warp.
-          const need = h.filter((x) => seeded[x.address] == null).map((x) => x.address);
-          const px = need.length ? await priceMainnet(need).catch(() => ({} as Record<string, number>)) : {};
-          if (!alive) return;
-          if (Object.keys(px).length) setLivePx((prev) => ({ ...prev, ...px }));
-          const usdcK = '0x3600000000000000000000000000000000000000';
-          const missing = h.filter((x) => seeded[x.address] == null && px[x.address] == null && x.address !== usdcK).slice(0, 14);
-          const got = await Promise.all(missing.map((x) =>
-            fetchWarpToken(x.address).then((w) => [x.address, w?.price ?? null] as const).catch(() => null)));
-          const add: Record<string, number> = {};
-          for (const r of got) if (r && r[1] != null) add[r[0]] = r[1];
-          if (alive && Object.keys(add).length) setLivePx((prev) => ({ ...prev, ...add }));
+        const fast = pf.holdings.length >= rp.holdings.length ? pf.holdings : rp.holdings;
+        if (fast.length) { apply(fast); setLoading(false); setEnriching(true); }
+
+        // PHASE 2 — the COMPLETE on-chain read (Transfer-log discovery + Multicall3 balanceOf + V3/V2/
+        // Warp/V4 pricing across our RPCs). It's the full, correct bag; it replaces the fast view.
+        const oc = await fetchHoldingsOnchain(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
+        if (!alive) return;
+        let finalSet: { h: Holding[]; seeded: Record<string, number> };
+        if (oc.holdings.length) { finalSet = apply(oc.holdings); }
+        else if (fast.length) { finalSet = apply(fast); }
+        else {
+          // last resort: curated on-chain balanceOf scan
+          const scan = tokens.filter((t) => t.price != null || t.liq != null || t.isEcosystem || t.launchpad);
+          const h = await fetchHoldingsMainnet(addr, scan.map((t) => ({ address: t.address, name: t.name, symbol: t.symbol })));
+          if (!alive) return; setHoldings(h); finalSet = { h, seeded: {} };
         }
+        setLoading(false); setEnriching(false);
+
+        // Enrich any holdings still lacking a price (pool price, then Warp) — usually just edge cases,
+        // since the on-chain endpoint already prices V3/V2/Warp/V4.
+        const { h, seeded } = finalSet;
+        const need = h.filter((x) => seeded[x.address] == null).map((x) => x.address);
+        const px = need.length ? await priceMainnet(need).catch(() => ({} as Record<string, number>)) : {};
+        if (!alive) return;
+        if (Object.keys(px).length) setLivePx((prev) => ({ ...prev, ...px }));
+        const usdcK = '0x3600000000000000000000000000000000000000';
+        const missing = h.filter((x) => seeded[x.address] == null && px[x.address] == null && x.address !== usdcK).slice(0, 14);
+        const got = await Promise.all(missing.map((x) =>
+          fetchWarpToken(x.address).then((w) => [x.address, w?.price ?? null] as const).catch(() => null)));
+        const add: Record<string, number> = {};
+        for (const r of got) if (r && r[1] != null) add[r[0]] = r[1];
+        if (alive && Object.keys(add).length) setLivePx((prev) => ({ ...prev, ...add }));
       } catch (e: any) { if (alive) setErr(e.message || 'failed to load'); }
-      finally { if (alive) setLoading(false); }
+      finally { if (alive) { setLoading(false); setEnriching(false); } }
     })();
     return () => { alive = false; };
   }, [addr, mainnet, refreshTick]); // eslint-disable-line
@@ -216,6 +217,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
 
       {addr && !loading && (
         <>
+          {enriching && <div className="msg" style={{ marginTop: 8, opacity: 0.75 }}><span className="live-dot" /> Fetching your full on-chain bag…</div>}
           <div className="stats" style={{ marginTop: 8 }}>
             <div className="stat"><div className="v">{usd(total)}</div><div className="l">Total Value {rows.some((r) => r.value == null) ? '(priced tokens)' : ''}</div></div>
             {mainnet && (

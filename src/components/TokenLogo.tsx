@@ -8,10 +8,18 @@ function colorFor(seed: string): string {
   return PALETTE[h % PALETTE.length];
 }
 
-// Recognizable assets get their real logo even when the explorer has none.
+// Recognizable assets get their real logo even when the explorer has none. Keyed by SYMBOL only for
+// display/alias contexts where no address is passed (e.g. USDC.X). ⛔ For a real 0x address we do NOT
+// match by symbol — impersonators mint fake "USDC"/"EURC" tickers and would otherwise inherit the real
+// logo (e.g. "UpSideDownCat" symbol USDC showing Circle's logo). Addressed tokens match KNOWN_ADDR only.
 const KNOWN: Record<string, string> = {
   USDC: '/coins/USDC.svg', 'USDC.X': '/coins/USDC.svg', WUSDC: '/coins/USDC.svg', 'USDC.A': '/coins/USDC.svg',
   EURC: '/coins/EURC.svg', USDT: '/coins/USDT.png', WBTC: '/coins/BTC.png', WETH: '/coins/ETH.png', PAXG: '/coins/PAXG.png', GOLD: '/coins/PAXG.png',
+};
+// Canonical contract → official logo. Only these exact addresses get the pinned logo; any other address
+// claiming the same ticker falls through to its own icon/on-chain/tolly/letter.
+const KNOWN_ADDR: Record<string, string> = {
+  '0x3600000000000000000000000000000000000000': '/coins/USDC.svg', // native USDC (Arc gas token)
 };
 
 // Arc-wide per-address token-image service (Tolly Labs) — the source other Arc sites use. Covers tokens
@@ -26,7 +34,9 @@ export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string;
   const [tollyBroke, setTollyBroke] = useState(false);
   const color = colorFor(seed || symbol);
   const isAddr = /^0x[0-9a-fA-F]{40}$/.test(seed || '');
-  const primary = url || KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol] || '';
+  // Addressed tokens: own icon → canonical-address logo → (no symbol match; impersonators don't inherit
+  // real logos). Non-addressed (alias/display) tokens: fall back to the symbol map.
+  const primary = url || KNOWN_ADDR[(seed || '').toLowerCase()] || (isAddr ? '' : (KNOWN[(symbol || '').toUpperCase()] || KNOWN[symbol] || ''));
   // Dedicated Pinata gateways (…mypinata.cloud/ipfs/CID) hotlink-block / rate-limit the browser (the
   // image loads via curl but the <img> onErrors — e.g. BLOB). Retry the SAME CID on the reliable public
   // Pinata gateway before falling through to on-chain/tolly/letter.
