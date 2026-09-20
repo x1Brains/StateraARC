@@ -1030,9 +1030,9 @@ export async function fetchOnchainPoolStats(token: string, decimals = 18): Promi
   return v;
 }
 const candleCache = new Map<string, { at: number; data: Candle[] }>();
-export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number): Promise<Candle[]> {
+export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number, lookbackSec?: number): Promise<Candle[]> {
   const pool = await findTokenPool(token); if (!pool) return [];
-  const ck = token.toLowerCase() + ':' + intervalSec;
+  const ck = token.toLowerCase() + ':' + intervalSec + ':' + (lookbackSec ?? 0);
   const hit = candleCache.get(ck);
   if (hit && Date.now() - hit.at < 45000) return hit.data; // 45s cache — instant re-opens / tf toggles
   const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]); // token0(), head
@@ -1042,9 +1042,9 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
   const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
   const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
-  // ~70 candles of history; the wide views (1h+ buckets) reach back much further on this fast chain.
-  const spanCap = intervalSec >= 3600 ? 260000 : 80000;
-  const spanBlocks = Math.min(spanCap, Math.ceil((intervalSec * 90) / blockTime));
+  // Scan back far enough to cover this timeframe's window (lookbackSec), capped so getLogs stays cheap.
+  const spanCap = intervalSec >= 3600 ? 300000 : 80000;
+  const spanBlocks = Math.min(spanCap, Math.ceil((lookbackSec ?? intervalSec * 90) / blockTime));
   const dexp = 10 ** (decimals - 6); // USDC is 6-dec, the token `decimals`-dec
   // Build the block ranges and fetch them IN PARALLEL (bounded) — the RPC caps ranges at ~2.5k blocks,
   // so a sequential loop is slow; runLimited cuts it ~6×.

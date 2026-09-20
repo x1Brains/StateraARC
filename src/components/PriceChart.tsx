@@ -9,10 +9,32 @@ import { fetchPoolCandles, tprice } from '../lib/arc';
 // repeat the same ~2 days. These span from fine-grain to a multi-day view; longer ones become useful
 // as the chain ages.
 const TFS = [{ k: '1m', l: '1m' }, { k: '5m', l: '5m' }, { k: '15m', l: '15m' }, { k: '1h', l: '1H' }, { k: '4h', l: '4H' }, { k: '1d', l: '1D' }, { k: '1w', l: '1W' }, { k: 'all', l: 'ALL' }];
-// Bucket size per timeframe (on-chain fallback). 1W/ALL bucket at 1h so a full history fits ~70 candles.
-const TF_SEC: Record<string, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1w': 3600, 'all': 3600 };
-// Warp serves candles by interval; for the wide views ask for its coarsest (1h) = full history.
-const WARP_TF: Record<string, string> = { '1w': '1h', 'all': '1h' };
+// Each timeframe = a DISTINCT candle bucket (sec) + visible window (look). ⛔ These MUST be unique — when
+// 1H/1W/ALL all shared 3600s they returned byte-identical candles (same cache key) so switching them did
+// nothing on screen. `warp` = the Warp interval to pull as the base (Warp only serves 1m/5m/1h); we then
+// re-bucket that base up to `sec` so Warp tokens also change per timeframe.
+const TF_CFG: Record<string, { sec: number; look: number; warp: string }> = {
+  '1m':  { sec: 60,    look: 6 * 3600,      warp: '1m' },
+  '5m':  { sec: 300,   look: 24 * 3600,     warp: '5m' },
+  '15m': { sec: 900,   look: 3 * 86400,     warp: '5m' },
+  '1h':  { sec: 3600,  look: 3 * 86400,     warp: '1h' },
+  '4h':  { sec: 14400, look: 12 * 86400,    warp: '1h' },
+  '1d':  { sec: 86400, look: 60 * 86400,    warp: '1h' },
+  '1w':  { sec: 21600, look: 9 * 86400,     warp: '1h' },   // 6h candles
+  'all': { sec: 43200, look: 3650 * 86400,  warp: '1h' },   // 12h candles, all history
+};
+// Aggregate finer candles up into `sec` buckets (OHLC). No-op when the base already matches `sec`.
+function rebucket(cs: Candle[], sec: number): Candle[] {
+  if (!cs.length) return cs;
+  const m = new Map<number, Candle>();
+  for (const c of cs) {
+    const b = Math.floor(c.time / sec) * sec;
+    const cur = m.get(b);
+    if (!cur) m.set(b, { time: b, open: c.open, high: c.high, low: c.low, close: c.close });
+    else { cur.high = Math.max(cur.high, c.high); cur.low = Math.min(cur.low, c.low); cur.close = c.close; }
+  }
+  return [...m.values()].sort((a, b) => a.time - b.time);
+}
 type ChartType = 'candles' | 'line';
 
 // Shared DEX-style formatter (subscript zeros for tiny prices) — chart axis + labels match the header.
@@ -34,19 +56,22 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     let alive = true;
     setLoading(true);
     (async () => {
-      let c = await fetchWarpCandles(address, WARP_TF[tf] ?? tf).catch(() => [] as Candle[]);
+      const cfg = TF_CFG[tf] ?? TF_CFG['5m'];
+      // Warp base candles (finest available for this tf), then re-bucket up to the target size.
+      let c = await fetchWarpCandles(address, cfg.warp).catch(() => [] as Candle[]);
       // Warp candles use Warp's price scale, which ignores token decimals — rescale to the real price
       // (priceScale = trusted seed price ÷ warp price; =1 for normal 18-dec tokens). Fixes cirBTC etc.
       if (c && c.length && priceScale && priceScale !== 1) {
         c = c.map((k) => ({ time: k.time, open: k.open * priceScale, high: k.high * priceScale, low: k.low * priceScale, close: k.close * priceScale }));
       }
-      // Not on Warp (deep V3 tokens like ARGUS) → build candles from the pool's on-chain swaps (already
-      // decimals-correct, so no rescale).
-      if ((!c || c.length === 0)) {
-        c = await fetchPoolCandles(address, decimals ?? 18, TF_SEC[tf] ?? 300).catch(() => [] as Candle[]);
+      if (c && c.length) c = rebucket(c, cfg.sec);
+      // Not on Warp (deep V3 tokens like ARGUS) → build candles from the pool's on-chain swaps at this
+      // timeframe's bucket + lookback (decimals-correct, so no rescale).
+      if (!c || c.length === 0) {
+        c = await fetchPoolCandles(address, decimals ?? 18, cfg.sec, cfg.look).catch(() => [] as Candle[]);
       }
-      // 1W = the last 7 days of whatever history we have; ALL shows everything.
-      if (tf === '1w' && c && c.length) { const cut = Math.floor(Date.now() / 1000) - 7 * 86400; c = c.filter((k) => k.time >= cut); }
+      // Show only this timeframe's window.
+      if (c && c.length) { const cut = Math.floor(Date.now() / 1000) - cfg.look; c = c.filter((k) => k.time >= cut); }
       if (alive) { setCandles(c); setLoading(false); }
     })();
     return () => { alive = false; };
