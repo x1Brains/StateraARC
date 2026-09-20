@@ -721,6 +721,27 @@ async function mrpc(method: string, params: any[], tries = 4): Promise<any> {
   }
   return null;
 }
+// getLogs over a LARGE block range. rpc.mainnet.arc.io caps ranges at 10k, but tenderly & blockdaemon
+// accept up to 100k — so a full chain-life pool scan is ~10 calls instead of ~95 (much faster ALL/1W).
+// `seed` spreads the first attempt across both nodes so concurrent chunks don't all hammer one.
+const BIG_RANGE_RPCS = ['https://arc.gateway.tenderly.co', 'https://rpc.blockdaemon.mainnet.arc.io'];
+export const BIG_LOG_RANGE = 95000;
+async function getLogsBig(params: any, seed = 0, tries = 4): Promise<any[] | null> {
+  for (let i = 0; i < tries; i++) {
+    const url = BIG_RANGE_RPCS[(i + seed) % BIG_RANGE_RPCS.length];
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 9000);
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getLogs', params: [params] }), signal: ctrl.signal }).finally(() => clearTimeout(to));
+      if (r.status === 429 || r.status >= 500) { await sleep(150 * (i + 1) + Math.random() * 200); continue; }
+      const j = await r.json();
+      if (j.error) { await sleep(120 * (i + 1)); continue; } // range/pruned error on this node → next node
+      if (Array.isArray(j.result)) return j.result;
+    } catch { await sleep(150 * (i + 1)); }
+  }
+  return null;
+}
 // Run async tasks with bounded concurrency (keeps us under the RPC's rate limit).
 async function runLimited<T>(tasks: (() => Promise<T>)[], limit = 4): Promise<T[]> {
   const out: T[] = new Array(tasks.length);
@@ -1047,16 +1068,59 @@ export async function fetchOnchainPoolStats(token: string, decimals = 18): Promi
   const empty = { tvl: null, reserveQuote: null, reserveBase: null, pool: null };
   const pool = await findTokenPool(token); if (!pool) { poolStatsCache.set(ck, { at: Date.now(), v: empty }); return empty; }
   const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
+  // USDC is Arc's NATIVE gas token — its pool balance is the native balance (eth_getBalance, 18-dec),
+  // NOT balanceOf() on 0x3600 (which reads only dust). balanceOf here reported ~$0 for real pools.
   const [usdcB, tokB] = await Promise.all([
-    mCall(NATIVE_USDC_ADDR, '0x70a08231' + pad(pool)).catch(() => null),
+    mrpc('eth_getBalance', [pool, 'latest']).catch(() => null),
     mCall(token, '0x70a08231' + pad(pool)).catch(() => null),
   ]);
   let reserveQuote: number | null = null, reserveBase: number | null = null;
-  try { if (usdcB) reserveQuote = Number(BigInt(usdcB)) / 1e6; } catch { /* */ }
+  try { if (usdcB) reserveQuote = Number(BigInt(usdcB)) / 1e18; } catch { /* */ }
   try { if (tokB) reserveBase = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
   const v = { tvl: reserveQuote, reserveQuote, reserveBase, pool };
   poolStatsCache.set(ck, { at: Date.now(), v });
   return v;
+}
+// All USDC pools for a token, discovered ON-CHAIN (V3 fee tiers + V2), with real depth/price. Used to
+// fill the Pools breakdown for tokens no aggregator indexes (WARP tokens like ARGUS). Depth is measured
+// with eth_getBalance because USDC is Arc's native gas token (balanceOf reads dust).
+export interface OnchainPool { pool: string; version: string; feeTier: number | null; quote: string; liquidityUsdc: number | null; price: number | null; tokenReserve: number | null; usdcReserve: number | null; }
+const allPoolsCache = new Map<string, { at: number; v: OnchainPool[] }>();
+export async function fetchAllOnchainPools(token: string, decimals = 18): Promise<OnchainPool[]> {
+  const t = token.toLowerCase();
+  const hit = allPoolsCache.get(t); if (hit && Date.now() - hit.at < 60000) return hit.v;
+  const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
+  const fees = [100, 500, 3000, 10000];
+  const [v3, v2] = await Promise.all([
+    Promise.all(fees.map((f) => mCall(V3_FACTORY, '0x1698ee82' + pad(t) + pad(NATIVE_USDC_ADDR) + f.toString(16).padStart(64, '0')).catch(() => null))),
+    mCall(V2_FACTORY, '0xe6a43905' + pad(t) + pad(NATIVE_USDC_ADDR)).catch(() => null),
+  ]);
+  const found: { pool: string; version: string; feeTier: number | null }[] = [];
+  v3.forEach((r, i) => { const p = r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR) found.push({ pool: p, version: 'V3', feeTier: fees[i] }); });
+  { const p = v2 && v2.length >= 42 ? ('0x' + v2.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR) found.push({ pool: p, version: 'V2', feeTier: null }); }
+  const dexp = 10 ** (decimals - 6);
+  const out = await Promise.all(found.map(async (f): Promise<OnchainPool> => {
+    const [natB, tokB, t0] = await Promise.all([
+      mrpc('eth_getBalance', [f.pool, 'latest']).catch(() => null),
+      mCall(token, '0x70a08231' + pad(f.pool)).catch(() => null),
+      mCall(f.pool, '0x0dfe1681').catch(() => null), // token0()
+    ]);
+    let usdc: number | null = null, tokRes: number | null = null;
+    try { if (natB) usdc = Number(BigInt(natB)) / 1e18; } catch { /* */ }
+    try { if (tokB) tokRes = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
+    const usdcIsToken0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR : false;
+    let price: number | null = null;
+    if (f.version === 'V3') {
+      const slot0 = await mCall(f.pool, '0x3850c7bd').catch(() => null); // slot0(): sqrtPriceX96 in word 0
+      if (slot0 && slot0.length >= 66) { try { const sqrtP = BigInt(slot0.slice(0, 66)); if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp; } } catch { /* */ } }
+    } else if (usdc != null && tokRes) { price = usdc / tokRes; }
+    if (price != null && (!isFinite(price) || price <= 0)) price = null;
+    const liquidityUsdc = usdc != null ? usdc + (tokRes != null && price != null ? tokRes * price : 0) : null;
+    return { pool: f.pool, version: f.version, feeTier: f.feeTier, quote: 'USDC', liquidityUsdc, price, tokenReserve: tokRes, usdcReserve: usdc };
+  }));
+  const pools = out.filter((p) => p.liquidityUsdc != null && p.liquidityUsdc > 1).sort((a, b) => (b.liquidityUsdc || 0) - (a.liquidityUsdc || 0));
+  allPoolsCache.set(t, { at: Date.now(), v: pools });
+  return pools;
 }
 const candleCache = new Map<string, { at: number; data: Candle[] }>();
 export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number, lookbackSec?: number): Promise<Candle[]> {
@@ -1076,13 +1140,14 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   const spanCap = intervalSec >= 14400 ? 900000 : intervalSec >= 3600 ? 300000 : 80000;
   const spanBlocks = Math.min(spanCap, Math.ceil((lookbackSec ?? intervalSec * 90) / blockTime));
   const dexp = 10 ** (decimals - 6); // USDC is 6-dec, the token `decimals`-dec
-  // Build the block ranges and fetch them IN PARALLEL (bounded). Arc RPCs allow up to 10k-block ranges
-  // (pool-address-filtered → few results), so 9.5k chunks keep the wide-timeframe scan to ~95 calls.
-  const CH = 9500n;
+  // Build the block ranges and fetch them IN PARALLEL (bounded). tenderly/blockdaemon accept 100k-block
+  // ranges (pool-address-filtered → few results), so 95k chunks keep a full ~4-day scan to ~10 calls —
+  // ALL/1W load fast instead of the ~95 calls the old 9.5k chunks needed.
+  const CH = BigInt(BIG_LOG_RANGE);
   const ranges: [bigint, bigint][] = [];
   for (let from = head - BigInt(spanBlocks); from < head; from += CH) ranges.push([from, from + CH > head ? head : from + CH]);
-  const results = await runLimited(ranges.map(([from, to]) => () =>
-    mrpc('eth_getLogs', [{ address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }])), 6);
+  const results = await runLimited(ranges.map(([from, to], idx) => () =>
+    getLogsBig({ address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }, idx)), 6);
   const swaps: { ts: number; price: number }[] = [];
   for (const logs of results) {
     if (!Array.isArray(logs)) continue;

@@ -1104,7 +1104,9 @@ footer .flink:hover { text-decoration: underline; }
 .pl-head-row { font: 700 9px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
 .pl-pair { font-weight: 700; color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pl-pair small { color: var(--gray-2); font-weight: 500; }
-.pl-dex { font: 600 10.5px var(--disp); letter-spacing: .3px; color: var(--gray-2); text-transform: uppercase; }
+.pl-dex { display: inline-block; margin-left: 6px; padding: 1px 5px; border: 1px solid var(--line-soft); border-radius: 4px; font: 700 8.5px var(--disp); letter-spacing: .4px; color: var(--gray-2); text-transform: uppercase; font-style: normal; vertical-align: middle; }
+.pl-price { text-align: right; font: 600 12px var(--mono); color: var(--teal, #38d9c8); white-space: nowrap; }
+.pl-head-row .pl-price { color: var(--gray-2); }
 .pl-liq { text-align: right; font: 700 12.5px var(--mono); color: var(--white); }
 .pl-liq small { display: block; color: var(--gray-3); font-weight: 500; font-size: 10.5px; }
 .pl-tx { color: var(--gray-2); display: inline-flex; justify-content: center; }

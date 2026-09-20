@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown } from './icons';
 
@@ -30,6 +30,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [txs, setTxs] = useState<TokenTransfer[] | null>(null);
   const [swaps, setSwaps] = useState<RadarSwap[] | null>(null);
   const [ocPool, setOcPool] = useState<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null } | null>(null);
+  const [ocPools, setOcPools] = useState<OnchainPool[] | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders'>('txns');
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
   const [poolsOpen, setPoolsOpen] = useState(false);
@@ -45,7 +46,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // DEX-style detail: RadarDEX token stats (buys/sells/burned/change) + rich holders (with pool/dev
   // flags + accurate %), plus recent on-chain transfers (mainnet RPC).
   useEffect(() => {
-    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null);
+    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null);
     (async () => {
       const detail = await fetchRadarTokenDetail(address).catch(() => null);
       if (alive) setRd(detail);
@@ -53,6 +54,11 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       // If RadarDEX doesn't index this token, read the pool reserves on-chain so Liquidity & Pool fills.
       if (!detail || detail.liquidityUsdc == null) {
         fetchOnchainPoolStats(address, dec).then((s) => { if (alive) setOcPool(s); }).catch(() => {});
+      }
+      // Pools breakdown: if RadarDEX has no per-pool data (WARP tokens like ARGUS), discover every USDC
+      // pool on-chain (V3 fee tiers + V2) so the Pools card still shows real depth/price per pair.
+      if (!detail?.pools || detail.pools.length === 0) {
+        fetchAllOnchainPools(address, dec).then((ps) => { if (alive) setOcPools(ps); }).catch(() => {});
       }
       fetchRadarHolders(address, dec, 100).then((h) => { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
       // Real trades feed: RadarDEX indexed swaps first; if it doesn't index this token (ARGUS etc.),
@@ -154,7 +160,11 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
     '0x384c60f98ecd4c26345499345c03d677e40f115e': 'WARP',
   };
   const quoteSym = (a?: string) => { const k = (a || '').toLowerCase(); return QUOTE_SYM[k] || (k.length >= 10 ? `${k.slice(0, 6)}…` : 'USDC'); };
-  const allPools = rd?.pools ?? [];
+  // Unified pool list: RadarDEX per-pool data when it has it, else the on-chain discovery (WARP tokens).
+  const allPools = (rd?.pools && rd.pools.length
+    ? rd.pools.map((p) => ({ pool: p.pool, version: p.version, dex: p.dex, feeTier: p.feeTier, quote: p.quote, liquidityUsdc: p.liquidityUsdc, swaps: p.swaps, price: null as number | null }))
+    : (ocPools ?? []).map((p) => ({ pool: p.pool, version: p.version, dex: null as string | null, feeTier: p.feeTier, quote: p.quote, liquidityUsdc: p.liquidityUsdc, swaps: null as number | null, price: p.price })));
+  const poolsTotalLiq = rd?.liquidityTotal ?? (allPools.length ? allPools.reduce((s, p) => s + (p.liquidityUsdc ?? 0), 0) : null);
 
   // ── Pool health: a transparent 0–100 score from on-chain signals (NOT a safety guarantee) ────────
   // Mirrors a DEX screener's health read. Each signal is a real, verifiable measurement; weights sum to 100.
@@ -373,18 +383,18 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
           <button className="pl-head" onClick={() => setPoolsOpen((o) => !o)}>
             <h3>Pools · {allPools.length}</h3>
             <span className="pl-sum">
-              {rd?.liquidityTotal != null && <b>{usd(rd.liquidityTotal)}</b>}
+              {poolsTotalLiq != null && <b>{usd(poolsTotalLiq)}</b>}
               <span className="pl-cnt">total liq</span>
               <IconChevronDown className={`pl-chev i ${poolsOpen ? 'open' : ''}`} />
             </span>
           </button>
           {poolsOpen && (
             <div className="pl-list">
-              <div className="pl-row pl-head-row"><span>Pair</span><span>DEX</span><span className="pl-liq">Liquidity</span><span className="pl-tx">Tx</span></div>
+              <div className="pl-row pl-head-row"><span>Pair</span><span className="pl-price">Price</span><span className="pl-liq">Liquidity</span><span className="pl-tx">Tx</span></div>
               {allPools.map((p) => (
                 <div className="pl-row" key={p.pool}>
-                  <span className="pl-pair">{sym}/{quoteSym(p.quote)}{p.feeTier ? <small> · {(p.feeTier / 1e4).toFixed(2)}%</small> : null}</span>
-                  <span className="pl-dex">{p.dex || (p.version || '').toUpperCase()}</span>
+                  <span className="pl-pair">{sym}/{quoteSym(p.quote)}{p.feeTier ? <small> · {(p.feeTier / 1e4).toFixed(2)}%</small> : null}<em className="pl-dex">{p.dex || (p.version || '').toUpperCase()}</em></span>
+                  <span className="pl-price">{p.price != null ? tprice(p.price) : (px != null ? tprice(px) : '—')}</span>
                   <span className="pl-liq">{p.liquidityUsdc != null ? usd(p.liquidityUsdc) : '—'}{p.swaps != null ? <small>{compact(p.swaps)} swaps</small> : null}</span>
                   <a className="pl-tx" href={`https://explorer.arc.io/address/${p.pool}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
                 </div>
