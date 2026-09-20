@@ -72,6 +72,17 @@ function agoStr(ms: number): string {
 // Screener cell formatters
 const chgCls = (v: number | null | undefined) => (v == null ? '' : v >= 0 ? 'up' : 'down');
 const chgFmt = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(Math.abs(v) >= 100 ? 0 : 1)}%`);
+// Confidence score (0-100) from on-chain signals — weighted, only over the signals we actually have.
+const confScore = (t: Token): number | null => {
+  const parts: [number, number][] = []; // [value 0..1, weight]
+  if (t.liq != null && t.mcap && t.mcap > 0) parts.push([Math.min(1, (t.liq / t.mcap) / 0.1), 35]);   // depth ≥10% of mcap = full
+  if (t.liq != null) parts.push([Math.min(1, t.liq / 50000), 15]);                                      // $50k+ absolute depth
+  if (t.holders != null) parts.push([Math.min(1, t.holders / 500), 30]);                                // 500+ holders
+  if (t.change24h != null) parts.push([Math.max(0, 1 - Math.min(1, Math.abs(t.change24h) / 100)), 20]);  // calmer = healthier
+  if (!parts.length) return null;
+  const s = parts.reduce((a, [v, w]) => a + v * w, 0), w = parts.reduce((a, [, w]) => a + w, 0);
+  return Math.round((s / w) * 100);
+};
 const ageStr = (ms: number | null | undefined) => {
   if (!ms) return '—';
   const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -466,17 +477,18 @@ export default function App() {
                   <div className="trow tok sc" key={t.address} onClick={() => setSelected(t.address)}>
                     <span className="rank">{(pageNum - 1) * perPage + i + 1}</span>
                     <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
-                    <span className="sc-name"><div className="tname">{t.name}</div><div className="tsym">{t.symbol}</div></span>
+                    <span className="sc-name"><div className="tname">{t.name}</div><div className="tsym">{t.symbol}{(t.source || t.launchpad) && <span className="tsrc">{t.source || t.launchpad}</span>}</div></span>
                     <span className="num" data-l="Price">{tprice(t.price)}</span>
                     <span className={`num chg ${chgCls(t.change1h)}`} data-l="1h">{chgFmt(t.change1h)}</span>
                     <span className={`num chg ${chgCls(t.change24h)}`} data-l="24h">{chgFmt(t.change24h)}</span>
-                    <span className="num" data-l="Vol 24h">{t.volume24h == null ? '—' : usd(t.volume24h)}</span>
-                    <span className={`num${sort === 'mcap' ? ' hot' : ''}`} data-l="Market Cap">{t.mcap == null ? '—' : usd(t.mcap)}</span>
+                    <span className="num" data-l="Vol 24h">{t.volume24h == null ? '—' : usd(t.volume24h)}{t.txns24 != null && <small className="sub">{fmt(t.txns24)} txns</small>}</span>
+                    <span className={`num${sort === 'mcap' ? ' hot' : ''}`} data-l="Market Cap">{t.mcap == null ? '—' : usd(t.mcap)}{t.fdv != null && t.fdv !== t.mcap && <small className="sub">FDV {usd(t.fdv)}</small>}</span>
                     <span className={`num${sort === 'liq' ? ' hot' : ''}`} data-l="Liquidity">{t.liq == null ? '—' : usd(t.liq)}</span>
                     <span className="num" data-l="Holders">{fmt(t.holders)}</span>
                     <span className="num age" data-l="Age">{ageStr(t.createdAt)}</span>
                     <span className="num spark-cell" data-l="Last 24h"><Sparkline data={t.spark} /></span>
                     <span className="flags">
+                      {(() => { const c = confScore(t); return c != null ? <span className={`badge conf ${c >= 70 ? 'good' : c >= 40 ? 'mid' : 'bad'}`} title="Confidence — liquidity depth, holders, stability">{c}</span> : null; })()}
                       {t.launchpad && <span className="badge b-lp">{t.launchpad}</span>}
                       {t.isEcosystem && <span className="badge b-gray">ECO</span>}
                     </span>
