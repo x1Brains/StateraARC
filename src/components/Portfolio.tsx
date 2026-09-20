@@ -21,6 +21,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   const [enriching, setEnriching] = useState(false); // fast view shown; full on-chain scan still running
   const [err, setErr] = useState<string | null>(null);
   const [livePx, setLivePx] = useState<Record<string, number>>({}); // mainnet: live pool prices
+  const [liveMcap, setLiveMcap] = useState<Record<string, number>>({}); // mcap for tokens not in the screener (from Warp)
   const [pnl, setPnl] = useState<Record<string, TokenPnl> | null>(null); // reconstructed cost basis
   const [pnlLoading, setPnlLoading] = useState(false);
 
@@ -78,7 +79,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     if (!addr || !isAddress(addr)) return;
     let alive = true;
     let hideTimer: ReturnType<typeof setTimeout> | undefined;
-    setLoading(true); setErr(null); setHoldings([]); setLivePx({}); setEnriching(false);
+    setLoading(true); setErr(null); setHoldings([]); setLivePx({}); setLiveMcap({}); setEnriching(false);
     // Map a holdings source into the view + seed the prices it already carries.
     const apply = (src: RadarHolding[]) => {
       const h = src.map((r) => ({ address: r.address, name: r.name, symbol: r.symbol, decimals: r.decimals, balance: r.amount, iconUrl: r.icon }));
@@ -98,10 +99,14 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
       if (Object.keys(px).length) setLivePx((prev) => ({ ...prev, ...px }));
       const missing = h.filter((x) => seeded[x.address] == null && px[x.address] == null && x.address !== usdcK).slice(0, 20);
       const got = await Promise.all(missing.map((x) =>
-        fetchWarpToken(x.address).then((w) => [x.address, w?.price ?? null] as const).catch(() => null)));
-      const add: Record<string, number> = {};
-      for (const r of got) if (r && r[1] != null && isFinite(r[1]) && r[1] > 0) add[r[0]] = r[1];
+        fetchWarpToken(x.address).then((w) => [x.address, w?.price ?? null, w?.mcap ?? null] as const).catch(() => null)));
+      const add: Record<string, number> = {}, addMc: Record<string, number> = {};
+      for (const r of got) if (r) {
+        if (r[1] != null && isFinite(r[1]) && r[1] > 0) add[r[0]] = r[1];
+        if (r[2] != null && isFinite(r[2]) && r[2] > 0) addMc[r[0]] = r[2]; // Warp mcap → fills MC now for non-screener tokens
+      }
       if (alive && Object.keys(add).length) setLivePx((prev) => ({ ...prev, ...add }));
+      if (alive && Object.keys(addMc).length) setLiveMcap((prev) => ({ ...prev, ...addMc }));
     };
     (async () => {
       try {
@@ -188,7 +193,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         // cost, which makes the percentage explode (e.g. +1,930,679,167,577%). Clamp for safety too.
         const pnlPct = costOfBag != null && costOfBag >= 1 && totalPnl != null
           ? Math.max(-100, Math.min(9999, (totalPnl / costOfBag) * 100)) : null;
-        const mcapNow = mcapMap.get(h.address) ?? null;
+        const mcapNow = mcapMap.get(h.address) ?? liveMcap[h.address] ?? null;
         // MC when you bought ≈ (avg buy price / current price) × current market cap.
         const mcapAtBuy = avgCost != null && p && p > 0 && mcapNow != null ? (avgCost / p) * mcapNow : null;
         return { ...h, iconUrl, name, counterfeit, price: p, value, avgCost, totalPnl, pnlPct, unrealized, realized,
@@ -197,7 +202,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
       })
       // Priced tokens first (by value), then real-but-unpriced by balance so the big holdings lead.
       .sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || b.balance - a.balance);
-  }, [holdings, priceMap, pnl, radarByAddr, realAddrBySymbol, symStats]);
+  }, [holdings, priceMap, pnl, radarByAddr, realAddrBySymbol, symStats, liveMcap]);
 
   // Hide counterfeit airdrops AND sub-$1 dust by default (a token PRICED under $1 is dust; unpriced
   // holdings stay visible since we can't judge their value). "Show" reveals everything.
