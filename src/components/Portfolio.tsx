@@ -77,6 +77,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   useEffect(() => {
     if (!addr || !isAddress(addr)) return;
     let alive = true;
+    let hideTimer: ReturnType<typeof setTimeout> | undefined;
     setLoading(true); setErr(null); setHoldings([]); setLivePx({}); setEnriching(false);
     // Map a holdings source into the view + seed the prices it already carries.
     const apply = (src: RadarHolding[]) => {
@@ -85,6 +86,22 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
       for (const r of src) if (r.price != null) seeded[r.address] = r.price;
       setHoldings(h); setLivePx((prev) => ({ ...prev, ...seeded }));
       return { h, seeded };
+    };
+    // Price any holdings still lacking a price: pool price (priceMainnet) then Warp curve price. Runs on
+    // whatever view we have — so it can fill prices from the FAST phase-1 bag immediately, without
+    // waiting on the full scan. ⚠️ don't block on the slow scan for a price the Warp API can give in ~1s.
+    const usdcK = '0x3600000000000000000000000000000000000000';
+    const enrich = async (h: Holding[], seeded: Record<string, number>) => {
+      const need = h.filter((x) => seeded[x.address] == null && x.address !== usdcK).map((x) => x.address);
+      const px = need.length ? await priceMainnet(need).catch(() => ({} as Record<string, number>)) : {};
+      if (!alive) return;
+      if (Object.keys(px).length) setLivePx((prev) => ({ ...prev, ...px }));
+      const missing = h.filter((x) => seeded[x.address] == null && px[x.address] == null && x.address !== usdcK).slice(0, 20);
+      const got = await Promise.all(missing.map((x) =>
+        fetchWarpToken(x.address).then((w) => [x.address, w?.price ?? null] as const).catch(() => null)));
+      const add: Record<string, number> = {};
+      for (const r of got) if (r && r[1] != null && isFinite(r[1]) && r[1] > 0) add[r[0]] = r[1];
+      if (alive && Object.keys(add).length) setLivePx((prev) => ({ ...prev, ...add }));
     };
     (async () => {
       try {
@@ -98,7 +115,13 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         ]);
         if (!alive) return;
         const fast = pf.holdings.length >= rp.holdings.length ? pf.holdings : rp.holdings;
-        if (fast.length) { apply(fast); setLoading(false); setEnriching(true); }
+        if (fast.length) {
+          const fs = apply(fast); setLoading(false); setEnriching(true); enrich(fs.h, fs.seeded);
+          // The full scan can take up to ~90s cold; the fast bag + Warp enrich is already priced, so don't
+          // leave the "reading the chain" bar up that whole time — retire it after ~18s regardless. Phase 2
+          // still replaces the view with the complete bag whenever it lands.
+          hideTimer = setTimeout(() => { if (alive) setEnriching(false); }, 18000);
+        }
 
         // PHASE 2 — the COMPLETE on-chain read (Transfer-log discovery + Multicall3 balanceOf + V3/V2/
         // Warp/V4 pricing across our RPCs). It's the full, correct bag; it replaces the fast view.
@@ -114,25 +137,12 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
           if (!alive) return; setHoldings(h); finalSet = { h, seeded: {} };
         }
         setLoading(false); setEnriching(false);
-
-        // Enrich any holdings still lacking a price (pool price, then Warp) — usually just edge cases,
-        // since the on-chain endpoint already prices V3/V2/Warp/V4.
-        const { h, seeded } = finalSet;
-        const need = h.filter((x) => seeded[x.address] == null).map((x) => x.address);
-        const px = need.length ? await priceMainnet(need).catch(() => ({} as Record<string, number>)) : {};
-        if (!alive) return;
-        if (Object.keys(px).length) setLivePx((prev) => ({ ...prev, ...px }));
-        const usdcK = '0x3600000000000000000000000000000000000000';
-        const missing = h.filter((x) => seeded[x.address] == null && px[x.address] == null && x.address !== usdcK).slice(0, 14);
-        const got = await Promise.all(missing.map((x) =>
-          fetchWarpToken(x.address).then((w) => [x.address, w?.price ?? null] as const).catch(() => null)));
-        const add: Record<string, number> = {};
-        for (const r of got) if (r && r[1] != null) add[r[0]] = r[1];
-        if (alive && Object.keys(add).length) setLivePx((prev) => ({ ...prev, ...add }));
+        // re-enrich the final (full) bag for anything the endpoint didn't price.
+        await enrich(finalSet.h, finalSet.seeded);
       } catch (e: any) { if (alive) setErr(e.message || 'failed to load'); }
-      finally { if (alive) { setLoading(false); setEnriching(false); } }
+      finally { if (alive) { setLoading(false); setEnriching(false); if (hideTimer) clearTimeout(hideTimer); } }
     })();
-    return () => { alive = false; };
+    return () => { alive = false; if (hideTimer) clearTimeout(hideTimer); };
   }, [addr, mainnet, refreshTick]); // eslint-disable-line
 
   // P&L: reconstruct cost basis from the wallet's on-chain swaps once holdings are known (mainnet only).

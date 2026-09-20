@@ -1122,12 +1122,16 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
   allPoolsCache.set(t, { at: Date.now(), v: pools });
   return pools;
 }
-const candleCache = new Map<string, { at: number; data: Candle[] }>();
-export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number, lookbackSec?: number): Promise<Candle[]> {
+// Raw pool swaps cached per (token, scan-window). The wide timeframes (4H/1D/1W/ALL) all scan the SAME
+// ~900k-block window and differ only in bucket size — so we scan ONCE, cache the raw {ts,price} swaps,
+// and re-bucket for each timeframe. That makes every wide-TF click after the first INSTANT (no re-scan).
+const swapsCache = new Map<string, { at: number; swaps: { ts: number; price: number }[] }>();
+async function scanPoolSwaps(token: string, decimals: number, spanCap: number): Promise<{ ts: number; price: number }[]> {
+  const t = token.toLowerCase();
+  const sk = t + ':' + spanCap;
+  const cached = swapsCache.get(sk);
+  if (cached && Date.now() - cached.at < 60000) return cached.swaps; // 60s — covers a whole TF-toggle session
   const pool = await findTokenPool(token); if (!pool) return [];
-  const ck = token.toLowerCase() + ':' + intervalSec + ':' + (lookbackSec ?? 0);
-  const hit = candleCache.get(ck);
-  if (hit && Date.now() - hit.at < 45000) return hit.data; // 45s cache — instant re-opens / tf toggles
   const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]); // token0(), head
   if (!t0hex || !headHex) return [];
   const usdcIsToken0 = ('0x' + t0hex.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
@@ -1135,17 +1139,12 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
   const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
   const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
-  // Scan back to cover this timeframe's window. Wide views (4H+) reach the whole chain-life (~4 days) so
-  // 1D/1W/ALL show real all-time history for deep on-chain tokens; fine views stay bounded (fast).
-  const spanCap = intervalSec >= 14400 ? 900000 : intervalSec >= 3600 ? 300000 : 80000;
-  const spanBlocks = Math.min(spanCap, Math.ceil((lookbackSec ?? intervalSec * 90) / blockTime));
   const dexp = 10 ** (decimals - 6); // USDC is 6-dec, the token `decimals`-dec
-  // Build the block ranges and fetch them IN PARALLEL (bounded). tenderly/blockdaemon accept 100k-block
-  // ranges (pool-address-filtered → few results), so 95k chunks keep a full ~4-day scan to ~10 calls —
-  // ALL/1W load fast instead of the ~95 calls the old 9.5k chunks needed.
+  // tenderly/blockdaemon accept 100k-block ranges (pool-filtered → few results) so 95k chunks keep a
+  // full ~4-day scan to ~10 calls.
   const CH = BigInt(BIG_LOG_RANGE);
   const ranges: [bigint, bigint][] = [];
-  for (let from = head - BigInt(spanBlocks); from < head; from += CH) ranges.push([from, from + CH > head ? head : from + CH]);
+  for (let from = head - BigInt(spanCap); from < head; from += CH) ranges.push([from, from + CH > head ? head : from + CH]);
   const results = await runLimited(ranges.map(([from, to], idx) => () =>
     getLogsBig({ address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }, idx)), 6);
   const swaps: { ts: number; price: number }[] = [];
@@ -1155,13 +1154,10 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
       const topic = (l.topics?.[0] || '').toLowerCase();
       let price: number;
       if (topic === SWAP_V2_TOPIC) {
-        // V2 has no sqrtPrice — use the swap's amounts (V2 pools are the constant-product AMM).
         const dec = decodeSwap(l.data, topic, usdcIsToken0);
         if (!dec || dec.tok <= 0n) continue;
         price = (Number(dec.usdc) / Number(dec.tok)) * dexp;
       } else {
-        // V3: read sqrtPriceX96 (3rd data word) = the POOL mid-price after the swap. This is accurate
-        // even on thin pools; the swap amounts include slippage and can be 2×+ off (e.g. CRCL).
         const sqrtP = BigInt('0x' + l.data.slice(2).slice(128, 192));
         if (sqrtP <= 0n) continue;
         const ratio = (Number(sqrtP) / 2 ** 96) ** 2; // token1_raw / token0_raw
@@ -1172,8 +1168,20 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
       swaps.push({ ts: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime), price });
     }
   }
-  if (!swaps.length) return [];
   swaps.sort((a, b) => a.ts - b.ts);
+  swapsCache.set(sk, { at: Date.now(), swaps });
+  return swaps;
+}
+const candleCache = new Map<string, { at: number; data: Candle[] }>();
+export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number, lookbackSec?: number): Promise<Candle[]> {
+  const ck = token.toLowerCase() + ':' + intervalSec + ':' + (lookbackSec ?? 0);
+  const hit = candleCache.get(ck);
+  if (hit && Date.now() - hit.at < 45000) return hit.data; // 45s cache — instant re-opens
+  // Wide views (4H+) reach the whole chain-life (~4 days); fine views stay bounded. All TFs at the same
+  // cap share ONE cached swap scan (scanPoolSwaps) — only the bucketing differs.
+  const spanCap = intervalSec >= 14400 ? 900000 : intervalSec >= 3600 ? 300000 : 80000;
+  const swaps = await scanPoolSwaps(token, decimals, spanCap);
+  if (!swaps.length) return [];
   const buckets = new Map<number, { o: number; h: number; l: number; c: number }>();
   for (const s of swaps) {
     const b = Math.floor(s.ts / intervalSec) * intervalSec;
