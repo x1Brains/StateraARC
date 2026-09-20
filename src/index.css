@@ -1076,6 +1076,34 @@ footer .flink:hover { text-decoration: underline; }
 .nav-x { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border-radius: 999px; color: var(--chrome); border: 1px solid var(--line); background: rgba(255,255,255,.02); font-size: 13px; text-decoration: none; transition: color .15s, border-color .15s, background .15s; }
 .nav-x:hover { color: #fff; border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.06); }
 
+/* Portfolio "reading the chain" scan loader — a high-tech beam sweeping a thin track. */
+.pf-scan { display: flex; flex-direction: column; align-items: center; gap: 9px; margin: 14px 0 6px; }
+.pf-scan-txt { font: 700 10px var(--disp); letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray-2); }
+.pf-scan-track { width: 260px; max-width: 66%; height: 3px; border-radius: 3px; background: rgba(255,255,255,.06); overflow: hidden; position: relative; }
+.pf-scan-beam { position: absolute; top: 0; height: 100%; width: 42%; border-radius: 3px; background: linear-gradient(90deg, transparent, #ff7a1a, #ffb060, #ff7a1a, transparent); box-shadow: 0 0 10px -1px rgba(255,122,26,.7); animation: pfScan 1.15s cubic-bezier(.4,0,.2,1) infinite; }
+@keyframes pfScan { 0% { left: -42%; } 100% { left: 100%; } }
+
+/* Token-page pools breakdown (all pools + per-pair depth, expandable) */
+.pl-card { margin-top: 12px; }
+.pl-head { display: flex; align-items: center; justify-content: space-between; width: 100%; background: none; border: 0; cursor: pointer; padding: 0; color: inherit; }
+.pl-head h3 { margin: 0; }
+.pl-sum { display: flex; align-items: center; gap: 10px; font: 700 13px var(--mono); color: var(--white); }
+.pl-sum .pl-cnt { font: 700 10px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
+.pl-chev { transition: transform .18s; color: var(--gray-2); }
+.pl-chev.open { transform: rotate(180deg); }
+.pl-list { margin-top: 12px; display: flex; flex-direction: column; }
+.pl-row { display: grid; grid-template-columns: minmax(0,1fr) 84px minmax(0,1fr) 26px; gap: 10px; align-items: center; padding: 9px 2px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px; }
+.pl-row:last-child { border-bottom: 0; }
+.pl-head-row { font: 700 9px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); }
+.pl-pair { font-weight: 700; color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-pair small { color: var(--gray-2); font-weight: 500; }
+.pl-dex { font: 600 10.5px var(--disp); letter-spacing: .3px; color: var(--gray-2); text-transform: uppercase; }
+.pl-liq { text-align: right; font: 700 12.5px var(--mono); color: var(--white); }
+.pl-liq small { display: block; color: var(--gray-3); font-weight: 500; font-size: 10.5px; }
+.pl-tx { color: var(--gray-2); display: inline-flex; justify-content: center; }
+.pl-tx:hover { color: var(--red-hi); }
+@media (max-width: 520px) { .pl-row { grid-template-columns: minmax(0,1fr) 64px auto 24px; gap: 8px; } }
+
 /* Nav wallet control */
 .connect.sm { padding: 8px 13px; font-size: 11px; border-radius: 8px; }
 .wbtn { position: relative; flex: none; }

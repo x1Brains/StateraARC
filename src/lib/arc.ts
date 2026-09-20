@@ -235,7 +235,9 @@ export interface RadarHolding { address: string; symbol: string; name: string; d
 // the nanocaps/airdrops a wallet actually holds. This returns them, native USDC included, priced on-chain.
 export async function fetchHoldingsOnchain(addr: string): Promise<{ total: number | null; holdings: RadarHolding[] }> {
   try {
-    const j = await fetch(`/api/holdings?addr=${addr.toLowerCase()}`, { headers: { accept: 'application/json' } }).then((r) => r.json());
+    // Cap the wait so a cold scan can never hang the "loading" indicator indefinitely — the VPS finishes
+    // and caches in the background regardless, so a re-load lands the full bag fast.
+    const j = await fetch(`/api/holdings?addr=${addr.toLowerCase()}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(105000) }).then((r) => r.json());
     if (!j || !Array.isArray(j.holdings)) return { total: null, holdings: [] };
     const holdings: RadarHolding[] = j.holdings.map((h: any) => ({
       address: (h.address || '').toLowerCase(), symbol: h.symbol || '?', name: h.name || h.symbol || '?',
@@ -287,6 +289,7 @@ export async function fetchPortfolioMainnet(addr: string): Promise<{ total: numb
 }
 
 // ── DEX-style token detail + holders (RadarDEX) ───────────────────────────────────────────────
+export interface RadarPool { pool: string; version: string; dex: string | null; feeTier: number | null; quote: string; liquidityUsdc: number | null; volumeAll: number | null; swaps: number | null; }
 export interface RadarTokenDetail {
   burnedPct: number | null; buys24: number | null; sells24: number | null; traders24: number | null;
   txns24: number | null; volume24: number | null; change5m: number | null; change1h: number | null;
@@ -297,6 +300,7 @@ export interface RadarTokenDetail {
   ageSec: number | null; liquidityUsdc: number | null; mcap: number | null; totalSupply: number | null;
   mintable: boolean; poolCount: number; poolSwaps: number | null; quoteSymbol: string | null;
   reserveBase: number | null; reserveQuote: number | null; volume6h: number | null; volume1h: number | null;
+  pools: RadarPool[]; liquidityTotal: number | null; // every pool + summed depth (per-pair breakdown)
 }
 export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDetail | null> {
   try {
@@ -309,6 +313,15 @@ export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDet
     const reserveQuote = bp ? (rnum(bp.liquidityUsdc) ?? (bp._reserveRaw != null ? Number(BigInt(bp._reserveRaw)) / 1e6 : null)) : null;
     const price = rnum(t.price);
     const reserveBase = reserveQuote != null && price ? reserveQuote / price : null; // tokens ≈ USDC depth / price
+    // Full per-pool breakdown (all trading pairs) + aggregated depth across them.
+    const poolList: RadarPool[] = pools.map((p: any) => ({
+      pool: (p.pool || '').toLowerCase(),
+      version: p.version || (p.hooks && p.hooks !== '0x0000000000000000000000000000000000000000' ? 'v4' : 'v3'),
+      dex: p.dex || null, feeTier: rnum(p.feeTier), quote: (p.quoteToken || '').toLowerCase(),
+      liquidityUsdc: rnum(p.liquidityUsdc) ?? (p._reserveRaw != null ? (() => { try { return Number(BigInt(p._reserveRaw)) / 1e6; } catch { return null; } })() : null),
+      volumeAll: rnum(p.volumeAll), swaps: rnum(p.swaps),
+    })).filter((p: RadarPool) => p.pool).sort((a: RadarPool, b: RadarPool) => (b.liquidityUsdc ?? 0) - (a.liquidityUsdc ?? 0));
+    const liquidityTotal = poolList.length ? poolList.reduce((s, p) => s + (p.liquidityUsdc ?? 0), 0) : null;
     return {
       burnedPct: rnum(t.burnedPct), buys24: rnum(t.buys24), sells24: rnum(t.sells24), traders24: rnum(t.traders24),
       txns24: rnum(t.txns24), volume24: rnum(t.volume24), change5m: rnum(t.change5m), change1h: rnum(t.change1h),
@@ -321,6 +334,7 @@ export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDet
       mintable: !!t.mintable, poolCount: pools.length, poolSwaps: bp ? rnum(bp.swaps) : null,
       quoteSymbol: t.quoteSymbol || (bp?.quoteToken === '0x3600000000000000000000000000000000000000' ? 'USDC' : null),
       reserveBase, reserveQuote, volume6h: rnum(t.volume6h), volume1h: rnum(t.volume1h),
+      pools: poolList, liquidityTotal,
     };
   } catch { return null; }
 }

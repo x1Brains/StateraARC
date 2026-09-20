@@ -5,7 +5,7 @@ import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap } from '../lib/arc';
 import type { Token } from '../lib/arc';
-import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy } from './icons';
+import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown } from './icons';
 
 // Pre-public (chain 5042) token detail. Source: arc-scan.org REST /tokens/{a} (UNOFFICIAL indexer,
 // reliable, unverified aggregates). No internal on-chain detail — 5042 has no Blockscout API and the
@@ -32,6 +32,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [ocPool, setOcPool] = useState<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null } | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders'>('txns');
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
+  const [poolsOpen, setPoolsOpen] = useState(false);
 
   // Warp (chain 5042) price/mcap + it backs the candlestick chart below.
   useEffect(() => {
@@ -124,7 +125,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const top10 = holders && holders.length ? holders.slice(0, 10).reduce((s, h) => s + (h.percent ?? 0), 0) : null;
 
   // ── Liquidity depth + pool age + FDV (RadarDEX first, then on-chain reserves, then seed) ─────────
-  const tvl = rd?.liquidityUsdc ?? ocPool?.tvl ?? liq ?? null;
+  const tvl = rd?.liquidityTotal ?? rd?.liquidityUsdc ?? ocPool?.tvl ?? liq ?? null; // aggregate across all pools
   const reserveBase = rd?.reserveBase ?? ocPool?.reserveBase ?? null;
   const reserveQuote = rd?.reserveQuote ?? ocPool?.reserveQuote ?? null;
   const fdv = rd?.fdv ?? (px != null && (rd?.totalSupply ?? supplyNum) ? px * (rd?.totalSupply ?? supplyNum)! : null);
@@ -145,6 +146,14 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
     ageStr ? { v: ageStr, l: 'Pool age' } : null,
     rd?.poolSwaps != null ? { v: compact(rd.poolSwaps), l: 'Swaps' } : null,
   ].filter(Boolean)) as { v: string; l: string }[];
+
+  // All pools for this token (per-pair breakdown). Resolve the quote side's ticker for the pair label.
+  const QUOTE_SYM: Record<string, string> = {
+    '0x3600000000000000000000000000000000000000': 'USDC',
+    '0x384c60f98ecd4c26345499345c03d677e40f115e': 'WARP',
+  };
+  const quoteSym = (a?: string) => { const k = (a || '').toLowerCase(); return QUOTE_SYM[k] || (k.length >= 10 ? `${k.slice(0, 6)}…` : 'USDC'); };
+  const allPools = rd?.pools ?? [];
 
   // ── Pool health: a transparent 0–100 score from on-chain signals (NOT a safety guarantee) ────────
   // Mirrors a DEX screener's health read. Each signal is a real, verifiable measurement; weights sum to 100.
@@ -315,6 +324,33 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
           )}
         </div>
       </div>
+
+      {/* All pools for this token — aggregated depth + per-pair breakdown (click to expand). */}
+      {allPools.length > 0 && (
+        <div className="panel side-card pl-card">
+          <button className="pl-head" onClick={() => setPoolsOpen((o) => !o)}>
+            <h3>Pools · {allPools.length}</h3>
+            <span className="pl-sum">
+              {rd?.liquidityTotal != null && <b>{usd(rd.liquidityTotal)}</b>}
+              <span className="pl-cnt">total liq</span>
+              <IconChevronDown className={`pl-chev i ${poolsOpen ? 'open' : ''}`} />
+            </span>
+          </button>
+          {poolsOpen && (
+            <div className="pl-list">
+              <div className="pl-row pl-head-row"><span>Pair</span><span>DEX</span><span className="pl-liq">Liquidity</span><span className="pl-tx">Tx</span></div>
+              {allPools.map((p) => (
+                <div className="pl-row" key={p.pool}>
+                  <span className="pl-pair">{sym}/{quoteSym(p.quote)}{p.feeTier ? <small> · {(p.feeTier / 1e4).toFixed(2)}%</small> : null}</span>
+                  <span className="pl-dex">{p.dex || (p.version || '').toUpperCase()}</span>
+                  <span className="pl-liq">{p.liquidityUsdc != null ? usd(p.liquidityUsdc) : '—'}{p.swaps != null ? <small>{compact(p.swaps)} swaps</small> : null}</span>
+                  <a className="pl-tx" href={`https://explorer.arc.io/address/${p.pool}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Compact tabbed section — Transactions / Holders (scrolls inside itself, not the page) */}
       <div className="panel td-tabpanel" style={{ marginTop: 12 }}>

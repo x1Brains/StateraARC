@@ -220,7 +220,12 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
 
       {addr && !loading && (
         <>
-          {enriching && <div className="msg" style={{ marginTop: 8, opacity: 0.75 }}><span className="live-dot" /> Fetching your full on-chain bag…</div>}
+          {enriching && (
+            <div className="pf-scan">
+              <span className="pf-scan-txt">Reading the chain — indexing every pool &amp; balance</span>
+              <div className="pf-scan-track"><div className="pf-scan-beam" /></div>
+            </div>
+          )}
           <div className="stats" style={{ marginTop: 8 }}>
             <div className="stat"><div className="v">{usd(total)}</div><div className="l">Total Value {rows.some((r) => r.value == null) ? '(priced tokens)' : ''}</div></div>
             {mainnet && (

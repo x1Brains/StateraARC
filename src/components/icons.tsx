@@ -12,6 +12,9 @@ export function IconArrowLeft({ className }: { className?: string }) {
 export function IconExternal({ className }: { className?: string }) {
   return <svg {...base} className={className}><path d="M6 3H3.5A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 3.5 14h8a1.5 1.5 0 0 0 1.5-1.5V10M9 2h5v5M13.5 2.5 7 9" /></svg>;
 }
+export function IconChevronDown({ className }: { className?: string }) {
+  return <svg {...base} className={className}><path d="M4 6l4 4 4-4" /></svg>;
+}
 // The X (Twitter) logo — a filled glyph, so it uses fill rather than the stroke base above.
 export function IconX({ className }: { className?: string }) {
   return <svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>;
