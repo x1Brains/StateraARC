@@ -301,6 +301,7 @@ export interface RadarTokenDetail {
   mintable: boolean; poolCount: number; poolSwaps: number | null; quoteSymbol: string | null;
   reserveBase: number | null; reserveQuote: number | null; volume6h: number | null; volume1h: number | null;
   pools: RadarPool[]; liquidityTotal: number | null; // every pool + summed depth (per-pair breakdown)
+  burnedSupply: number | null; circulating: number | null; reflection: boolean; lpTokenId: string | null;
 }
 export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDetail | null> {
   try {
@@ -335,6 +336,9 @@ export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDet
       quoteSymbol: t.quoteSymbol || (bp?.quoteToken === '0x3600000000000000000000000000000000000000' ? 'USDC' : null),
       reserveBase, reserveQuote, volume6h: rnum(t.volume6h), volume1h: rnum(t.volume1h),
       pools: poolList, liquidityTotal,
+      burnedSupply: t.burnedSupply != null ? (() => { try { return Number(BigInt(t.burnedSupply)) / 10 ** dec; } catch { return null; } })() : null,
+      circulating: (() => { const ts = t.totalSupply != null ? (() => { try { return Number(BigInt(t.totalSupply)) / 10 ** dec; } catch { return null; } })() : null; const bs = t.burnedSupply != null ? (() => { try { return Number(BigInt(t.burnedSupply)) / 10 ** dec; } catch { return null; } })() : null; return ts != null ? ts - (bs ?? 0) : null; })(),
+      reflection: !!t.reflection, lpTokenId: t.lpTokenId != null ? String(t.lpTokenId) : null,
     };
   } catch { return null; }
 }

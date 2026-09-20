@@ -33,6 +33,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [tab, setTab] = useState<'txns' | 'holders'>('txns');
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
   const [poolsOpen, setPoolsOpen] = useState(false);
+  const [calcAmt, setCalcAmt] = useState('');
 
   // Warp (chain 5042) price/mcap + it backs the candlestick chart below.
   useEffect(() => {
@@ -245,6 +246,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
             <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
             <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
             <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{d?.decimals ?? '—'}</span></div>
+            {rd?.bestPool && <div className="ir"><span className="ir-k">Pool ID</span><a className="ir-v mono" href={`https://explorer.arc.io/address/${rd.bestPool}`} target="_blank" rel="noreferrer" style={{ color: 'var(--red-hi)', textDecoration: 'none' }}>{rd.bestPool.slice(0, 10)}…{rd.bestPool.slice(-6)}</a></div>}
             {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
             {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
             {rd?.burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{rd.burnedPct.toFixed(2)}%</span></div>}
@@ -277,6 +279,25 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                 <div className="ta-cell"><div className="ta-v">{rd.traders24 != null ? rd.traders24.toLocaleString() : '—'}</div><div className="ta-l">Makers</div></div>
                 <div className="ta-cell"><div className="ta-v">{rd.burnedPct != null ? rd.burnedPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Burned</div></div>
                 <div className="ta-cell"><div className="ta-v">{top10 != null ? top10.toFixed(1) + '%' : '—'}</div><div className="ta-l">Top 10</div></div>
+              </div>
+            </div>
+          )}
+
+          {/* Calculator — convert a token amount to USD at the live price. */}
+          {px != null && (
+            <div className="panel side-card">
+              <h3>Calculator</h3>
+              <div className="calc">
+                <div className="calc-row">
+                  <input className="calc-in" inputMode="decimal" placeholder="0.00" value={calcAmt}
+                    onChange={(e) => setCalcAmt(e.target.value.replace(/[^0-9.]/g, ''))} />
+                  <span className="calc-unit">{sym}</span>
+                </div>
+                <div className="calc-eq">=</div>
+                <div className="calc-row calc-out">
+                  <span className="calc-val">{calcAmt && isFinite(+calcAmt) ? usd(+calcAmt * px) : '$0.00'}</span>
+                  <span className="calc-unit">USD</span>
+                </div>
               </div>
             </div>
           )}
@@ -320,6 +341,27 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                 </div>
               )}
               <div className="ph-note">Weighted signal from live on-chain data — not a legitimacy or safety certification. DYOR.</div>
+            </div>
+          )}
+
+          {/* Supply — minted / burnt / circulating / FDV. */}
+          {rd && rd.totalSupply != null && (
+            <div className="panel side-card">
+              <h3>Supply</h3>
+              <div className="ta-grid">
+                <div className="ta-cell"><div className="ta-v">{compact(rd.totalSupply)}</div><div className="ta-l">Minted</div></div>
+                <div className="ta-cell"><div className="ta-v">{rd.burnedSupply != null ? compact(rd.burnedSupply) : '—'}</div><div className="ta-l">Burnt{rd.burnedPct != null ? ` ${rd.burnedPct.toFixed(1)}%` : ''}</div></div>
+                <div className="ta-cell"><div className="ta-v">{rd.circulating != null ? compact(rd.circulating) : compact(rd.totalSupply)}</div><div className="ta-l">Circulating</div></div>
+                <div className="ta-cell"><div className="ta-v">{fdv != null ? usd(fdv) : '—'}</div><div className="ta-l">FDV</div></div>
+              </div>
+              {(rd.mintable || rd.reflection || rd.lpTokenId) && (
+                <div className="lq-res">
+                  {rd.mintable && <span className="lq-r" style={{ color: '#ff5a5a' }}>Mintable</span>}
+                  {!rd.mintable && <span className="lq-r" style={{ color: '#4ecb71' }}>Fixed supply</span>}
+                  {rd.reflection && <span className="lq-r">Reflection</span>}
+                  {rd.lpTokenId && <span className="lq-r">LP #{rd.lpTokenId}</span>}
+                </div>
+              )}
             </div>
           )}
         </div>

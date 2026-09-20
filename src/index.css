@@ -1104,6 +1104,15 @@ footer .flink:hover { text-decoration: underline; }
 .pl-tx:hover { color: var(--red-hi); }
 @media (max-width: 520px) { .pl-row { grid-template-columns: minmax(0,1fr) 64px auto 24px; gap: 8px; } }
 
+/* Token-page calculator */
+.calc { display: flex; flex-direction: column; gap: 6px; }
+.calc-row { display: flex; align-items: center; gap: 8px; background: #060a0e; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.calc-in { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--white); font: 700 18px var(--mono); }
+.calc-in::placeholder { color: var(--gray-3); }
+.calc-unit { font: 700 11px var(--disp); letter-spacing: .6px; color: var(--gray-2); }
+.calc-eq { text-align: center; color: var(--gray-3); font: 700 12px var(--mono); }
+.calc-out .calc-val { flex: 1; font: 700 18px var(--mono); color: var(--fire, #ff7a1a); }
+
 /* Nav wallet control */
 .connect.sm { padding: 8px 13px; font-size: 11px; border-radius: 8px; }
 .wbtn { position: relative; flex: none; }
