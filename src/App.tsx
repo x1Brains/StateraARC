@@ -527,7 +527,11 @@ export default function App() {
         <footer><div className="wrap">
           <span className="fbrand">STATERA · ARC</span>
           <span>Data via RadarDEX · Warp · ArcExplorer · Arc Mainnet · chain 5042</span>
-          <span><button className="flink" onClick={() => go('token')}>The $STR token</button> · Not financial advice · early launches are high-risk</span>
+          <span>
+            <a className="flink" href="https://x.com/StateraArc" target="_blank" rel="noreferrer">@StateraArc on X</a>
+            {' · '}<button className="flink" onClick={() => go('token')}>The $STR token</button>
+            {' · '}Not financial advice · early launches are high-risk
+          </span>
         </div></footer>
       </div>
     </>

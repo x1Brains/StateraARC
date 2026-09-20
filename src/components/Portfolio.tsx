@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchHoldings, fetchHoldingsMainnet, fetchPortfolioMainnet, fetchRadarPortfolio, fetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type RadarHolding, type TokenPnl } from '../lib/arc';
+import { fetchHoldings, fetchHoldingsMainnet, fetchHoldingsOnchain, fetchPortfolioMainnet, fetchRadarPortfolio, fetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type RadarHolding, type TokenPnl } from '../lib/arc';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
 import { SendModal, type SendToken } from './SendModal';
@@ -83,13 +83,18 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         let h: Holding[] = [];
         const seeded: Record<string, number> = {}; // prices that came free with the holdings source
         if (mainnet) {
-          // PRIMARY: the official Arc explorer lists EVERY token the wallet holds in one call —
-          // balances, decimals, icons, and (where indexed) prices. RadarDEX's /portfolio was
-          // unreliable (often returned only USDC and dropped the rest of the bag), so it's now
-          // just a fallback, with the curated on-chain scan behind it.
-          const pf = await fetchPortfolioMainnet(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
+          // PRIMARY: /api/holdings reads the wallet's FULL bag straight from the chain (Transfer-log
+          // discovery + Multicall3 balanceOf across our 3 RPCs) — explorer.arc.io is Cloudflare-walled and
+          // RadarDEX /portfolio only knows pooled tokens, so both dropped nanocaps/airdrops. Those, plus
+          // the explorer and RadarDEX, are now fallbacks behind the on-chain read.
+          const oc = await fetchHoldingsOnchain(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
           if (!alive) return;
-          let src: RadarHolding[] = pf.holdings;
+          let src: RadarHolding[] = oc.holdings;
+          if (!src.length) {
+            const pf = await fetchPortfolioMainnet(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
+            if (!alive) return;
+            src = pf.holdings;
+          }
           if (!src.length) {
             const rp = await fetchRadarPortfolio(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
             if (!alive) return;

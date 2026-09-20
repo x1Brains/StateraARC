@@ -228,6 +228,23 @@ export async function fetchRadarTokens(limit = 500): Promise<Token[]> {
 }
 
 export interface RadarHolding { address: string; symbol: string; name: string; decimals: number; icon: string | null; price: number | null; amount: number; usd: number | null; }
+
+// ⭐ PRIMARY portfolio source (09-19): our own /api/holdings endpoint reads the wallet's FULL bag straight
+// from the chain (Transfer-log discovery + Multicall3 balanceOf across our 3 Arc RPCs) — not one indexer.
+// explorer.arc.io is Cloudflare-walled and RadarDEX /portfolio only knows pooled tokens, so both dropped
+// the nanocaps/airdrops a wallet actually holds. This returns them, native USDC included, priced on-chain.
+export async function fetchHoldingsOnchain(addr: string): Promise<{ total: number | null; holdings: RadarHolding[] }> {
+  try {
+    const j = await fetch(`/api/holdings?addr=${addr.toLowerCase()}`, { headers: { accept: 'application/json' } }).then((r) => r.json());
+    if (!j || !Array.isArray(j.holdings)) return { total: null, holdings: [] };
+    const holdings: RadarHolding[] = j.holdings.map((h: any) => ({
+      address: (h.address || '').toLowerCase(), symbol: h.symbol || '?', name: h.name || h.symbol || '?',
+      decimals: h.decimals ?? 18, icon: h.iconUrl ?? null, price: rnum(h.price),
+      amount: Number(h.amount ?? 0), usd: rnum(h.usd),
+    })).filter((h: RadarHolding) => h.address && h.amount > 0);
+    return { total: rnum(j.total), holdings };
+  } catch { return { total: null, holdings: [] }; }
+}
 // One-call wallet holdings with value + icons — makes the portfolio tracker instant (no on-chain scan).
 export async function fetchRadarPortfolio(addr: string): Promise<{ total: number | null; holdings: RadarHolding[] }> {
   try {
