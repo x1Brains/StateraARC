@@ -191,8 +191,8 @@ async function poolStats(token, pool) {
 (async () => {
   const map = new Map();
   const mk = (o) => ({ holders: null, iconUrl: null, launchpad: null, isOurs: false, isEcosystem: false,
-    price: null, liq: null, mcap: null, volume24h: null, change1h: null, change24h: null, spark: null,
-    txns24: null, createdAt: null, ...o, address: o.address.toLowerCase() });
+    price: null, liq: null, mcap: null, fdv: null, volume24h: null, change5m: null, change1h: null, change6h: null,
+    change24h: null, spark: null, txns24: null, source: null, createdAt: null, ...o, address: o.address.toLowerCase() });
   const set = (t) => { const k = t.address.toLowerCase(); const c = map.get(k);
     if (!c) { map.set(k, mk(t)); return; }
     for (const key of Object.keys(t)) { const v = t[key]; if (v == null) continue; if (c[key] == null) c[key] = v; }
@@ -208,8 +208,10 @@ async function poolStats(token, pool) {
     set(mk({ address, name: t.name || t.symbol || '?', symbol: t.symbol || '?',
       holders: num(t.holderCount), iconUrl: t.icon || null, launchpad: lp,
       isEcosystem: ECOSYSTEM.test(`${t.name} ${t.symbol}`),
-      price: num(t.price), liq: num(t.liquidityUsdc), mcap: num(t.mcap),
-      volume24h: num(t.volume24 ?? t.volume24hFixed), change1h: num(t.change1h), change24h: num(t.change24h),
+      price: num(t.price), liq: num(t.liquidityUsdc), mcap: num(t.mcap), fdv: num(t.fdv),
+      volume24h: num(t.volume24 ?? t.volume24hFixed), change5m: num(t.change5m), change1h: num(t.change1h),
+      change6h: num(t.change6h), change24h: num(t.change24h),
+      source: t.topDex || (Array.isArray(t.versions) && t.versions.length ? t.versions[t.versions.length - 1].toUpperCase() : (t.topVersion ? String(t.topVersion).toUpperCase() : null)),
       txns24: num(t.txns24), spark: Array.isArray(t.spark) ? t.spark.filter((n) => typeof n === 'number' && isFinite(n)) : null,
       createdAt: num(t.deployTs ?? t.firstSeen) != null ? num(t.deployTs ?? t.firstSeen) * 1000 : null }));
   }

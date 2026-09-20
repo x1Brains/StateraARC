@@ -71,8 +71,12 @@ export interface Token {
   premain?: boolean;       // sourced from the unofficial 5042 index
   createdAt?: number | null; // ms epoch the token was deployed (for "recent launches" sorting)
   volume24h?: number | null; // 24h USDC volume (RadarDEX aggregate)
+  change5m?: number | null;  // 5m price change, percent
   change24h?: number | null; // 24h price change, percent (RadarDEX)
   change1h?: number | null;  // 1h price change, percent
+  change6h?: number | null;  // 6h price change, percent
+  fdv?: number | null;       // fully-diluted valuation
+  source?: string | null;    // top DEX / pool version (e.g. Uni V3, WarpV2)
   txns24?: number | null;    // 24h transaction count
   spark?: number[] | null;   // sparkline price series (recent → last)
 }
@@ -112,6 +116,10 @@ export async function fetchTokens(limit = 500): Promise<Token[]> {
           price: t.price ?? null, liq: t.liq ?? null,
           // guard testnet supply-inflation: a $2T "market cap" is a minted-huge stablecoin, not real
           mcap: (typeof t.mcap === 'number' && t.mcap > 0 && t.mcap <= 1e10) ? t.mcap : null,
+          fdv: (typeof t.fdv === 'number' && t.fdv > 0 && t.fdv <= 1e11) ? t.fdv : null,
+          volume24h: t.volume24h ?? null, change5m: t.change5m ?? null, change1h: t.change1h ?? null,
+          change6h: t.change6h ?? null, change24h: t.change24h ?? null, txns24: t.txns24 ?? null,
+          source: t.source ?? null, spark: Array.isArray(t.spark) ? t.spark : null, createdAt: t.createdAt ?? null,
         }));
       }
     }
