@@ -1061,6 +1061,33 @@ export async function findV4Pool(token: string): Promise<V4Pool | null> {
   v4PoolCache.set(t, pool);
   return pool;
 }
+// Curated actively-traded V4 launchpad tokens (potato.fm / "Argus pad") that NO aggregator indexes.
+// Until the chain-wide V4 discovery bake lands (28k candidate pools, mostly decoys → must filter to real
+// volume), these are added to the screener by hand so they're findable/searchable. Priced + supply on-chain.
+const CURATED_V4: { address: string; symbol: string; name: string; launchpad?: string }[] = [
+  { address: '0x08adbf431569a1aacac2606d2adcd18f4ebf2a71', symbol: 'GLITCH', name: 'Glitch', launchpad: 'potato' },
+];
+export async function fetchCuratedV4Tokens(): Promise<Token[]> {
+  const out: Token[] = [];
+  await Promise.all(CURATED_V4.map(async (c) => {
+    try {
+      const v4 = await findV4Pool(c.address); if (!v4) return;
+      const dec = 18; // launchpad coins are 18-dec
+      const [price, supHex] = await Promise.all([
+        v4PriceOf(v4.poolId, v4.usdcIsC0, dec),
+        mCall(c.address, '0x18160ddd').catch(() => null), // totalSupply()
+      ]);
+      let supply: number | null = null; try { if (supHex && supHex !== '0x') supply = Number(BigInt(supHex)) / 10 ** dec; } catch { /* */ }
+      const mcap = price != null && supply ? price * supply : null;
+      out.push({ address: c.address.toLowerCase(), name: c.name, symbol: c.symbol, holders: null, totalSupply: null,
+        type: 'ERC-20', iconUrl: null, launchpad: c.launchpad ?? null, isOurs: false, isEcosystem: false,
+        price, liq: null, mcap: mcap && mcap <= 1e10 ? mcap : null, fdv: mcap && mcap <= 1e11 ? mcap : null,
+        volume24h: null, change5m: null, change1h: null, change6h: null, change24h: null, txns24: null,
+        source: 'V4', spark: null, createdAt: null });
+    } catch { /* */ }
+  }));
+  return out;
+}
 // USD-per-token from the V4 pool's live sqrtPriceX96 (extsload).
 async function v4PriceOf(poolId: string, usdcIsC0: boolean, decimals: number): Promise<number | null> {
   const s0 = await mCall(PM_V4, '0x1e2eaeaf' + v4StateSlot(poolId).slice(2)).catch(() => null);

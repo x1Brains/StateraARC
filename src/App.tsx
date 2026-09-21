@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchPoolVolume24h, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
+import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchPoolVolume24h, fetchCuratedV4Tokens, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -158,6 +158,11 @@ export default function App() {
     try {
       const { tokens: list, asOf: ts } = await fetchScreenerTokens();
       setTokens(list); setAsOf(ts);
+      // Merge curated V4 launchpad tokens (GLITCH etc.) that no aggregator indexes, so they're listed &
+      // searchable now — priced on-chain. (Full chain-wide V4 discovery bake is the proper fix.)
+      fetchCuratedV4Tokens().then((extra) => {
+        if (extra.length) setTokens((prev) => { const have = new Set(prev.map((t) => t.address.toLowerCase())); return [...prev, ...extra.filter((e) => !have.has(e.address.toLowerCase()))]; });
+      }).catch(() => {});
       // Safety net: if the snapshot ever lacks volume for a deep pool, fill it on-chain (usually a no-op
       // now that the snapshot bakes it).
       enrichPoolVolumes(list, (addr, v) => setTokens((prev) => prev.map((x) => (x.address === addr ? { ...x, volume24h: v } : x))));
@@ -271,6 +276,20 @@ export default function App() {
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const openToken = (addr: string) => { setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const goScreener = (f: Filter = 'all') => { setFilter(f); setSort('liq'); setPage('screener'); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  // Hero "search any token": a contract address opens that token page directly (works for ANY token,
+  // even ones not in our list — e.g. V4 launchpad coins). A ticker/name jumps to the best match, else
+  // opens the screener pre-filtered so they can pick it.
+  const [heroQ, setHeroQ] = useState('');
+  const heroSearch = () => {
+    const s = heroQ.trim();
+    if (!s) return;
+    if (/^0x[0-9a-fA-F]{40}$/.test(s)) { openToken(s.toLowerCase()); return; }
+    const low = s.toLowerCase();
+    const hit = tokens.find((t) => (t.symbol || '').toLowerCase() === low)
+      || tokens.find((t) => (t.symbol || '').toLowerCase().startsWith(low) || (t.name || '').toLowerCase().startsWith(low));
+    if (hit) { openToken(hit.address); return; }
+    setQ(s); goScreener('all');
+  };
 
   // URL <-> state: back/forward + direct-load sync, and push a shareable clean path on navigation.
   useEffect(() => {
@@ -338,6 +357,11 @@ export default function App() {
                     <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <IconArrowRight className="arw" /></button>
                     <button className="btn ghost" onClick={() => goScreener('new')}>New Launches</button>
                   </div>
+                  <form className="hero-search" onSubmit={(e) => { e.preventDefault(); heroSearch(); }}>
+                    <input className="hs-in" value={heroQ} onChange={(e) => setHeroQ(e.target.value)}
+                      placeholder="Search any token — ticker or contract address" aria-label="Search any token" spellCheck={false} />
+                    <button type="submit" className="hs-go" aria-label="Search">Search <IconArrowRight className="arw" /></button>
+                  </form>
                   <div className="hero-trust">
                     <div className="ht"><b>{tokens.length || '—'}</b><span>Tokens Tracked</span></div>
                     <div className="div" />
