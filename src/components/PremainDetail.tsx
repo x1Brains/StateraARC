@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, primePool, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown } from './icons';
 
@@ -48,6 +48,8 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // flags + accurate %), plus recent on-chain transfers (mainnet RPC).
   useEffect(() => {
     let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null);
+    // Prime the pool cache from the snapshot so every panel skips the slow ~900k-block pool-discovery scan.
+    if (seed && (seed.pool || seed.poolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0 });
     (async () => {
       const detail = await fetchRadarTokenDetail(address).catch(() => null);
       if (alive) setRd(detail);
@@ -134,9 +136,12 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const reserveBase = rd?.reserveBase ?? ocPool?.reserveBase ?? null;
   const reserveQuote = rd?.reserveQuote ?? ocPool?.reserveQuote ?? null;
   const bothSides = reserveQuote != null && reserveBase != null && px != null ? reserveQuote + reserveBase * px : null; // full pool value
-  const liq = bothSides ?? rd?.liquidityTotal ?? seed?.liq ?? warp?.liquidity ?? ocPool?.tvl ?? null; // real reserves value first (matches the displayed base/quote), so TVL isn't 1/10th
-  const mc = seed?.mcap ?? warp?.mcap ?? (px != null && supplyNum ? px * supplyNum : null);
-  const vol = rd?.volume24 ?? seed?.volume24h ?? warp?.volume24h ?? dayStats?.volume24h ?? null;
+  // ⛔ Pick the first POSITIVE value — a near-empty pool made bothSides compute to a spurious 0, and `??`
+  // treats 0 as valid, so a real $6M liquidity showed $0. On-chain TVL (ocPool) is verified-accurate.
+  const firstPos = (...v: (number | null | undefined)[]) => v.find((x) => x != null && isFinite(x) && x > 0) ?? null;
+  const liq = firstPos(bothSides, ocPool?.tvl, rd?.liquidityTotal, seed?.liq, warp?.liquidity);
+  const mc = firstPos(seed?.mcap, warp?.mcap, px != null && supplyNum ? px * supplyNum : null);
+  const vol = firstPos(rd?.volume24, seed?.volume24h, dayStats?.volume24h, warp?.volume24h);
   const chg = rd?.change24h ?? seed?.change24h ?? dayStats?.change24h ?? null;
   // Holder count: on-chain (arc-scan) and Warp agree and are ground truth; RadarDEX's count is stale/
   // partial (it only lists ~50 rows and undercounted ARGUS 12k vs the real 18k), so it goes LAST — else

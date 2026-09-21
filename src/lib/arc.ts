@@ -1103,6 +1103,8 @@ export async function fetchCuratedV4Tokens(): Promise<Token[]> {
         type: 'ERC-20', iconUrl: null, launchpad: c.launchpad ?? null, isOurs: false, isEcosystem: false,
         price, liq: null, mcap: mcap && mcap <= 1e10 ? mcap : null, fdv: mcap && mcap <= 1e11 ? mcap : null,
         volume24h: null, change5m: null, change1h: null, change6h: null, change24h: null, txns24: null,
+        // carry the pool so the token page primes the cache → no slow discovery scan
+        poolId: c.poolId, usdcIsC0: c.usdcIsC0, decimals: dec,
         source: 'V4', spark: null, createdAt: null });
     } catch { /* */ }
   }));
@@ -1169,6 +1171,14 @@ const V3_FACTORY = '0xf0db7b58379503491d857db50ac9ece64c653918';
 const V2_FACTORY = '0x942bd5bfdc5317c5507e326f8eb4bb6058ab5c10';
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
 const poolDiscovery = new Map<string, string | null>();
+// Prime the pool caches from the screener snapshot (which already knows each on-chain token's pool), so
+// the token page's price/chart/reserves/trades/vol DON'T each run the slow ~900k-block discovery scan.
+// A V4-only token also gets its V3 discovery short-circuited to null so findTokenPool returns instantly.
+export function primePool(token: string, seed: { pool?: string | null; poolId?: string | null; usdcIsC0?: boolean }): void {
+  const t = token.toLowerCase();
+  if (seed.poolId) { v4PoolCache.set(t, { poolId: seed.poolId, usdcIsC0: !!seed.usdcIsC0 }); if (!seed.pool) poolDiscovery.set(t, null); }
+  if (seed.pool) poolDiscovery.set(t, seed.pool.toLowerCase());
+}
 // Find a token's deepest USDC pool (V3 any fee tier, or V2). Curated deep pools win; result cached.
 export async function findTokenPool(token: string): Promise<string | null> {
   const t = token.toLowerCase();

@@ -451,7 +451,7 @@ export default function App() {
         {page === 'screener' && selected && (
           <PremainDetail
             address={selected}
-            seed={tokens.find((t) => t.address === selected)}
+            seed={tokens.find((t) => t.address.toLowerCase() === (selected || "").toLowerCase())}
             onBack={() => setSelected(null)}
             onTrade={(t) => tradeToken(t)}
           />
