@@ -23,7 +23,7 @@ const T_V3_CREATE = '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4
 const T_V4_INIT = '0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438';
 const T_V4_SWAP = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f';
 const T_V3_SWAP = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
-const VOL_FLOOR = 50; // only scan 24h volume/change for tokens with at least this much liquidity (bounds cost)
+const VOL_FLOOR = Number(process.env.ONCHAIN_MIN_LIQ || 100); // only scan 24h vol/change for tokens we'll keep (>= the $100 floor) — the vol scan is the bottleneck, so this is the real speedup
 // Major-asset tickers that DON'T legitimately exist as launchpad mints on Arc — any on-chain token using
 // them is an impersonator (fake "Wrapped Ether" $267M etc.), and its faked high price inflates the
 // liquidity estimate so it ranks #1. Drop them from discovery. (Real ecosystem tokens come via RadarDEX.)
@@ -35,7 +35,8 @@ const CH = 95000n;                       // getLogs range for the big-range RPCs
 const INITIAL_LOOKBACK = BigInt(process.env.ONCHAIN_LOOKBACK || 1_200_000); // first run: how far back to sweep
 const MAX_NEW_PER_RUN = Number(process.env.ONCHAIN_MAX_NEW || 3000); // V3 candidates to liquidity-check per run; the rest carry over in a backlog so a run never hangs on 19k checks
 const V4_ACTIVE_WINDOW = BigInt(process.env.V4_ACTIVE_WINDOW || 40000); // blocks of recent V4 swaps to catch active launchpad pools
-const MIN_USDC = 40;                     // a pool must hold at least this much USDC to count as real
+const MIN_USDC = Number(process.env.ONCHAIN_MIN_USDC || 60); // a V3 pool must hold >= this much USDC to be tracked (≈ $120 both-sides value)
+const MIN_LIQ = Number(process.env.ONCHAIN_MIN_LIQ || 100);  // only OUTPUT tokens whose total pool value clears this — cuts nanocap noise + keeps the indexer lean/fast
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const pad = (a) => a.toLowerCase().replace('0x', '').padStart(64, '0');
@@ -301,6 +302,7 @@ async function main() {
     // createdAt (ms): prefer the real creation-block timestamp; fall back to block-extrapolation.
     const createdAt = t.createdAt || (t.created ? Date.now() - Math.round((head - t.created) * blockTime) * 1000 : null);
     const aggLiq = (liq || 0) + (ds?.extraUsdc || 0); // liquidity summed across the token's USDC pools
+    if (aggLiq < MIN_LIQ) continue; // only index pools over $100 of value (owner call — cleaner + faster)
     // "?" symbols: use the name if the symbol didn't decode; skip a token with neither.
     let symbol = t.symbol && t.symbol !== '?' ? t.symbol : (t.name && t.name !== '?' ? t.name.slice(0, 12) : null);
     if (!symbol) continue;
