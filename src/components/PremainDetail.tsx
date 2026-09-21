@@ -51,7 +51,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
     (async () => {
       const detail = await fetchRadarTokenDetail(address).catch(() => null);
       if (alive) setRd(detail);
-      const dec = detail?.decimals ?? 18;
+      const dec = detail?.decimals ?? seed?.decimals ?? 18; // seed.decimals covers 8-dec tokens (cirBTC) that RadarDEX doesn't index
       // If RadarDEX doesn't index this token, read the pool reserves on-chain so Liquidity & Pool fills.
       if (!detail || detail.liquidityUsdc == null) {
         fetchOnchainPoolStats(address, dec).then((s) => { if (alive) setOcPool(s); }).catch(() => {});
@@ -260,7 +260,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       )}
 
       <div style={{ marginTop: 12 }}>
-        <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? 18} priceScale={chartScale} change24h={chg} />
+        <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? seed?.decimals ?? 18} priceScale={chartScale} change24h={chg} />
       </div>
 
       {/* Dashboard: token info + activity (left) · pool metrics + health (right) */}

@@ -287,6 +287,20 @@ export default function App() {
   // even ones not in our list — e.g. V4 launchpad coins). A ticker/name jumps to the best match, else
   // opens the screener pre-filtered so they can pick it.
   const [heroQ, setHeroQ] = useState('');
+  const [heroFocus, setHeroFocus] = useState(false);
+  // Live typeahead: match the query against ticker/name (or address), prefer the REAL token per ticker,
+  // rank exact > startsWith > contains, then by liquidity. Shows logo + price in the dropdown.
+  const heroMatches = useMemo(() => {
+    const s = heroQ.trim().toLowerCase(); if (s.length < 1) return [] as Token[];
+    if (s.startsWith('0x')) return tokens.filter((t) => t.address.toLowerCase().startsWith(s)).slice(0, 7);
+    return tokens
+      .filter((t) => !((tickerCount.get((t.symbol || '').toUpperCase()) ?? 0) > 1 && !canonical.has(t.address.toLowerCase())))
+      .map((t) => { const sym = (t.symbol || '').toLowerCase(), nm = (t.name || '').toLowerCase();
+        const rank = sym === s ? 0 : sym.startsWith(s) ? 1 : nm.startsWith(s) ? 2 : (sym.includes(s) || nm.includes(s)) ? 3 : -1; return { t, rank }; })
+      .filter((x) => x.rank >= 0)
+      .sort((a, b) => a.rank - b.rank || (b.t.liq ?? 0) - (a.t.liq ?? 0))
+      .slice(0, 7).map((x) => x.t);
+  }, [heroQ, tokens, canonical, tickerCount]);
   const heroSearch = () => {
     const s = heroQ.trim();
     if (!s) return;
@@ -365,8 +379,23 @@ export default function App() {
                     <button className="btn ghost" onClick={() => goScreener('new')}>New Launches</button>
                   </div>
                   <form className="hero-search" onSubmit={(e) => { e.preventDefault(); heroSearch(); }}>
-                    <input className="hs-in" value={heroQ} onChange={(e) => setHeroQ(e.target.value)}
-                      placeholder="Search any token — ticker or contract address" aria-label="Search any token" spellCheck={false} />
+                    <div className="hs-wrap">
+                      <input className="hs-in" value={heroQ} onChange={(e) => setHeroQ(e.target.value)}
+                        onFocus={() => setHeroFocus(true)} onBlur={() => setTimeout(() => setHeroFocus(false), 150)}
+                        placeholder="Search any token — ticker or contract address" aria-label="Search any token" spellCheck={false} autoComplete="off" />
+                      {heroFocus && heroMatches.length > 0 && (
+                        <div className="hs-drop">
+                          {heroMatches.map((t) => (
+                            <button type="button" className="hs-opt" key={t.address} onMouseDown={(e) => { e.preventDefault(); setHeroQ(''); openToken(t.address.toLowerCase()); }}>
+                              <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
+                              <span className="hs-opt-sym">{t.symbol}</span>
+                              <span className="hs-opt-nm">{t.name}</span>
+                              <span className="hs-opt-px">{t.price != null ? tprice(t.price) : '—'}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <button type="submit" className="hs-go" aria-label="Search">Search <IconArrowRight className="arw" /></button>
                   </form>
                   <div className="hero-trust">
