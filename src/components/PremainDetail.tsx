@@ -126,7 +126,10 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // token (cirBTC) comes back 10^(18-8)=10^10 too high — never trust warp.price over the seed.
   const supplyNum = d?.supply ? Number(d.supply) : (seed?.totalSupply != null ? Number(seed.totalSupply) : null);
   const px = seed?.price ?? warp?.price ?? ocPool?.price ?? null; // ocPool covers V4-only launchpad coins (GLITCH)
-  const liq = seed?.liq ?? warp?.liquidity ?? ocPool?.tvl ?? null; // ocPool.tvl covers V4-only coins (GLITCH)
+  const reserveBase = rd?.reserveBase ?? ocPool?.reserveBase ?? null;
+  const reserveQuote = rd?.reserveQuote ?? ocPool?.reserveQuote ?? null;
+  const bothSides = reserveQuote != null && reserveBase != null && px != null ? reserveQuote + reserveBase * px : null; // full pool value
+  const liq = bothSides ?? rd?.liquidityTotal ?? seed?.liq ?? warp?.liquidity ?? ocPool?.tvl ?? null; // real reserves value first (matches the displayed base/quote), so TVL isn't 1/10th
   const mc = seed?.mcap ?? warp?.mcap ?? (px != null && supplyNum ? px * supplyNum : null);
   const vol = rd?.volume24 ?? seed?.volume24h ?? warp?.volume24h ?? dayStats?.volume24h ?? null;
   const chg = rd?.change24h ?? seed?.change24h ?? dayStats?.change24h ?? null;
@@ -140,9 +143,9 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const top10 = holders && holders.length ? holders.slice(0, 10).reduce((s, h) => s + (h.percent ?? 0), 0) : null;
 
   // ── Liquidity depth + pool age + FDV (RadarDEX first, then on-chain reserves, then seed) ─────────
-  const tvl = rd?.liquidityTotal ?? rd?.liquidityUsdc ?? ocPool?.tvl ?? liq ?? null; // aggregate across all pools
-  const reserveBase = rd?.reserveBase ?? ocPool?.reserveBase ?? null;
-  const reserveQuote = rd?.reserveQuote ?? ocPool?.reserveQuote ?? null;
+  // TVL = FULL pool value (BOTH sides): USDC leg + token leg priced. Showing only the USDC leg made TVL
+  // read ~1/10th of the real depth (WARP showed $13K TVL on a ~$147K pool). Same as the header liq.
+  const tvl = liq;
   const fdv = rd?.fdv ?? (px != null && (rd?.totalSupply ?? supplyNum) ? px * (rd?.totalSupply ?? supplyNum)! : null);
   const valuation = mc ?? fdv ?? null;
   const depthPct = tvl != null && valuation ? (tvl / valuation) * 100 : null; // pool depth as % of valuation
