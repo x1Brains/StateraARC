@@ -103,21 +103,29 @@ async function main() {
   // each active poolId's currencies from ONE bulk Initialize map (scanned once, not per pool).
   const v4swaps = await scanLogs(PM_V4, [T_V4_SWAP], BigInt(head) - V4_ACTIVE_WINDOW, BigInt(head), 2000n);
   const v4active = new Map(); for (const l of v4swaps) v4active.set(l.topics[1], (v4active.get(l.topics[1]) || 0) + 1);
-  const wantIds = new Set([...v4active].filter(([, c]) => c >= 3).map(([p]) => p).filter((p) => {
-    // only resolve ones we don't already know
-    for (const t of Object.values(state.tokens)) if (t.poolId === p) return false; return true;
-  }));
+  const activeIds = [...v4active].filter(([, c]) => c >= 3);
   const v4cand = [];
-  if (wantIds.size) {
+  if (activeIds.length) {
     const initLogs = await scanLogs(PM_V4, [T_V4_INIT], from, BigInt(head)); // sparse: one map for all
     const idMap = new Map();
     for (const l of initLogs) idMap.set(l.topics[1], { c0: ('0x' + l.topics[2].slice(26)).toLowerCase(), c1: ('0x' + l.topics[3].slice(26)).toLowerCase(), created: parseInt(l.blockNumber, 16) });
-    for (const poolId of wantIds) {
+    // ⛔ A token can have MANY active pools — real + WASH-TRADED DECOYS (GLITCH's real pool had 5736 swaps,
+    // a decoy 38). Group by token and keep the poolId with the MOST swaps, so price/vol come from the real one.
+    const byToken = new Map();
+    for (const [poolId, cnt] of activeIds) {
       const cc = idMap.get(poolId); if (!cc) continue;
       if (cc.c0 !== USDC && cc.c1 !== USDC) continue;
       const token = cc.c0 === USDC ? cc.c1 : cc.c0;
-      if (state.tokens[token]) continue;
-      v4cand.push({ token, poolId, usdcIsC0: cc.c0 === USDC, created: cc.created });
+      const prev = byToken.get(token);
+      if (!prev || cnt > prev.cnt) byToken.set(token, { poolId, cnt, usdcIsC0: cc.c0 === USDC, created: cc.created });
+    }
+    for (const [token, info] of byToken) {
+      const known = state.tokens[token];
+      if (known && known.poolId === info.poolId) continue; // already have the best pool
+      if (known && known.cnt != null && known.cnt >= info.cnt) continue; // keep the better existing choice
+      // new token, OR upgrade an existing token whose stored pool was a weaker (decoy) one
+      if (known) { known.poolId = info.poolId; known.usdcIsC0 = info.usdcIsC0; known.cnt = info.cnt; continue; }
+      v4cand.push({ token, poolId: info.poolId, usdcIsC0: info.usdcIsC0, created: info.created, cnt: info.cnt });
     }
   }
   console.log(`[disc] V4 active pools: ${v4active.size}, new USDC tokens: ${v4cand.length}`);
@@ -145,7 +153,7 @@ async function main() {
       const supHex = mr[i * 4 + 3]?.data;
       state.tokens[t.token] = { symbol: sym, name: nm, decimals: Number.isFinite(dec) && dec <= 36 ? dec : 18,
         kind: t.kind, pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: t.usdcIsC0 ?? t.usdcIsToken0 ?? false,
-        supplyRaw: supHex && supHex !== '0x' ? supHex : null, created: t.created || null, firstSeen: Date.now() };
+        supplyRaw: supHex && supHex !== '0x' ? supHex : null, created: t.created || null, cnt: t.cnt ?? null, firstSeen: Date.now() };
     });
   }
   console.log(`[disc] added ${newTokens.length} new tokens`);
