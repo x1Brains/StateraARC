@@ -29,7 +29,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [holderCount, setHolderCount] = useState<number | null>(null);
   const [txs, setTxs] = useState<TokenTransfer[] | null>(null);
   const [swaps, setSwaps] = useState<RadarSwap[] | null>(null);
-  const [ocPool, setOcPool] = useState<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null } | null>(null);
+  const [ocPool, setOcPool] = useState<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null; price?: number | null } | null>(null);
   const [ocPools, setOcPools] = useState<OnchainPool[] | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders'>('txns');
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
@@ -120,7 +120,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // like cirBTC/WBTC), then Warp. ⚠️ Warp's API reports price IGNORING token decimals, so an 8-dec
   // token (cirBTC) comes back 10^(18-8)=10^10 too high — never trust warp.price over the seed.
   const supplyNum = d?.supply ? Number(d.supply) : (seed?.totalSupply != null ? Number(seed.totalSupply) : null);
-  const px = seed?.price ?? warp?.price ?? null;
+  const px = seed?.price ?? warp?.price ?? ocPool?.price ?? null; // ocPool covers V4-only launchpad coins (GLITCH)
   const liq = seed?.liq ?? warp?.liquidity ?? null;
   const mc = seed?.mcap ?? warp?.mcap ?? (px != null && supplyNum ? px * supplyNum : null);
   const vol = rd?.volume24 ?? seed?.volume24h ?? warp?.volume24h ?? null;

@@ -1,6 +1,7 @@
 // StateraArc — Arc chain data layer. Reads Blockscout's public API (no key, client-side).
 // Flip NET to 'mainnet' when Arc mainnet + its explorer go live (Sept 16, 2026).
 import { fetchWarpTokens, type Candle } from './warp';
+import { keccak_256 } from '@noble/hashes/sha3';
 
 export type Net = 'testnet' | 'mainnet';
 
@@ -1012,6 +1013,93 @@ export async function fetchTokenHolders(address: string, limit = 20): Promise<Ho
 // approximated from block height (blocks are ~sub-second on Arc), which is fine for a chart.
 const SWAP_TOPIC = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67'; // Uniswap V3
 const SWAP_V2_TOPIC = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822'; // Uniswap V2 (ARCAT etc.)
+// ── Uniswap V4 (hooked pools on the PoolManager SINGLETON) ─────────────────────────────────────────
+// V4 has no per-pool address: a pool is a KEY hashed to a poolId, and ALL pools emit from one singleton.
+// Launchpad tokens (potato.fm / "Argus pad" — GLITCH etc.) launch as V4-only, so V3/V2 discovery finds
+// nothing and their token page was blank. We find the pool by scanning Initialize, price it via extsload,
+// and chart it from the singleton's Swap events filtered by poolId. ⛔ Anyone can open a decoy pool for the
+// same pair (GLITCH had 11); the REAL one is the one with actual swap volume, so we pick by swap count.
+const PM_V4 = '0x8366a39cc670b4001a1121b8f6a443a643e40951';
+const V4_INIT_TOPIC = '0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438';
+const V4_SWAP_TOPIC = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f';
+const v4HexToU8 = (h: string) => { h = h.replace(/^0x/, ''); const a = new Uint8Array(h.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; };
+// state lives at _pools[poolId] (mapping slot 6); slot0 (sqrtPriceX96 in low 160 bits) is its base slot.
+const v4StateSlot = (poolId: string) => '0x' + Array.from(keccak_256(v4HexToU8(poolId.replace(/^0x/, '').padStart(64, '0') + (6).toString(16).padStart(64, '0')))).map((b) => b.toString(16).padStart(2, '0')).join('');
+export interface V4Pool { poolId: string; usdcIsC0: boolean; }
+const v4PoolCache = new Map<string, V4Pool | null>();
+export async function findV4Pool(token: string): Promise<V4Pool | null> {
+  const t = token.toLowerCase();
+  if (v4PoolCache.has(t)) return v4PoolCache.get(t)!;
+  const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
+  const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return null; // don't cache a transient failure
+  const head = BigInt(headHex);
+  const CH = BigInt(BIG_LOG_RANGE);
+  const ranges: [bigint, bigint][] = [];
+  for (let f = head - 900000n; f < head; f += CH) ranges.push([f, f + CH > head ? head : f + CH]);
+  const found = new Map<string, { c0: string; c1: string }>();
+  for (const idx of [2, 3]) { // token can be currency0 (topic2) or currency1 (topic3)
+    const topics: (string | null)[] = [V4_INIT_TOPIC, null, null, null];
+    topics[idx] = '0x' + pad(t);
+    const res = await runLimited(ranges.map(([f, to], i) => () => getLogsBig({ address: PM_V4, topics, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }, i)), 10);
+    for (const logs of res) if (Array.isArray(logs)) for (const l of logs) {
+      const c0 = ('0x' + l.topics[2].slice(26)).toLowerCase(), c1 = ('0x' + l.topics[3].slice(26)).toLowerCase();
+      found.set(l.topics[1], { c0, c1 });
+    }
+  }
+  const cands = [...found.entries()].filter(([, v]) => v.c0 === NATIVE_USDC_ADDR || v.c1 === NATIVE_USDC_ADDR);
+  if (!cands.length) { v4PoolCache.set(t, null); return null; }
+  // Pick the pool with real swap volume (decoys have ~none).
+  const counts = await runLimited(cands.map(([pid]) => async () => {
+    const sw = await getLogsBig({ address: PM_V4, topics: [V4_SWAP_TOPIC, pid], fromBlock: '0x' + (head - 95000n).toString(16), toBlock: '0x' + head.toString(16) }).catch(() => null);
+    return Array.isArray(sw) ? sw.length : 0;
+  }), 8);
+  let best = -1, bestI = -1;
+  counts.forEach((c, i) => { if (c > best) { best = c; bestI = i; } });
+  if (bestI < 0 || best <= 0) { v4PoolCache.set(t, null); return null; }
+  const [poolId, v] = cands[bestI];
+  const pool: V4Pool = { poolId, usdcIsC0: v.c0 === NATIVE_USDC_ADDR };
+  v4PoolCache.set(t, pool);
+  return pool;
+}
+// USD-per-token from the V4 pool's live sqrtPriceX96 (extsload).
+async function v4PriceOf(poolId: string, usdcIsC0: boolean, decimals: number): Promise<number | null> {
+  const s0 = await mCall(PM_V4, '0x1e2eaeaf' + v4StateSlot(poolId).slice(2)).catch(() => null);
+  if (!s0 || s0 === '0x') return null;
+  let raw: bigint; try { raw = BigInt(s0); } catch { return null; }
+  const sqrtP = raw & ((1n << 160n) - 1n);
+  if (sqrtP <= 0n) return null;
+  const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const dexp = 10 ** (decimals - 6);
+  const price = (usdcIsC0 ? 1 / ratio : ratio) * dexp;
+  return isFinite(price) && price > 0 ? price : null;
+}
+// Timestamped prices from a V4 pool's Swap events (singleton, filtered by poolId). sqrtPriceX96 = word 2.
+async function scanV4Swaps(v4: V4Pool, decimals: number, spanCap: number): Promise<{ ts: number; price: number }[]> {
+  const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return [];
+  const head = BigInt(headHex);
+  const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
+  const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
+  const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+  const dexp = 10 ** (decimals - 6);
+  const CH = BigInt(BIG_LOG_RANGE);
+  const ranges: [bigint, bigint][] = [];
+  for (let from = head - BigInt(spanCap); from < head; from += CH) ranges.push([from, from + CH > head ? head : from + CH]);
+  const results = await runLimited(ranges.map(([from, to], idx) => () =>
+    getLogsBig({ address: PM_V4, topics: [V4_SWAP_TOPIC, v4.poolId], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }, idx)), 10);
+  const swaps: { ts: number; price: number }[] = [];
+  for (const logs of results) {
+    if (!Array.isArray(logs)) continue;
+    for (const l of logs) {
+      const sqrtP = BigInt('0x' + l.data.slice(2).slice(128, 192)); // word 2 = sqrtPriceX96
+      if (sqrtP <= 0n) continue;
+      const ratio = (Number(sqrtP) / 2 ** 96) ** 2;
+      const price = (v4.usdcIsC0 ? 1 / ratio : ratio) * dexp;
+      if (!isFinite(price) || price <= 0) continue;
+      swaps.push({ ts: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime), price });
+    }
+  }
+  swaps.sort((a, b) => a.ts - b.ts);
+  return swaps;
+}
 // Decode a Swap log to { usdcAbs, tokAbs } (raw units) for BOTH V3 (signed amount0/amount1) and V2
 // (amount0In/1In/0Out/1Out). Pools that aren't V3 (ARCAT…) were silently charting empty before this.
 function decodeSwap(dataHex: string, topic0: string, usdcIsToken0: boolean): { usdc: bigint; tok: bigint } | null {
@@ -1061,12 +1149,31 @@ export async function findTokenPool(token: string): Promise<string | null> {
 // Real pool reserves for tokens RadarDEX doesn't index (ARGUS…), so the Liquidity & Pool panel still
 // fills in. reserveQuote = the pool's USDC balance (RadarDEX calls this same number both Liq and TVL);
 // reserveBase = the pool's token balance. Cached briefly.
-const poolStatsCache = new Map<string, { at: number; v: { tvl: number | null; reserveQuote: number | null; reserveBase: number | null; pool: string | null } }>();
-export async function fetchOnchainPoolStats(token: string, decimals = 18): Promise<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null; pool: string | null }> {
+const poolStatsCache = new Map<string, { at: number; v: { tvl: number | null; reserveQuote: number | null; reserveBase: number | null; pool: string | null; price: number | null } }>();
+export async function fetchOnchainPoolStats(token: string, decimals = 18): Promise<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null; pool: string | null; price: number | null }> {
   const ck = token.toLowerCase();
   const hit = poolStatsCache.get(ck); if (hit && Date.now() - hit.at < 45000) return hit.v;
-  const empty = { tvl: null, reserveQuote: null, reserveBase: null, pool: null };
-  const pool = await findTokenPool(token); if (!pool) { poolStatsCache.set(ck, { at: Date.now(), v: empty }); return empty; }
+  const empty = { tvl: null, reserveQuote: null, reserveBase: null, pool: null, price: null };
+  const pool = await findTokenPool(token);
+  if (!pool) {
+    // No V3/V2 pool — try a V4 pool (launchpad coins). Price via extsload; V4 liquidity is shared across
+    // the singleton so exact TVL isn't readable per-pool — the token side (PM's balance) is the honest
+    // reserve we can show. This makes a V4-only token's page price + reserves populate.
+    const v4 = await findV4Pool(token);
+    if (v4) {
+      const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
+      const [price, tokB] = await Promise.all([
+        v4PriceOf(v4.poolId, v4.usdcIsC0, decimals),
+        mCall(token, '0x70a08231' + pad(PM_V4)).catch(() => null),
+      ]);
+      let reserveBase: number | null = null; try { if (tokB) reserveBase = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
+      const tvl = reserveBase != null && price != null ? reserveBase * price : null; // token-side value (one side)
+      const v = { tvl, reserveQuote: null, reserveBase, pool: null, price };
+      poolStatsCache.set(ck, { at: Date.now(), v });
+      return v;
+    }
+    poolStatsCache.set(ck, { at: Date.now(), v: empty }); return empty;
+  }
   const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
   // USDC is Arc's NATIVE gas token — its pool balance is the native balance (eth_getBalance, 18-dec),
   // NOT balanceOf() on 0x3600 (which reads only dust). balanceOf here reported ~$0 for real pools.
@@ -1077,7 +1184,12 @@ export async function fetchOnchainPoolStats(token: string, decimals = 18): Promi
   let reserveQuote: number | null = null, reserveBase: number | null = null;
   try { if (usdcB) reserveQuote = Number(BigInt(usdcB)) / 1e18; } catch { /* */ }
   try { if (tokB) reserveBase = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
-  const v = { tvl: reserveQuote, reserveQuote, reserveBase, pool };
+  // Prefer the V3 slot0 mid-price (accurate on concentrated pools); fall back to the reserve ratio (V2).
+  let price: number | null = null;
+  const s0 = await mCall(pool, '0x3850c7bd').catch(() => null); // slot0()
+  if (s0 && s0.length >= 66) { try { const t0 = await mCall(pool, '0x0dfe1681').catch(() => null); const usdcIsToken0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR : false; const sqrtP = BigInt(s0.slice(0, 66)); if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const p = (usdcIsToken0 ? 1 / ratio : ratio) * 10 ** (decimals - 6); if (isFinite(p) && p > 0) price = p; } } catch { /* */ } }
+  if (price == null && reserveQuote != null && reserveBase) price = reserveQuote / reserveBase;
+  const v = { tvl: reserveQuote, reserveQuote, reserveBase, pool, price };
   poolStatsCache.set(ck, { at: Date.now(), v });
   return v;
 }
@@ -1119,6 +1231,18 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
     return { pool: f.pool, version: f.version, feeTier: f.feeTier, quote: 'USDC', liquidityUsdc, price, tokenReserve: tokRes, usdcReserve: usdc };
   }));
   const pools = out.filter((p) => p.liquidityUsdc != null && p.liquidityUsdc > 1).sort((a, b) => (b.liquidityUsdc || 0) - (a.liquidityUsdc || 0));
+  // Also surface the token's V4 pool (launchpad coins like GLITCH trade ONLY on V4). Its liquidity is the
+  // token side priced (V4 USDC is pooled in the shared singleton, so the exact quote side isn't isolable).
+  if (!pools.length) {
+    const v4 = await findV4Pool(token);
+    if (v4) {
+      const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
+      const [price, tokB] = await Promise.all([v4PriceOf(v4.poolId, v4.usdcIsC0, decimals), mCall(token, '0x70a08231' + pad(PM_V4)).catch(() => null)]);
+      let tokRes: number | null = null; try { if (tokB) tokRes = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
+      const liq = tokRes != null && price != null ? tokRes * price : null;
+      pools.push({ pool: v4.poolId, version: 'V4', feeTier: null, quote: 'USDC', liquidityUsdc: liq, price, tokenReserve: tokRes, usdcReserve: null });
+    }
+  }
   allPoolsCache.set(t, { at: Date.now(), v: pools });
   return pools;
 }
@@ -1131,7 +1255,15 @@ async function scanPoolSwaps(token: string, decimals: number, spanCap: number): 
   const sk = t + ':' + spanCap;
   const cached = swapsCache.get(sk);
   if (cached && Date.now() - cached.at < 60000) return cached.swaps; // 60s — covers a whole TF-toggle session
-  const pool = await findTokenPool(token); if (!pool) return [];
+  const pool = await findTokenPool(token);
+  // V4-only tokens (launchpad coins like GLITCH) have no V3/V2 pool — chart them from the singleton's Swap
+  // events filtered by poolId. sqrtPriceX96 is the 3rd data word, same as V3.
+  if (!pool) {
+    const v4 = await findV4Pool(token); if (!v4) return [];
+    const swaps = await scanV4Swaps(v4, decimals, spanCap);
+    swapsCache.set(sk, { at: Date.now(), swaps });
+    return swaps;
+  }
   const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]); // token0(), head
   if (!t0hex || !headHex) return [];
   const usdcIsToken0 = ('0x' + t0hex.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
