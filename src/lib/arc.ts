@@ -1064,14 +1064,15 @@ export async function findV4Pool(token: string): Promise<V4Pool | null> {
 // Curated actively-traded V4 launchpad tokens (potato.fm / "Argus pad") that NO aggregator indexes.
 // Until the chain-wide V4 discovery bake lands (28k candidate pools, mostly decoys → must filter to real
 // volume), these are added to the screener by hand so they're findable/searchable. Priced + supply on-chain.
-const CURATED_V4: { address: string; symbol: string; name: string; launchpad?: string }[] = [
-  { address: '0x08adbf431569a1aacac2606d2adcd18f4ebf2a71', symbol: 'GLITCH', name: 'Glitch', launchpad: 'potato' },
+const CURATED_V4: { address: string; symbol: string; name: string; launchpad?: string; poolId: string; usdcIsC0: boolean }[] = [
+  { address: '0x08adbf431569a1aacac2606d2adcd18f4ebf2a71', symbol: 'GLITCH', name: 'Glitch', launchpad: 'potato',
+    poolId: '0x278eab5f794ccbaa85dd7cd275e56bf563d8d26e35fd717800f39340f9730c3a', usdcIsC0: false },
 ];
 export async function fetchCuratedV4Tokens(): Promise<Token[]> {
   const out: Token[] = [];
   await Promise.all(CURATED_V4.map(async (c) => {
     try {
-      const v4 = await findV4Pool(c.address); if (!v4) return;
+      const v4: V4Pool = { poolId: c.poolId, usdcIsC0: c.usdcIsC0 }; // known — skip the discovery scan (fast+reliable)
       const dec = 18; // launchpad coins are 18-dec
       const [price, supHex] = await Promise.all([
         v4PriceOf(v4.poolId, v4.usdcIsC0, dec),
@@ -1330,6 +1331,59 @@ async function scanPoolSwaps(token: string, decimals: number, spanCap: number): 
   swaps.sort((a, b) => a.ts - b.ts);
   swapsCache.set(sk, { at: Date.now(), swaps });
   return swaps;
+}
+// 24h change % + 24h USD volume computed straight from a token's own pool swaps (V3/V2/V4) — for coins no
+// indexer covers (GLITCH etc.), so the header's 24H and VOL 24H fill instead of showing "—". Bounded: it
+// scans only THIS pool's swaps (poolId/address-filtered), not the whole chain. Cached 60s.
+const dayStatsCache = new Map<string, { at: number; v: { change24h: number | null; volume24h: number | null } }>();
+export async function fetchOnchainDayStats(token: string, decimals = 18): Promise<{ change24h: number | null; volume24h: number | null }> {
+  const t = token.toLowerCase();
+  const hit = dayStatsCache.get(t); if (hit && Date.now() - hit.at < 60000) return hit.v;
+  const empty = { change24h: null, volume24h: null };
+  const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return empty;
+  const head = BigInt(headHex);
+  const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
+  const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
+  const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+  const blocks24 = Math.min(400000, Math.ceil(86400 / blockTime));
+  const dexp = 10 ** (decimals - 6);
+  const pool = await findTokenPool(token);
+  const v4 = pool ? null : await findV4Pool(token);
+  if (!pool && !v4) return empty;
+  const CH = BigInt(BIG_LOG_RANGE);
+  const ranges: [bigint, bigint][] = [];
+  for (let f = head - BigInt(blocks24); f < head; f += CH) ranges.push([f, f + CH > head ? head : f + CH]);
+  const spec = pool ? { address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]] as any } : { address: PM_V4, topics: [V4_SWAP_TOPIC, v4!.poolId] as any };
+  const results = await runLimited(ranges.map(([f, to], i) => () => getLogsBig({ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }, i)), 8);
+  const pts: { ts: number; price: number; usd: number }[] = [];
+  let usdcIsToken0 = false;
+  if (pool) { const t0 = await mCall(pool, '0x0dfe1681').catch(() => null); usdcIsToken0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR : false; }
+  for (const logs of results) {
+    if (!Array.isArray(logs)) continue;
+    for (const l of logs) {
+      const ts = Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime);
+      if (v4) {
+        const d = l.data.slice(2);
+        const sqrtP = BigInt('0x' + d.slice(128, 192)); if (sqrtP <= 0n) continue;
+        const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const price = (v4.usdcIsC0 ? 1 / ratio : ratio) * dexp;
+        let tokAmt = BigInt('0x' + d.slice((v4.usdcIsC0 ? 1 : 0) * 64, (v4.usdcIsC0 ? 1 : 0) * 64 + 64)); if (tokAmt >= (1n << 255n)) tokAmt -= (1n << 256n);
+        const amount = Math.abs(Number(tokAmt)) / 10 ** decimals;
+        if (isFinite(price) && price > 0) pts.push({ ts, price, usd: amount * price });
+      } else {
+        const topic = (l.topics?.[0] || '').toLowerCase();
+        if (topic === SWAP_V2_TOPIC) { const dec = decodeSwap(l.data, topic, usdcIsToken0); if (!dec || dec.tok <= 0n) continue; const price = (Number(dec.usdc) / Number(dec.tok)) * dexp; if (isFinite(price) && price > 0) pts.push({ ts, price, usd: Number(dec.usdc) / 1e6 }); }
+        else { const sqrtP = BigInt('0x' + l.data.slice(2).slice(128, 192)); if (sqrtP <= 0n) continue; const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp; const dec = decodeSwap(l.data, topic, usdcIsToken0); const usd = dec ? Number(dec.usdc) / 1e6 : 0; if (isFinite(price) && price > 0) pts.push({ ts, price, usd }); }
+      }
+    }
+  }
+  if (!pts.length) { dayStatsCache.set(t, { at: Date.now(), v: empty }); return empty; }
+  pts.sort((a, b) => a.ts - b.ts);
+  const volume24h = pts.reduce((s, p) => s + (isFinite(p.usd) ? p.usd : 0), 0);
+  const first = pts[0].price, last = pts[pts.length - 1].price;
+  const change24h = first > 0 ? ((last - first) / first) * 100 : null;
+  const v = { change24h, volume24h };
+  dayStatsCache.set(t, { at: Date.now(), v });
+  return v;
 }
 const candleCache = new Map<string, { at: number; data: Candle[] }>();
 export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number, lookbackSec?: number): Promise<Candle[]> {

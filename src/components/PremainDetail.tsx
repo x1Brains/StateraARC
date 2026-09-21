@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown } from './icons';
 
@@ -31,6 +31,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [swaps, setSwaps] = useState<RadarSwap[] | null>(null);
   const [ocPool, setOcPool] = useState<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null; price?: number | null } | null>(null);
   const [ocPools, setOcPools] = useState<OnchainPool[] | null>(null);
+  const [dayStats, setDayStats] = useState<{ change24h: number | null; volume24h: number | null } | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders'>('txns');
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
   const [poolsOpen, setPoolsOpen] = useState(false);
@@ -59,6 +60,10 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       // pool on-chain (V3 fee tiers + V2) so the Pools card still shows real depth/price per pair.
       if (!detail?.pools || detail.pools.length === 0) {
         fetchAllOnchainPools(address, dec).then((ps) => { if (alive) setOcPools(ps); }).catch(() => {});
+      }
+      // 24H change + 24h volume on-chain when no indexer has them (V4/launchpad coins) so the header fills.
+      if (detail?.volume24 == null && detail?.change24h == null) {
+        fetchOnchainDayStats(address, dec).then((s) => { if (alive) setDayStats(s); }).catch(() => {});
       }
       fetchRadarHolders(address, dec, 100).then((h) => { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
       // Real trades feed: RadarDEX indexed swaps first; if it doesn't index this token (ARGUS etc.),
@@ -121,10 +126,10 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // token (cirBTC) comes back 10^(18-8)=10^10 too high — never trust warp.price over the seed.
   const supplyNum = d?.supply ? Number(d.supply) : (seed?.totalSupply != null ? Number(seed.totalSupply) : null);
   const px = seed?.price ?? warp?.price ?? ocPool?.price ?? null; // ocPool covers V4-only launchpad coins (GLITCH)
-  const liq = seed?.liq ?? warp?.liquidity ?? null;
+  const liq = seed?.liq ?? warp?.liquidity ?? ocPool?.tvl ?? null; // ocPool.tvl covers V4-only coins (GLITCH)
   const mc = seed?.mcap ?? warp?.mcap ?? (px != null && supplyNum ? px * supplyNum : null);
-  const vol = rd?.volume24 ?? seed?.volume24h ?? warp?.volume24h ?? null;
-  const chg = rd?.change24h ?? seed?.change24h ?? null;
+  const vol = rd?.volume24 ?? seed?.volume24h ?? warp?.volume24h ?? dayStats?.volume24h ?? null;
+  const chg = rd?.change24h ?? seed?.change24h ?? dayStats?.change24h ?? null;
   // Holder count: on-chain (arc-scan) and Warp agree and are ground truth; RadarDEX's count is stale/
   // partial (it only lists ~50 rows and undercounted ARGUS 12k vs the real 18k), so it goes LAST — else
   // it loaded late and OVERRODE the correct number, making the header flip 18k -> 12k.
