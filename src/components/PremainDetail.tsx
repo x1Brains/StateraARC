@@ -139,7 +139,9 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // ⛔ Pick the first POSITIVE value — a near-empty pool made bothSides compute to a spurious 0, and `??`
   // treats 0 as valid, so a real $6M liquidity showed $0. On-chain TVL (ocPool) is verified-accurate.
   const firstPos = (...v: (number | null | undefined)[]) => v.find((x) => x != null && isFinite(x) && x > 0) ?? null;
-  const liq = firstPos(bothSides, ocPool?.tvl, rd?.liquidityTotal, seed?.liq, warp?.liquidity);
+  // seed.liq is the indexer's aggregate across the token's pools (matches the screener) — prefer it; fall
+  // back to on-chain reserves for coins with no seed. (bothSides can be a spurious 0 from a near-empty pool.)
+  const liq = firstPos(seed?.liq, bothSides, ocPool?.tvl, rd?.liquidityTotal, warp?.liquidity);
   const mc = firstPos(seed?.mcap, warp?.mcap, px != null && supplyNum ? px * supplyNum : null);
   const vol = firstPos(rd?.volume24, seed?.volume24h, dayStats?.volume24h, warp?.volume24h);
   const chg = rd?.change24h ?? seed?.change24h ?? dayStats?.change24h ?? null;
