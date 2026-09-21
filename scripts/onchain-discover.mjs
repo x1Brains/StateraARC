@@ -234,7 +234,7 @@ async function main() {
   // deepest — a token split across pools was undercounting. (V2 is absent on Arc.) Both V3 & V4 Swaps put
   // sqrtPriceX96 in data word 2, so one decoder handles both. Change % comes from the deepest (primary) pool.
   async function poolsOf(x) {
-    const pools = [];
+    const pools = []; let extraUsdc = 0;
     if (x.t.pool) pools.push({ kind: 'v3', address: x.t.pool, usdcIsC0: x.t.usdcIsC0, primary: true });
     if (x.t.poolId) pools.push({ kind: 'v4', poolId: x.t.poolId, usdcIsC0: x.t.usdcIsC0, primary: true });
     const seen = new Set(pools.filter((p) => p.address).map((p) => p.address));
@@ -243,15 +243,18 @@ async function main() {
       const p = r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null;
       if (!p || p === ZERO || seen.has(p)) continue; seen.add(p);
       const [bal, t0] = await Promise.all([rpc('eth_getBalance', [p, 'latest']).catch(() => null), call(p, '0x0dfe1681').catch(() => null)]);
-      if (!bal || Number(BigInt(bal)) / 1e18 < MIN_USDC) continue; // only real pools
+      const usdc = bal ? Number(BigInt(bal)) / 1e18 : 0;
+      if (usdc < MIN_USDC) continue; // only real pools
+      extraUsdc += usdc; // aggregate liquidity across the token's other USDC pools
       pools.push({ kind: 'v3', address: p, usdcIsC0: t0 ? ('0x' + t0.slice(-40)).toLowerCase() === USDC : false, primary: false });
     }
-    return pools;
+    return { pools, extraUsdc };
   }
+  const blocks1h = Math.ceil(3600 / blockTime), cut1h = head - blocks1h;
   const dayMap = new Map();
   for (const x of liquid) {
     try {
-      const pools = await poolsOf(x);
+      const { pools, extraUsdc } = await poolsOf(x);
       let vol = 0; let primaryPts = [];
       for (const pool of pools) {
         const spec = pool.kind === 'v4' ? { address: PM_V4, topics: [T_V4_SWAP, pool.poolId] } : { address: pool.address, topics: [[T_V3_SWAP]] };
@@ -270,9 +273,15 @@ async function main() {
       }
       primaryPts.sort((a, b) => a.bn - b.bn);
       const chg = primaryPts.length && primaryPts[0].price > 0 ? ((primaryPts[primaryPts.length - 1].price - primaryPts[0].price) / primaryPts[0].price) * 100 : null;
-      if (process.env.DEBUG_VOL) console.log('VOL', x.t.symbol, 'pools', pools.length, 'vol', Math.round(vol));
-      dayMap.set(x.addr, { vol, chg });
-    } catch (e) { if (process.env.DEBUG_VOL) console.log('VOLERR', x.t.symbol, e.message); dayMap.set(x.addr, { vol: 0, chg: null }); }
+      // 1H change: first price at/after (head - 1h) vs the latest.
+      const recent = primaryPts.filter((p) => p.bn >= cut1h);
+      const chg1h = recent.length >= 2 && recent[0].price > 0 ? ((recent[recent.length - 1].price - recent[0].price) / recent[0].price) * 100 : null;
+      // Sparkline: downsample the 24h price series to ~24 points.
+      let spark = null;
+      if (primaryPts.length >= 4) { const N = 24, step = primaryPts.length / N; spark = []; for (let i = 0; i < N; i++) spark.push(primaryPts[Math.min(primaryPts.length - 1, Math.floor(i * step))].price); }
+      if (process.env.DEBUG_VOL) console.log('VOL', x.t.symbol, 'pools', pools.length, 'vol', Math.round(vol), 'chg1h', chg1h == null ? '-' : chg1h.toFixed(1));
+      dayMap.set(x.addr, { vol, chg, chg1h, spark, extraUsdc });
+    } catch (e) { if (process.env.DEBUG_VOL) console.log('VOLERR', x.t.symbol, e.message); dayMap.set(x.addr, { vol: 0, chg: null, chg1h: null, spark: null, extraUsdc: 0 }); }
   }
 
   const out = [];
@@ -285,12 +294,19 @@ async function main() {
     // Sane volume: < $1B AND < 300× the pool's liquidity (a bad-decimals pool made cirBTC read $8.2B).
     const volCap = Math.min(1e9, (liq || 1e9) * 300);
     const vol = ds && isFinite(ds.vol) && ds.vol >= 0 && ds.vol < volCap ? ds.vol : null;
-    const chg = ds && ds.chg != null && isFinite(ds.chg) ? Math.max(-99, Math.min(9999, ds.chg)) : null;
+    const clampC = (c) => (c != null && isFinite(c) ? Math.max(-99, Math.min(9999, c)) : null);
+    const chg = clampC(ds && ds.chg);
+    const chg1h = clampC(ds && ds.chg1h);
+    const spark = ds && Array.isArray(ds.spark) && ds.spark.every((n) => isFinite(n) && n > 0) ? ds.spark : null;
     // createdAt (ms): prefer the real creation-block timestamp; fall back to block-extrapolation.
     const createdAt = t.createdAt || (t.created ? Date.now() - Math.round((head - t.created) * blockTime) * 1000 : null);
-    out.push({ address: addr, symbol: t.symbol, name: t.name, decimals: dec, price,
-      liq: liq || null, mcap: mcap && mcap <= 1e10 ? mcap : null,
-      volume24h: vol, change24h: chg, createdAt,
+    const aggLiq = (liq || 0) + (ds?.extraUsdc || 0); // liquidity summed across the token's USDC pools
+    // "?" symbols: use the name if the symbol didn't decode; skip a token with neither.
+    let symbol = t.symbol && t.symbol !== '?' ? t.symbol : (t.name && t.name !== '?' ? t.name.slice(0, 12) : null);
+    if (!symbol) continue;
+    out.push({ address: addr, symbol, name: t.name && t.name !== '?' ? t.name : symbol, decimals: dec, price,
+      liq: aggLiq || null, mcap: mcap && mcap <= 1e10 ? mcap : null,
+      volume24h: vol, change24h: chg, change1h: chg1h, spark, createdAt,
       holders: t.holders ?? null,
       iconUrl: t.iconUrl || null,
       source: t.kind.toUpperCase(), launchpad: t.kind === 'v4' ? 'onchain' : null });

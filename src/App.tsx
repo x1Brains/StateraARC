@@ -202,9 +202,10 @@ export default function App() {
     for (const t of tokens) {
       const s = (t.symbol || '').toUpperCase(); if (!s) continue;
       count.set(s, (count.get(s) || 0) + 1);
-      // Ecosystem/core tokens (native USDC, Animus…) are always the real one for their ticker, even with
-      // no pool liquidity; otherwise most-liquid wins, holders as tiebreak.
-      const score = (t.isEcosystem ? 1e18 : 0) + (t.liq ?? 0) * 1e6 + (t.holders ?? 0);
+      // Ecosystem/core tokens (native USDC, Animus…) are always the real one for their ticker. Otherwise
+      // HOLDERS decide (an impersonator has ~0 holders; the real token has thousands) — ranking by liquidity
+      // let a fake with a wash-traded pool win. Liquidity is only the tiebreak when holders are equal/unknown.
+      const score = (t.isEcosystem ? 1e18 : 0) + (t.holders ?? 0) * 1e9 + (t.liq ?? 0);
       const cur = best.get(s);
       if (!cur || score > cur.score) best.set(s, { addr: t.address.toLowerCase(), score });
     }
