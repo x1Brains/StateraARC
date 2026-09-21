@@ -183,6 +183,13 @@ async function main() {
   const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
   const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
   const blocks24 = Math.min(400000, Math.ceil(86400 / blockTime));
+  // Retry the creation-block timestamp for any known token that still lacks a real one (a failed fetch at
+  // discovery left it on the inaccurate block-extrapolation → the ~1% of "103d" ages). Self-heals each run.
+  const needTs = entries.filter(([, t]) => t.created && !t.createdAt).slice(0, 60);
+  if (needTs.length) {
+    const got = await runLimited(needTs.map(([, t]) => async () => { const b = await rpc('eth_getBlockByNumber', ['0x' + t.created.toString(16), false]); return b && b.timestamp ? Number(BigInt(b.timestamp)) * 1000 : null; }), 8);
+    needTs.forEach(([addr], i) => { if (got[i]) state.tokens[addr].createdAt = got[i]; });
+  }
 
   // decode prices, and read each pool's live USDC liquidity (V3 = pool native balance; V4 = token side × price)
   const rows = entries.map(([addr, t], i) => { const r = pr[i], dec = t.decimals; let price = null;
