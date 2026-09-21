@@ -1388,7 +1388,8 @@ export async function fetchPoolVolume24h(token: string): Promise<number | null> 
 // side from the USDC delta sign (USDC INTO pool = a BUY of the token); maker = the swap recipient;
 // price = executed USD/token. Timestamps approximated from block height (fine for a table).
 export async function fetchPoolTrades(token: string, decimals = 18, want = 40): Promise<RadarSwap[]> {
-  const pool = await findTokenPool(token); if (!pool) return [];
+  const pool = await findTokenPool(token);
+  if (!pool) { const v4 = await findV4Pool(token); return v4 ? fetchV4Trades(v4, decimals, want) : []; }
   const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]);
   if (!t0hex || !headHex) return [];
   const usdcIsToken0 = ('0x' + t0hex.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
@@ -1420,6 +1421,46 @@ export async function fetchPoolTrades(token: string, decimals = 18, want = 40): 
         side: usdcIn ? 'buy' : 'sell', usd, amount,
         price: amount > 0 ? usd / amount : (Number(dec.usdc) / Number(dec.tok)) * dexp,
         trader: ('0x' + (l.topics?.[2] || l.topics?.[1] || '').slice(-40)).toLowerCase(),
+        tx: l.transactionHash || '',
+        time: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime),
+      });
+    }
+  }
+  out.sort((a, b) => b.time - a.time);
+  return out.slice(0, want).filter((s) => s.tx);
+}
+// V4 buy/sell trades from the singleton's Swap events (poolId-filtered). Layout (verified on GLITCH):
+// w0=amount0, w1=amount1, w2=sqrtPriceX96, w3=liquidity, w4=tick, w5=fee. ⛔ V4 amounts are the CALLER's
+// BalanceDelta (opposite of V3's pool-perspective): the token leg NEGATIVE = swapper paid token = a SELL,
+// POSITIVE = swapper received = a BUY. Verified against a real tx's GLITCH Transfer (amount0 −34.8M → the
+// user's GLITCH moved INTO the pool = SELL). USD = |tokenAmt| × price. maker = sender (topic2).
+async function fetchV4Trades(v4: V4Pool, decimals: number, want: number): Promise<RadarSwap[]> {
+  const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return [];
+  const head = BigInt(headHex);
+  const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
+  const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
+  const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+  const dexp = 10 ** (decimals - 6);
+  const tokIdx = v4.usdcIsC0 ? 1 : 0; // token is the non-USDC currency
+  const out: RadarSwap[] = [];
+  const CH = BigInt(BIG_LOG_RANGE);
+  for (let hi = head; hi > head - 300000n && out.length < want; hi -= CH) {
+    const lo = hi - CH < 0n ? 0n : hi - CH;
+    const logs = await getLogsBig({ address: PM_V4, topics: [V4_SWAP_TOPIC, v4.poolId], fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) });
+    if (!Array.isArray(logs)) continue;
+    for (const l of logs) {
+      const d = l.data.slice(2);
+      const sword = (i: number) => { let x = BigInt('0x' + d.slice(i * 64, i * 64 + 64)); if (x >= (1n << 255n)) x -= (1n << 256n); return x; };
+      const tokAmt = sword(tokIdx);
+      if (tokAmt === 0n) continue;
+      const sqrtP = BigInt('0x' + d.slice(128, 192)); if (sqrtP <= 0n) continue;
+      const ratio = (Number(sqrtP) / 2 ** 96) ** 2;
+      const price = (v4.usdcIsC0 ? 1 / ratio : ratio) * dexp;
+      if (!isFinite(price) || price <= 0) continue;
+      const amount = Math.abs(Number(tokAmt)) / 10 ** decimals;
+      out.push({
+        side: tokAmt > 0n ? 'buy' : 'sell', usd: amount * price, amount, price,
+        trader: ('0x' + (l.topics?.[2] || '').slice(-40)).toLowerCase(),
         tx: l.transactionHash || '',
         time: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime),
       });

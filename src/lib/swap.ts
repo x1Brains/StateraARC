@@ -520,6 +520,11 @@ const V4_TOKENS: Record<string, V4Cfg> = {
     hooks: '0x462b30e1d11455440eeec627bc5e30b84b18e044',
     stateSlot: '0x62ed14a4ecec4f041ce9a441e680bace03dfc8e823c5eb146ede512974e62d7e',
   },
+  '0x08adbf431569a1aacac2606d2adcd18f4ebf2a71': { // GLITCH / USDC — potato.fm launch, hooked (2% tax/side)
+    currency0: '0x08adbf431569a1aacac2606d2adcd18f4ebf2a71', currency1: NATIVE_USDC, fee: 10000, tickSpacing: 200,
+    hooks: '0x19b58a4555760558763d62f16250bb1890182044',
+    stateSlot: '0x2940c9ecef106eeeffb1c7e9a6627f238f5f91e21ba99732cbef89dda283e380',
+  },
 };
 export const v4CfgFor = (token: string): V4Cfg | undefined => V4_TOKENS[token.toLowerCase()];
 // ABI encode a `bytes` value: length word + right-padded data.
