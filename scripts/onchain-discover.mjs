@@ -16,6 +16,7 @@ const RPCS_BIG = ['https://arc.gateway.tenderly.co', 'https://rpc.blockdaemon.ma
 const RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.gateway.tenderly.co', 'https://rpc.blockdaemon.mainnet.arc.io'];
 const USDC = '0x3600000000000000000000000000000000000000';
 const V3_FACTORY = '0xf0db7b58379503491d857db50ac9ece64c653918';
+const ZERO = '0x0000000000000000000000000000000000000000';
 const PM_V4 = '0x8366a39cc670b4001a1121b8f6a443a643e40951';
 const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
 const T_V3_CREATE = '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118'; // PoolCreated(token0,token1,fee,tickSpacing,pool)
@@ -207,6 +208,19 @@ async function main() {
   }), 12);
   rows.forEach((x, i) => { x.liq = liqs[i]; });
 
+  // HOLDERS from arc-scan for the top tokens by liquidity (bounded), cached ~6h in state so we don't
+  // re-fetch every run. arc-scan is a REST indexer the VPS can reach (GLITCH 5969, ARGUS 19162 verified).
+  const HOLDERS_TTL = 6 * 3600 * 1000, HOLDERS_TOP = Number(process.env.ONCHAIN_HOLDERS_TOP || 300);
+  const needH = rows.filter((x) => x.liq >= 200).sort((a, b) => b.liq - a.liq).slice(0, HOLDERS_TOP)
+    .filter((x) => { const st = state.tokens[x.addr]; return !st.holders || (Date.now() - (st.holdersAt || 0) > HOLDERS_TTL); });
+  if (needH.length) {
+    const hr = await runLimited(needH.map((x) => async () => {
+      try { const r = await fetch(`https://api.arc-scan.org/v1/tokens/${x.addr}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) }); const j = await r.json(); return j.holders != null ? Number(j.holders) : null; } catch { return null; }
+    }), 6);
+    needH.forEach((x, i) => { if (hr[i] != null && isFinite(hr[i])) { state.tokens[x.addr].holders = hr[i]; state.tokens[x.addr].holdersAt = Date.now(); } });
+    console.log(`[disc] holders fetched for ${needH.length} tokens`);
+  }
+
   // 24h volume + change from each LIQUID pool's own swaps. Scanning every one floods the RPCs (→ zeros),
   // so scan the most-liquid TOP_VOL tokens (covers everything with real volume; sub-floor nanocaps have
   // ~$0 volume anyway). Verified: GLITCH scans to $18.7k/24h.
@@ -215,25 +229,49 @@ async function main() {
   const byLiq = [...withLiq].sort((a, b) => b.liq - a.liq).slice(0, TOP_VOL);
   const active = withLiq.filter((x) => (x.t.cnt || 0) >= 50); // active launchpad coins (GLITCH cnt 880) even if liq-rank is lower
   const liquid = [...new Map([...byLiq, ...active].map((x) => [x.addr, x])).values()];
+  const ranges = []; for (let f = BigInt(head) - BigInt(blocks24); f < BigInt(head); f += CH) ranges.push([f, f + CH > BigInt(head) ? BigInt(head) : f + CH]);
+  // AGGREGATE a token's 24h volume across ALL its USDC pools (V3 fee tiers + its V4 pool), not just the
+  // deepest — a token split across pools was undercounting. (V2 is absent on Arc.) Both V3 & V4 Swaps put
+  // sqrtPriceX96 in data word 2, so one decoder handles both. Change % comes from the deepest (primary) pool.
+  async function poolsOf(x) {
+    const pools = [];
+    if (x.t.pool) pools.push({ kind: 'v3', address: x.t.pool, usdcIsC0: x.t.usdcIsC0, primary: true });
+    if (x.t.poolId) pools.push({ kind: 'v4', poolId: x.t.poolId, usdcIsC0: x.t.usdcIsC0, primary: true });
+    const seen = new Set(pools.filter((p) => p.address).map((p) => p.address));
+    const cand = await Promise.all([100, 500, 3000, 10000].map((fee) => call(V3_FACTORY, '0x1698ee82' + pad(x.addr) + pad(USDC) + fee.toString(16).padStart(64, '0')).catch(() => null)));
+    for (const r of cand) {
+      const p = r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null;
+      if (!p || p === ZERO || seen.has(p)) continue; seen.add(p);
+      const [bal, t0] = await Promise.all([rpc('eth_getBalance', [p, 'latest']).catch(() => null), call(p, '0x0dfe1681').catch(() => null)]);
+      if (!bal || Number(BigInt(bal)) / 1e18 < MIN_USDC) continue; // only real pools
+      pools.push({ kind: 'v3', address: p, usdcIsC0: t0 ? ('0x' + t0.slice(-40)).toLowerCase() === USDC : false, primary: false });
+    }
+    return pools;
+  }
   const dayMap = new Map();
   for (const x of liquid) {
     try {
-      const spec = x.t.kind === 'v3' ? { address: x.t.pool, topics: [[T_V3_SWAP]] } : { address: PM_V4, topics: [T_V4_SWAP, x.t.poolId] };
-      const ranges = []; for (let f = BigInt(head) - BigInt(blocks24); f < BigInt(head); f += CH) ranges.push([f, f + CH > BigInt(head) ? BigInt(head) : f + CH]);
-      const res = await Promise.all(ranges.map(([f, to]) => rpc('eth_getLogs', [{ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }], true)));
-      const pts = [];
-      for (const logs of res) if (Array.isArray(logs)) for (const l of logs) {
-        const d = l.data.slice(2); const sq = BigInt('0x' + d.slice(128, 192)); if (sq <= 0n) continue;
-        const ra = (Number(sq) / 2 ** 96) ** 2; const price = (x.t.usdcIsC0 ? 1 / ra : ra) * 10 ** (x.t.decimals - 6);
-        const wi = (x.t.kind === 'v4' ? (x.t.usdcIsC0 ? 1 : 0) : (x.t.usdcIsC0 ? 0 : 1)); // token amount word
-        let a = BigInt('0x' + d.slice(wi * 64, wi * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n);
-        const usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price;
-        if (isFinite(price) && price > 0 && isFinite(usd) && usd < 1e8) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd }); // drop garbage swaps (bad decimals → 1e57)
+      const pools = await poolsOf(x);
+      let vol = 0; let primaryPts = [];
+      for (const pool of pools) {
+        const spec = pool.kind === 'v4' ? { address: PM_V4, topics: [T_V4_SWAP, pool.poolId] } : { address: pool.address, topics: [[T_V3_SWAP]] };
+        const res = await Promise.all(ranges.map(([f, to]) => rpc('eth_getLogs', [{ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }], true)));
+        const pts = [];
+        for (const logs of res) if (Array.isArray(logs)) for (const l of logs) {
+          const d = l.data.slice(2); const sq = BigInt('0x' + d.slice(128, 192)); if (sq <= 0n) continue;
+          const ra = (Number(sq) / 2 ** 96) ** 2; const price = (pool.usdcIsC0 ? 1 / ra : ra) * 10 ** (x.t.decimals - 6);
+          const wi = (pool.kind === 'v4' ? (pool.usdcIsC0 ? 1 : 0) : (pool.usdcIsC0 ? 0 : 1)); // token amount word
+          let a = BigInt('0x' + d.slice(wi * 64, wi * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n);
+          const usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price;
+          if (isFinite(price) && price > 0 && isFinite(usd) && usd < 1e8) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
+        }
+        vol += pts.reduce((s, p) => s + p.usd, 0);
+        if (pool.primary && pts.length) primaryPts = pts;
       }
-      if (process.env.DEBUG_VOL) console.log('VOL', x.t.symbol, x.t.kind, 'res', res.map((r) => Array.isArray(r) ? r.length : 'null').join(','), 'pts', pts.length);
-      if (!pts.length) { dayMap.set(x.addr, { vol: 0, chg: null }); continue; }
-      pts.sort((a, b) => a.bn - b.bn);
-      dayMap.set(x.addr, { vol: pts.reduce((s, p) => s + (isFinite(p.usd) ? p.usd : 0), 0), chg: pts[0].price > 0 ? ((pts[pts.length - 1].price - pts[0].price) / pts[0].price) * 100 : null });
+      primaryPts.sort((a, b) => a.bn - b.bn);
+      const chg = primaryPts.length && primaryPts[0].price > 0 ? ((primaryPts[primaryPts.length - 1].price - primaryPts[0].price) / primaryPts[0].price) * 100 : null;
+      if (process.env.DEBUG_VOL) console.log('VOL', x.t.symbol, 'pools', pools.length, 'vol', Math.round(vol));
+      dayMap.set(x.addr, { vol, chg });
     } catch (e) { if (process.env.DEBUG_VOL) console.log('VOLERR', x.t.symbol, e.message); dayMap.set(x.addr, { vol: 0, chg: null }); }
   }
 
@@ -251,6 +289,7 @@ async function main() {
     out.push({ address: addr, symbol: t.symbol, name: t.name, decimals: dec, price,
       liq: liq || null, mcap: mcap && mcap <= 1e10 ? mcap : null,
       volume24h: vol, change24h: chg, createdAt,
+      holders: t.holders ?? null,
       iconUrl: t.iconUrl || null,
       source: t.kind.toUpperCase(), launchpad: t.kind === 'v4' ? 'onchain' : null });
   }
