@@ -262,6 +262,24 @@ async function poolStats(token, pool) {
     const row = map.get(e.address.toLowerCase()); if (row) { row.isEcosystem = true; if (e.iconUrl && !row.iconUrl) row.iconUrl = e.iconUrl; }
   }
 
+  // 5) ON-CHAIN discovery (V3 + V4, read straight from chain by scripts/onchain-discover.mjs) — every
+  // token with a real USDC pool that no aggregator lists (launchpad coins like GLITCH). Merge the ones
+  // we don't already have; on-chain price/mcap is authoritative for a token only present here.
+  try {
+    const ocFile = process.env.ONCHAIN_OUT || '/root/arc-indexer/onchain-tokens.json';
+    if (fs.existsSync(ocFile)) {
+      const oc = JSON.parse(fs.readFileSync(ocFile, 'utf8'));
+      let added = 0;
+      for (const t of (oc.tokens || [])) {
+        const a = (t.address || '').toLowerCase(); if (!a) continue;
+        if (map.has(a)) { const row = map.get(a); if (row.price == null && t.price != null) row.price = t.price; if (row.liq == null && t.liq != null) row.liq = t.liq; if (row.mcap == null && t.mcap != null) row.mcap = t.mcap; continue; }
+        set(mk({ address: a, name: t.name, symbol: t.symbol, price: t.price ?? null, liq: t.liq ?? null, mcap: t.mcap ?? null, launchpad: t.launchpad ?? null, source: t.source ?? 'onchain' }));
+        added++;
+      }
+      console.log(`[snap] on-chain discovery merged: +${added} new (of ${oc.tokens?.length || 0})`);
+    } else { console.log('[snap] no on-chain discovery file yet'); }
+  } catch (e) { console.log('[snap] on-chain merge skipped:', e.message); }
+
   const tokens = [...map.values()].sort((a, b) => (b.liq ?? -1) - (a.liq ?? -1));
   const file = path.join(__dirname, '..', 'public', 'tokens-snapshot.json');
   fs.writeFileSync(file, JSON.stringify({ generatedAt: new Date().toISOString(), count: tokens.length, tokens }));
