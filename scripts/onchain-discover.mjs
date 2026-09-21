@@ -206,6 +206,7 @@ async function main() {
       else { let a = BigInt('0x' + d.slice((x.t.usdcIsC0 ? 0 : 1) * 64, (x.t.usdcIsC0 ? 0 : 1) * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n); usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price; }
       if (isFinite(price) && price > 0) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
     }
+    if (process.env.DEBUG_VOL && x.t.kind === 'v4') console.error('DBG', x.t.symbol, 'blocks24', blocks24, 'ranges', ranges.length, 'res', res.map((r) => Array.isArray(r) ? r.length : 'null'), 'pts', pts.length);
     if (!pts.length) return { vol: 0, chg: null };
     pts.sort((a, b) => a.bn - b.bn);
     return { vol: pts.reduce((s, p) => s + (isFinite(p.usd) ? p.usd : 0), 0), chg: pts[0].price > 0 ? ((pts[pts.length - 1].price - pts[0].price) / pts[0].price) * 100 : null };
