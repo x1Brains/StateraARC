@@ -272,8 +272,10 @@ async function poolStats(token, pool) {
       let added = 0;
       for (const t of (oc.tokens || [])) {
         const a = (t.address || '').toLowerCase(); if (!a) continue;
-        if (map.has(a)) { const row = map.get(a); if (row.price == null && t.price != null) row.price = t.price; if (row.liq == null && t.liq != null) row.liq = t.liq; if (row.mcap == null && t.mcap != null) row.mcap = t.mcap; continue; }
-        set(mk({ address: a, name: t.name, symbol: t.symbol, price: t.price ?? null, liq: t.liq ?? null, mcap: t.mcap ?? null, launchpad: t.launchpad ?? null, source: t.source ?? 'onchain' }));
+        if (map.has(a)) { const row = map.get(a); if (row.price == null && t.price != null) row.price = t.price; if (row.liq == null && t.liq != null) row.liq = t.liq; if (row.mcap == null && t.mcap != null) row.mcap = t.mcap; if (row.volume24h == null && t.volume24h != null) row.volume24h = t.volume24h; if (row.change24h == null && t.change24h != null) row.change24h = t.change24h; continue; }
+        const row = mk({ address: a, name: t.name, symbol: t.symbol, price: t.price ?? null, liq: t.liq ?? null, mcap: t.mcap ?? null, launchpad: t.launchpad ?? null, source: t.source ?? 'onchain' });
+        row.volume24h = t.volume24h ?? null; row.change24h = t.change24h ?? null; row.createdAt = t.createdAt ?? null;
+        set(row);
         added++;
       }
       console.log(`[snap] on-chain discovery merged: +${added} new (of ${oc.tokens?.length || 0})`);

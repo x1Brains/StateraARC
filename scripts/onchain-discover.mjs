@@ -21,6 +21,8 @@ const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
 const T_V3_CREATE = '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118'; // PoolCreated(token0,token1,fee,tickSpacing,pool)
 const T_V4_INIT = '0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438';
 const T_V4_SWAP = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f';
+const T_V3_SWAP = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+const VOL_FLOOR = 50; // only scan 24h volume/change for tokens with at least this much liquidity (bounds cost)
 
 const STATE_FILE = process.env.ONCHAIN_STATE || './onchain-state.json';
 const OUT_FILE = process.env.ONCHAIN_OUT || './onchain-tokens.json';
@@ -92,7 +94,7 @@ async function main() {
     const usdc = t0 === USDC || t1 === USDC; if (!usdc) continue;
     const token = t0 === USDC ? t1 : t0;
     const pool = ('0x' + l.data.slice(-40)).toLowerCase();
-    if (!state.tokens[token]) v3cand.push({ token, pool, usdcIsToken0: t0 === USDC });
+    if (!state.tokens[token]) v3cand.push({ token, pool, usdcIsToken0: t0 === USDC, created: parseInt(l.blockNumber, 16) });
   }
   console.log(`[disc] V3 new USDC pools: ${v3cand.length}`);
 
@@ -109,13 +111,13 @@ async function main() {
   if (wantIds.size) {
     const initLogs = await scanLogs(PM_V4, [T_V4_INIT], from, BigInt(head)); // sparse: one map for all
     const idMap = new Map();
-    for (const l of initLogs) idMap.set(l.topics[1], { c0: ('0x' + l.topics[2].slice(26)).toLowerCase(), c1: ('0x' + l.topics[3].slice(26)).toLowerCase() });
+    for (const l of initLogs) idMap.set(l.topics[1], { c0: ('0x' + l.topics[2].slice(26)).toLowerCase(), c1: ('0x' + l.topics[3].slice(26)).toLowerCase(), created: parseInt(l.blockNumber, 16) });
     for (const poolId of wantIds) {
       const cc = idMap.get(poolId); if (!cc) continue;
       if (cc.c0 !== USDC && cc.c1 !== USDC) continue;
       const token = cc.c0 === USDC ? cc.c1 : cc.c0;
       if (state.tokens[token]) continue;
-      v4cand.push({ token, poolId, usdcIsC0: cc.c0 === USDC });
+      v4cand.push({ token, poolId, usdcIsC0: cc.c0 === USDC, created: cc.created });
     }
   }
   console.log(`[disc] V4 active pools: ${v4active.size}, new USDC tokens: ${v4cand.length}`);
@@ -139,7 +141,7 @@ async function main() {
       const supHex = mr[i * 4 + 3]?.data;
       state.tokens[t.token] = { symbol: sym, name: nm, decimals: Number.isFinite(dec) && dec <= 36 ? dec : 18,
         kind: t.kind, pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: t.usdcIsC0 ?? t.usdcIsToken0 ?? false,
-        supplyRaw: supHex && supHex !== '0x' ? supHex : null, firstSeen: Date.now() };
+        supplyRaw: supHex && supHex !== '0x' ? supHex : null, created: t.created || null, firstSeen: Date.now() };
     });
   }
   console.log(`[disc] added ${newTokens.length} new tokens`);
@@ -152,24 +154,63 @@ async function main() {
     else priceCalls.push({ target: PM_V4, data: '0x1e2eaeaf' + v4StateSlot(t.poolId).slice(2), _a: addr, _k: 'v4state' });
   }
   const pr = await batchCall(priceCalls);
-  const out = [];
-  for (let i = 0; i < entries.length; i++) {
-    const [addr, t] = entries[i]; const r = pr[i]; const dec = t.decimals;
-    let price = null;
+  // block time + head timestamp (for age + the 24h swap window)
+  const hb = await rpc('eth_getBlockByNumber', ['0x' + head.toString(16), false]);
+  const ob = await rpc('eth_getBlockByNumber', ['0x' + (head - 20000).toString(16), false]);
+  const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
+  const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+  const blocks24 = Math.min(400000, Math.ceil(86400 / blockTime));
+
+  // decode prices, and read each pool's live USDC liquidity (V3 = pool native balance; V4 = token side × price)
+  const rows = entries.map(([addr, t], i) => { const r = pr[i], dec = t.decimals; let price = null;
     try {
-      if (t.kind === 'v3' && r?.data && r.data.length >= 66) {
-        const sqrtP = BigInt(r.data.slice(0, 66)); if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / ratio : ratio) * 10 ** (dec - 6); }
-      } else if (t.kind === 'v4' && r?.data && r.data !== '0x') {
-        const sqrtP = BigInt(r.data) & ((1n << 160n) - 1n); if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / ratio : ratio) * 10 ** (dec - 6); }
-      }
+      if (t.kind === 'v3' && r?.data && r.data.length >= 66) { const sq = BigInt(r.data.slice(0, 66)); if (sq > 0n) { const ra = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / ra : ra) * 10 ** (dec - 6); } }
+      else if (t.kind === 'v4' && r?.data && r.data !== '0x') { const sq = BigInt(r.data) & ((1n << 160n) - 1n); if (sq > 0n) { const ra = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / ra : ra) * 10 ** (dec - 6); } }
     } catch { /* */ }
-    if (price == null || !isFinite(price) || price <= 0 || price >= 1e6) continue;
+    return { addr, t, price };
+  }).filter((x) => x.price != null && isFinite(x.price) && x.price > 0 && x.price < 1e6);
+
+  const liqs = await runLimited(rows.map((x) => async () => {
+    if (x.t.kind === 'v3') { const b = await rpc('eth_getBalance', [x.t.pool, 'latest']); return b ? Number(BigInt(b)) / 1e18 : 0; } // V3 pool USDC (native)
+    const b = await call(x.addr, '0x70a08231' + pad(PM_V4)); const tok = b && b !== '0x' ? Number(BigInt(b)) / 10 ** x.t.decimals : 0; return tok * x.price; // V4: token side value
+  }), 12);
+  rows.forEach((x, i) => { x.liq = liqs[i]; });
+
+  // 24h volume + change from each LIQUID pool's own swaps (bounded — dead nanocaps skipped)
+  const liquid = rows.filter((x) => x.liq >= VOL_FLOOR);
+  const day = await runLimited(liquid.map((x) => async () => {
+    const spec = x.t.kind === 'v3' ? { address: x.t.pool, topics: [[T_V3_SWAP]] } : { address: PM_V4, topics: [T_V4_SWAP, x.t.poolId] };
+    const ranges = []; for (let f = BigInt(head) - BigInt(blocks24); f < BigInt(head); f += CH) ranges.push([f, f + CH > BigInt(head) ? BigInt(head) : f + CH]);
+    const res = await runLimited(ranges.map(([f, to], i) => () => rpc('eth_getLogs', [{ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }], true)), 4);
+    const pts = [];
+    for (const logs of res) if (Array.isArray(logs)) for (const l of logs) {
+      const d = l.data.slice(2); const sq = BigInt('0x' + d.slice(128, 192)); if (sq <= 0n) continue;
+      const ra = (Number(sq) / 2 ** 96) ** 2; const price = (x.t.usdcIsC0 ? 1 / ra : ra) * 10 ** (x.t.decimals - 6);
+      let usd = 0;
+      if (x.t.kind === 'v4') { let a = BigInt('0x' + d.slice((x.t.usdcIsC0 ? 1 : 0) * 64, (x.t.usdcIsC0 ? 1 : 0) * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n); usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price; }
+      else { let a = BigInt('0x' + d.slice((x.t.usdcIsC0 ? 0 : 1) * 64, (x.t.usdcIsC0 ? 0 : 1) * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n); usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price; }
+      if (isFinite(price) && price > 0) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
+    }
+    if (!pts.length) return { vol: 0, chg: null };
+    pts.sort((a, b) => a.bn - b.bn);
+    return { vol: pts.reduce((s, p) => s + (isFinite(p.usd) ? p.usd : 0), 0), chg: pts[0].price > 0 ? ((pts[pts.length - 1].price - pts[0].price) / pts[0].price) * 100 : null };
+  }, 6));
+  const dayMap = new Map(); liquid.forEach((x, i) => dayMap.set(x.addr, day[i]));
+
+  const out = [];
+  for (const x of rows) {
+    const { addr, t, price, liq } = x; const dec = t.decimals;
     const supply = t.supplyRaw ? num(t.supplyRaw, dec) : null;
     const mcap = supply ? price * supply : null;
+    const ds = dayMap.get(addr);
+    const ageSec = t.created ? Math.round((head - t.created) * blockTime) : null;
     out.push({ address: addr, symbol: t.symbol, name: t.name, decimals: dec, price,
-      liq: t.usdc ?? null, mcap: mcap && mcap <= 1e10 ? mcap : null, source: t.kind.toUpperCase(),
-      launchpad: t.kind === 'v4' ? 'onchain' : null });
+      liq: liq || null, mcap: mcap && mcap <= 1e10 ? mcap : null,
+      volume24h: ds ? ds.vol : null, change24h: ds ? ds.chg : null,
+      createdAt: ageSec != null ? Math.floor(Date.now() / 1000) - ageSec : null,
+      source: t.kind.toUpperCase(), launchpad: t.kind === 'v4' ? 'onchain' : null });
   }
+  console.log(`[disc] priced ${out.length}, liquid (vol/chg scanned) ${liquid.length}`);
 
   state.cursor = head;
   fs.writeFileSync(STATE_FILE, JSON.stringify(state));
