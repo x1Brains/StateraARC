@@ -1178,8 +1178,9 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   const hit = candleCache.get(ck);
   if (hit && Date.now() - hit.at < 45000) return hit.data; // 45s cache — instant re-opens
   // Wide views (4H+) reach the whole chain-life (~4 days); fine views stay bounded. All TFs at the same
-  // cap share ONE cached swap scan (scanPoolSwaps) — only the bucketing differs.
-  const spanCap = intervalSec >= 14400 ? 900000 : intervalSec >= 3600 ? 300000 : 80000;
+  // cap share ONE cached swap scan (scanPoolSwaps) — only the bucketing differs. The fine tier covers ~25h
+  // (180k blocks) so 5m/15m fill their 24h window from on-chain when Warp's candle feed is stale/down.
+  const spanCap = intervalSec >= 14400 ? 900000 : intervalSec >= 3600 ? 300000 : 180000;
   const swaps = await scanPoolSwaps(token, decimals, spanCap);
   if (!swaps.length) return [];
   const buckets = new Map<number, { o: number; h: number; l: number; c: number }>();

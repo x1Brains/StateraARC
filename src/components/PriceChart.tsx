@@ -73,15 +73,19 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
         c = c.map((k) => ({ time: k.time, open: k.open * priceScale, high: k.high * priceScale, low: k.low * priceScale, close: k.close * priceScale }));
       }
       if (c && c.length) c = rebucket(c, cfg.sec);
-      // Warp's candle API only serves ~1 day of history (27×1h / 305×5m, capped even with limit=1000),
-      // so WARP tokens (ARGUS etc.) can't show all-time from Warp. On the wide timeframes, reconstruct
-      // candles from the pool's ON-CHAIN swaps (decimals-correct, full chain life) and use whichever
-      // series reaches further back. Deep V3 tokens not on Warp at all fall here too (c empty).
+      // Warp's candle API only serves ~1 day of history (capped) AND its feed can stop updating (it went
+      // stale for ~28h on 2026-09-21) — a stale feed made every narrow-TF chart EMPTY once the 24h window
+      // filter dropped the old candles. So: reconstruct candles from the pool's ON-CHAIN swaps (always
+      // current, decimals-correct) whenever the view is wide, Warp is empty, OR Warp is STALE, and use the
+      // fresher/longer series. Deep V3 tokens not on Warp at all fall here too.
+      const nowS = Math.floor(Date.now() / 1000);
+      const warpNewest = c && c.length ? c[c.length - 1].time : 0;
+      const warpStale = !c || !c.length || nowS - warpNewest > Math.max(1800, cfg.sec * 3); // newest older than ~3 buckets
       const WIDE = tf === '4h' || tf === '1d' || tf === '1w' || tf === 'all';
-      if (!c || c.length === 0 || WIDE) {
+      if (WIDE || warpStale) {
         const oc = await fetchPoolCandles(address, decimals ?? 18, cfg.sec, cfg.look).catch(() => [] as Candle[]);
         if (oc && oc.length) {
-          if (!c || !c.length) c = oc;                        // not on Warp at all → on-chain only
+          if (!c || !c.length || warpStale) c = oc;           // Warp missing/stale → on-chain (current) wins
           else if (oc[0].time < c[0].time) {                  // on-chain reaches further back → MERGE:
             // keep Warp's recent/current candles, prepend on-chain buckets older than Warp's earliest.
             const cut = c[0].time;
@@ -90,7 +94,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
         }
       }
       // Show only this timeframe's window.
-      if (c && c.length) { const cut = Math.floor(Date.now() / 1000) - cfg.look; c = c.filter((k) => k.time >= cut); }
+      if (c && c.length) { const cut = nowS - cfg.look; c = c.filter((k) => k.time >= cut); }
       if (alive) { setCandles(c); setLoading(false); }
     })();
     return () => { alive = false; };
