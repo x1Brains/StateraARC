@@ -338,11 +338,6 @@ export default function App() {
                     <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <IconArrowRight className="arw" /></button>
                     <button className="btn ghost" onClick={() => goScreener('new')}>New Launches</button>
                   </div>
-                  <button className="hero-str-teaser alert" onClick={() => go('token')}>
-                    <span className="hst-tag warn">Not live</span>
-                    <span className="hst-txt"><b>$STR is not launched yet</b> — no token, no presale. Any "$STR" out now is fake. Official launch announced here.</span>
-                    <IconArrowRight className="hst-arw" />
-                  </button>
                   <div className="hero-trust">
                     <div className="ht"><b>{tokens.length || '—'}</b><span>Tokens Tracked</span></div>
                     <div className="div" />
