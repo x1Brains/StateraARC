@@ -1258,18 +1258,18 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
     return { pool: f.pool, version: f.version, feeTier: f.feeTier, quote: 'USDC', liquidityUsdc, price, tokenReserve: tokRes, usdcReserve: usdc };
   }));
   const pools = out.filter((p) => p.liquidityUsdc != null && p.liquidityUsdc > 1).sort((a, b) => (b.liquidityUsdc || 0) - (a.liquidityUsdc || 0));
-  // Also surface the token's V4 pool (launchpad coins like GLITCH trade ONLY on V4). Its liquidity is the
-  // token side priced (V4 USDC is pooled in the shared singleton, so the exact quote side isn't isolable).
-  if (!pools.length) {
-    const v4 = await findV4Pool(token);
-    if (v4) {
-      const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
-      const [price, tokB] = await Promise.all([v4PriceOf(v4.poolId, v4.usdcIsC0, decimals), mCall(token, '0x70a08231' + pad(PM_V4)).catch(() => null)]);
-      let tokRes: number | null = null; try { if (tokB) tokRes = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
-      const liq = tokRes != null && price != null ? tokRes * price : null;
-      pools.push({ pool: v4.poolId, version: 'V4', feeTier: null, quote: 'USDC', liquidityUsdc: liq, price, tokenReserve: tokRes, usdcReserve: null });
-    }
+  // ALWAYS surface the token's real V4 pool alongside any V3/V2 pools — a coin can trade on several pool
+  // types at once and the card must show them all. (V4 USDC is pooled in the shared singleton, so we value
+  // the pool by its token side; the decoy V4 pools are already filtered out by findV4Pool's volume check.)
+  const v4 = await findV4Pool(token);
+  if (v4) {
+    const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
+    const [price, tokB] = await Promise.all([v4PriceOf(v4.poolId, v4.usdcIsC0, decimals), mCall(token, '0x70a08231' + pad(PM_V4)).catch(() => null)]);
+    let tokRes: number | null = null; try { if (tokB) tokRes = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
+    const liq = tokRes != null && price != null ? tokRes * price : null;
+    pools.push({ pool: v4.poolId, version: 'V4', feeTier: null, quote: 'USDC', liquidityUsdc: liq, price, tokenReserve: tokRes, usdcReserve: null });
   }
+  pools.sort((a, b) => (b.liquidityUsdc || 0) - (a.liquidityUsdc || 0));
   allPoolsCache.set(t, { at: Date.now(), v: pools });
   return pools;
 }
