@@ -193,26 +193,27 @@ async function main() {
   // ~$0 volume anyway). Verified: GLITCH scans to $18.7k/24h.
   const TOP_VOL = Number(process.env.ONCHAIN_TOP_VOL || 150);
   const liquid = rows.filter((x) => x.liq >= VOL_FLOOR).sort((a, b) => b.liq - a.liq).slice(0, TOP_VOL);
-  const day = await runLimited(liquid.map((x) => async () => {
-    if (process.env.DEBUG_VOL) console.log('VOLCB', x.t.symbol, x.t.kind, 'liq', Math.round(x.liq), 'poolId', (x.t.poolId || x.t.pool || '?').slice(0, 12));
-    const spec = x.t.kind === 'v3' ? { address: x.t.pool, topics: [[T_V3_SWAP]] } : { address: PM_V4, topics: [T_V4_SWAP, x.t.poolId] };
-    const ranges = []; for (let f = BigInt(head) - BigInt(blocks24); f < BigInt(head); f += CH) ranges.push([f, f + CH > BigInt(head) ? BigInt(head) : f + CH]);
-    const res = await runLimited(ranges.map(([f, to], i) => () => rpc('eth_getLogs', [{ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }], true)), 2);
-    const pts = [];
-    for (const logs of res) if (Array.isArray(logs)) for (const l of logs) {
-      const d = l.data.slice(2); const sq = BigInt('0x' + d.slice(128, 192)); if (sq <= 0n) continue;
-      const ra = (Number(sq) / 2 ** 96) ** 2; const price = (x.t.usdcIsC0 ? 1 / ra : ra) * 10 ** (x.t.decimals - 6);
-      let usd = 0;
-      if (x.t.kind === 'v4') { let a = BigInt('0x' + d.slice((x.t.usdcIsC0 ? 1 : 0) * 64, (x.t.usdcIsC0 ? 1 : 0) * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n); usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price; }
-      else { let a = BigInt('0x' + d.slice((x.t.usdcIsC0 ? 0 : 1) * 64, (x.t.usdcIsC0 ? 0 : 1) * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n); usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price; }
-      if (isFinite(price) && price > 0) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
-    }
-    if (process.env.DEBUG_VOL && x.t.kind === 'v4') console.error('DBG', x.t.symbol, 'blocks24', blocks24, 'ranges', ranges.length, 'res', res.map((r) => Array.isArray(r) ? r.length : 'null'), 'pts', pts.length);
-    if (!pts.length) return { vol: 0, chg: null };
-    pts.sort((a, b) => a.bn - b.bn);
-    return { vol: pts.reduce((s, p) => s + (isFinite(p.usd) ? p.usd : 0), 0), chg: pts[0].price > 0 ? ((pts[pts.length - 1].price - pts[0].price) / pts[0].price) * 100 : null };
-  }, 3));
-  const dayMap = new Map(); liquid.forEach((x, i) => dayMap.set(x.addr, day[i]));
+  const dayMap = new Map();
+  for (const x of liquid) {
+    try {
+      const spec = x.t.kind === 'v3' ? { address: x.t.pool, topics: [[T_V3_SWAP]] } : { address: PM_V4, topics: [T_V4_SWAP, x.t.poolId] };
+      const ranges = []; for (let f = BigInt(head) - BigInt(blocks24); f < BigInt(head); f += CH) ranges.push([f, f + CH > BigInt(head) ? BigInt(head) : f + CH]);
+      const res = await Promise.all(ranges.map(([f, to]) => rpc('eth_getLogs', [{ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }], true)));
+      const pts = [];
+      for (const logs of res) if (Array.isArray(logs)) for (const l of logs) {
+        const d = l.data.slice(2); const sq = BigInt('0x' + d.slice(128, 192)); if (sq <= 0n) continue;
+        const ra = (Number(sq) / 2 ** 96) ** 2; const price = (x.t.usdcIsC0 ? 1 / ra : ra) * 10 ** (x.t.decimals - 6);
+        const wi = (x.t.kind === 'v4' ? (x.t.usdcIsC0 ? 1 : 0) : (x.t.usdcIsC0 ? 0 : 1)); // token amount word
+        let a = BigInt('0x' + d.slice(wi * 64, wi * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n);
+        const usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price;
+        if (isFinite(price) && price > 0) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
+      }
+      if (process.env.DEBUG_VOL) console.log('VOL', x.t.symbol, x.t.kind, 'res', res.map((r) => Array.isArray(r) ? r.length : 'null').join(','), 'pts', pts.length);
+      if (!pts.length) { dayMap.set(x.addr, { vol: 0, chg: null }); continue; }
+      pts.sort((a, b) => a.bn - b.bn);
+      dayMap.set(x.addr, { vol: pts.reduce((s, p) => s + (isFinite(p.usd) ? p.usd : 0), 0), chg: pts[0].price > 0 ? ((pts[pts.length - 1].price - pts[0].price) / pts[0].price) * 100 : null });
+    } catch (e) { if (process.env.DEBUG_VOL) console.log('VOLERR', x.t.symbol, e.message); dayMap.set(x.addr, { vol: 0, chg: null }); }
+  }
 
   const out = [];
   for (const x of rows) {
