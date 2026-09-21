@@ -23,6 +23,10 @@ const T_V4_INIT = '0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838
 const T_V4_SWAP = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f';
 const T_V3_SWAP = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 const VOL_FLOOR = 50; // only scan 24h volume/change for tokens with at least this much liquidity (bounds cost)
+// Major-asset tickers that DON'T legitimately exist as launchpad mints on Arc — any on-chain token using
+// them is an impersonator (fake "Wrapped Ether" $267M etc.), and its faked high price inflates the
+// liquidity estimate so it ranks #1. Drop them from discovery. (Real ecosystem tokens come via RadarDEX.)
+const IMPERSONATOR = new Set(['WETH', 'ETH', 'WBTC', 'BTC', 'CBBTC', 'USDT', 'USDC', 'DAI', 'XRP', 'SOL', 'BNB', 'DOGE', 'ADA', 'AVAX', 'LINK', 'SUI', 'MATIC', 'SHIB', 'PEPE', 'TRX', 'LTC', 'DOT', 'GOLD', 'XAU', 'XAUM', 'SILVER', 'EURC', 'EUROC', 'USD', 'WBNB', 'STETH', 'TON', 'NVDA', 'AAPL', 'TSLA']);
 
 const STATE_FILE = process.env.ONCHAIN_STATE || './onchain-state.json';
 const OUT_FILE = process.env.ONCHAIN_OUT || './onchain-tokens.json';
@@ -144,16 +148,18 @@ async function main() {
   const newTokens = [...v3keep.map((x) => ({ ...x, kind: 'v3' })), ...v4cand.map((x) => ({ ...x, kind: 'v4' }))];
   if (newTokens.length) {
     const calls = [];
-    for (const t of newTokens) { calls.push({ target: t.token, data: '0x95d89b41' }, { target: t.token, data: '0x06fdde03' }, { target: t.token, data: '0x313ce567' }, { target: t.token, data: '0x18160ddd' }); }
+    // symbol, name, decimals, totalSupply, image-URI (0xfb7f21eb, launchpad token logo)
+    for (const t of newTokens) { calls.push({ target: t.token, data: '0x95d89b41' }, { target: t.token, data: '0x06fdde03' }, { target: t.token, data: '0x313ce567' }, { target: t.token, data: '0x18160ddd' }, { target: t.token, data: '0xfb7f21eb' }); }
     const mr = await batchCall(calls);
     newTokens.forEach((t, i) => {
-      const sym = decStr(mr[i * 4]?.data) || '?';
-      const nm = decStr(mr[i * 4 + 1]?.data) || sym;
-      const decHex = mr[i * 4 + 2]?.data; const dec = decHex && decHex !== '0x' ? parseInt(decHex.slice(0, 66), 16) : 18;
-      const supHex = mr[i * 4 + 3]?.data;
+      const sym = decStr(mr[i * 5]?.data) || '?';
+      const nm = decStr(mr[i * 5 + 1]?.data) || sym;
+      const decHex = mr[i * 5 + 2]?.data; const dec = decHex && decHex !== '0x' ? parseInt(decHex.slice(0, 66), 16) : 18;
+      const supHex = mr[i * 5 + 3]?.data;
+      let icon = decStr(mr[i * 5 + 4]?.data) || null; if (icon && !/^(https?:|ipfs:|ar:)/i.test(icon)) icon = null; // only keep a real URI (client resolves ipfs)
       state.tokens[t.token] = { symbol: sym, name: nm, decimals: Number.isFinite(dec) && dec <= 36 ? dec : 18,
         kind: t.kind, pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: t.usdcIsC0 ?? t.usdcIsToken0 ?? false,
-        supplyRaw: supHex && supHex !== '0x' ? supHex : null, created: t.created || null, cnt: t.cnt ?? null, firstSeen: Date.now() };
+        supplyRaw: supHex && supHex !== '0x' ? supHex : null, created: t.created || null, cnt: t.cnt ?? null, iconUrl: icon, firstSeen: Date.now() };
     });
   }
   console.log(`[disc] added ${newTokens.length} new tokens`);
@@ -222,6 +228,7 @@ async function main() {
   const out = [];
   for (const x of rows) {
     const { addr, t, price, liq } = x; const dec = t.decimals;
+    if (IMPERSONATOR.has((t.symbol || '').toUpperCase())) continue; // skip fake WETH/XRP/GOLD… impersonators
     const supply = t.supplyRaw ? num(t.supplyRaw, dec) : null;
     const mcap = supply ? price * supply : null;
     const ds = dayMap.get(addr);
@@ -231,7 +238,8 @@ async function main() {
     out.push({ address: addr, symbol: t.symbol, name: t.name, decimals: dec, price,
       liq: liq || null, mcap: mcap && mcap <= 1e10 ? mcap : null,
       volume24h: vol, change24h: chg,
-      createdAt: ageSec != null ? Math.floor(Date.now() / 1000) - ageSec : null,
+      createdAt: ageSec != null ? Date.now() - ageSec * 1000 : null, // ⛔ MS to match the snapshot/UI convention (seconds → 56.7y bug)
+      iconUrl: t.iconUrl || null,
       source: t.kind.toUpperCase(), launchpad: t.kind === 'v4' ? 'onchain' : null });
   }
   console.log(`[disc] priced ${out.length}, liquid (vol/chg scanned) ${liquid.length}`);
