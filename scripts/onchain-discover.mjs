@@ -179,6 +179,7 @@ async function main() {
       if (t.kind === 'v3' && r?.data && r.data.length >= 66) { const sq = BigInt(r.data.slice(0, 66)); if (sq > 0n) { const ra = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / ra : ra) * 10 ** (dec - 6); } }
       else if (t.kind === 'v4' && r?.data && r.data !== '0x') { const sq = BigInt(r.data) & ((1n << 160n) - 1n); if (sq > 0n) { const ra = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / ra : ra) * 10 ** (dec - 6); } }
     } catch { /* */ }
+    if ((price == null || !isFinite(price) || price <= 0 || price >= 1e6) && t.lastPrice) price = t.lastPrice; // keep last-good on a transient RPC miss so tokens don't flicker out
     return { addr, t, price };
   }).filter((x) => x.price != null && isFinite(x.price) && x.price > 0 && x.price < 1e6);
 
@@ -235,6 +236,7 @@ async function main() {
   }
   console.log(`[disc] priced ${out.length}, liquid (vol/chg scanned) ${liquid.length}`);
 
+  for (const o of out) { const st = state.tokens[o.address]; if (st) st.lastPrice = o.price; } // remember last-good price
   state.cursor = head;
   fs.writeFileSync(STATE_FILE, JSON.stringify(state));
   fs.writeFileSync(OUT_FILE, JSON.stringify({ generatedAt: new Date().toISOString(), count: out.length, tokens: out }));
