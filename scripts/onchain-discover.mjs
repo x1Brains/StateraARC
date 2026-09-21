@@ -194,6 +194,7 @@ async function main() {
   const TOP_VOL = Number(process.env.ONCHAIN_TOP_VOL || 150);
   const liquid = rows.filter((x) => x.liq >= VOL_FLOOR).sort((a, b) => b.liq - a.liq).slice(0, TOP_VOL);
   const day = await runLimited(liquid.map((x) => async () => {
+    if (process.env.DEBUG_VOL) console.log('VOLCB', x.t.symbol, x.t.kind, 'liq', Math.round(x.liq), 'poolId', (x.t.poolId || x.t.pool || '?').slice(0, 12));
     const spec = x.t.kind === 'v3' ? { address: x.t.pool, topics: [[T_V3_SWAP]] } : { address: PM_V4, topics: [T_V4_SWAP, x.t.poolId] };
     const ranges = []; for (let f = BigInt(head) - BigInt(blocks24); f < BigInt(head); f += CH) ranges.push([f, f + CH > BigInt(head) ? BigInt(head) : f + CH]);
     const res = await runLimited(ranges.map(([f, to], i) => () => rpc('eth_getLogs', [{ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }], true)), 2);
