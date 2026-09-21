@@ -191,8 +191,11 @@ async function main() {
   // 24h volume + change from each LIQUID pool's own swaps. Scanning every one floods the RPCs (→ zeros),
   // so scan the most-liquid TOP_VOL tokens (covers everything with real volume; sub-floor nanocaps have
   // ~$0 volume anyway). Verified: GLITCH scans to $18.7k/24h.
-  const TOP_VOL = Number(process.env.ONCHAIN_TOP_VOL || 150);
-  const liquid = rows.filter((x) => x.liq >= VOL_FLOOR).sort((a, b) => b.liq - a.liq).slice(0, TOP_VOL);
+  const TOP_VOL = Number(process.env.ONCHAIN_TOP_VOL || 220);
+  const withLiq = rows.filter((x) => x.liq >= VOL_FLOOR);
+  const byLiq = [...withLiq].sort((a, b) => b.liq - a.liq).slice(0, TOP_VOL);
+  const active = withLiq.filter((x) => (x.t.cnt || 0) >= 50); // active launchpad coins (GLITCH cnt 880) even if liq-rank is lower
+  const liquid = [...new Map([...byLiq, ...active].map((x) => [x.addr, x])).values()];
   const dayMap = new Map();
   for (const x of liquid) {
     try {
