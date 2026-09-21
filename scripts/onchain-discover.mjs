@@ -209,7 +209,7 @@ async function main() {
         const wi = (x.t.kind === 'v4' ? (x.t.usdcIsC0 ? 1 : 0) : (x.t.usdcIsC0 ? 0 : 1)); // token amount word
         let a = BigInt('0x' + d.slice(wi * 64, wi * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n);
         const usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price;
-        if (isFinite(price) && price > 0) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
+        if (isFinite(price) && price > 0 && isFinite(usd) && usd < 1e8) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd }); // drop garbage swaps (bad decimals → 1e57)
       }
       if (process.env.DEBUG_VOL) console.log('VOL', x.t.symbol, x.t.kind, 'res', res.map((r) => Array.isArray(r) ? r.length : 'null').join(','), 'pts', pts.length);
       if (!pts.length) { dayMap.set(x.addr, { vol: 0, chg: null }); continue; }
@@ -225,9 +225,11 @@ async function main() {
     const mcap = supply ? price * supply : null;
     const ds = dayMap.get(addr);
     const ageSec = t.created ? Math.round((head - t.created) * blockTime) : null;
+    const vol = ds && isFinite(ds.vol) && ds.vol >= 0 && ds.vol < 1e10 ? ds.vol : null;
+    const chg = ds && ds.chg != null && isFinite(ds.chg) ? Math.max(-99, Math.min(9999, ds.chg)) : null;
     out.push({ address: addr, symbol: t.symbol, name: t.name, decimals: dec, price,
       liq: liq || null, mcap: mcap && mcap <= 1e10 ? mcap : null,
-      volume24h: ds ? ds.vol : null, change24h: ds ? ds.chg : null,
+      volume24h: vol, change24h: chg,
       createdAt: ageSec != null ? Math.floor(Date.now() / 1000) - ageSec : null,
       source: t.kind.toUpperCase(), launchpad: t.kind === 'v4' ? 'onchain' : null });
   }
