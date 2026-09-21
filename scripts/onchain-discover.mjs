@@ -161,6 +161,11 @@ async function main() {
         kind: t.kind, pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: t.usdcIsC0 ?? t.usdcIsToken0 ?? false,
         supplyRaw: supHex && supHex !== '0x' ? supHex : null, created: t.created || null, cnt: t.cnt ?? null, iconUrl: icon, firstSeen: Date.now() };
     });
+    // ⛔ Age from (head-created)*blockTime is inaccurate over millions of blocks (block time isn't constant
+    // → some V3 pools showed 66-103d on a days-old chain). Read the creation block's REAL timestamp ONCE.
+    const withBlk = newTokens.filter((t) => t.created);
+    const tss = await runLimited(withBlk.map((t) => async () => { const b = await rpc('eth_getBlockByNumber', ['0x' + t.created.toString(16), false]); return b && b.timestamp ? Number(BigInt(b.timestamp)) * 1000 : null; }), 8);
+    withBlk.forEach((t, i) => { if (tss[i] && state.tokens[t.token]) state.tokens[t.token].createdAt = tss[i]; });
   }
   console.log(`[disc] added ${newTokens.length} new tokens`);
 
@@ -232,13 +237,13 @@ async function main() {
     const supply = t.supplyRaw ? num(t.supplyRaw, dec) : null;
     const mcap = supply ? price * supply : null;
     const ds = dayMap.get(addr);
-    const ageSec = t.created ? Math.round((head - t.created) * blockTime) : null;
     const vol = ds && isFinite(ds.vol) && ds.vol >= 0 && ds.vol < 1e10 ? ds.vol : null;
     const chg = ds && ds.chg != null && isFinite(ds.chg) ? Math.max(-99, Math.min(9999, ds.chg)) : null;
+    // createdAt (ms): prefer the real creation-block timestamp; fall back to block-extrapolation.
+    const createdAt = t.createdAt || (t.created ? Date.now() - Math.round((head - t.created) * blockTime) * 1000 : null);
     out.push({ address: addr, symbol: t.symbol, name: t.name, decimals: dec, price,
       liq: liq || null, mcap: mcap && mcap <= 1e10 ? mcap : null,
-      volume24h: vol, change24h: chg,
-      createdAt: ageSec != null ? Date.now() - ageSec * 1000 : null, // ⛔ MS to match the snapshot/UI convention (seconds → 56.7y bug)
+      volume24h: vol, change24h: chg, createdAt,
       iconUrl: t.iconUrl || null,
       source: t.kind.toUpperCase(), launchpad: t.kind === 'v4' ? 'onchain' : null });
   }
