@@ -185,7 +185,7 @@ async function main() {
   const day = await runLimited(liquid.map((x) => async () => {
     const spec = x.t.kind === 'v3' ? { address: x.t.pool, topics: [[T_V3_SWAP]] } : { address: PM_V4, topics: [T_V4_SWAP, x.t.poolId] };
     const ranges = []; for (let f = BigInt(head) - BigInt(blocks24); f < BigInt(head); f += CH) ranges.push([f, f + CH > BigInt(head) ? BigInt(head) : f + CH]);
-    const res = await runLimited(ranges.map(([f, to], i) => () => rpc('eth_getLogs', [{ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }], true)), 4);
+    const res = await runLimited(ranges.map(([f, to], i) => () => rpc('eth_getLogs', [{ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }], true)), 2);
     const pts = [];
     for (const logs of res) if (Array.isArray(logs)) for (const l of logs) {
       const d = l.data.slice(2); const sq = BigInt('0x' + d.slice(128, 192)); if (sq <= 0n) continue;
@@ -198,7 +198,7 @@ async function main() {
     if (!pts.length) return { vol: 0, chg: null };
     pts.sort((a, b) => a.bn - b.bn);
     return { vol: pts.reduce((s, p) => s + (isFinite(p.usd) ? p.usd : 0), 0), chg: pts[0].price > 0 ? ((pts[pts.length - 1].price - pts[0].price) / pts[0].price) * 100 : null };
-  }, 6));
+  }, 3));
   const dayMap = new Map(); liquid.forEach((x, i) => dayMap.set(x.addr, day[i]));
 
   const out = [];
