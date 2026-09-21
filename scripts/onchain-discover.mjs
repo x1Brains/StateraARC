@@ -26,8 +26,8 @@ const STATE_FILE = process.env.ONCHAIN_STATE || './onchain-state.json';
 const OUT_FILE = process.env.ONCHAIN_OUT || './onchain-tokens.json';
 const CH = 95000n;                       // getLogs range for the big-range RPCs
 const INITIAL_LOOKBACK = BigInt(process.env.ONCHAIN_LOOKBACK || 1_200_000); // first run: how far back to sweep
-const MAX_NEW_PER_RUN = 1500;            // cap the per-run filter/metadata work so a run stays bounded
-const V4_ACTIVE_WINDOW = 40000n;         // blocks of recent V4 swaps to catch active launchpad pools
+const MAX_NEW_PER_RUN = Number(process.env.ONCHAIN_MAX_NEW || 25000); // cap per-run filter work (high enough to cover the one-time backfill; incremental runs see few new pools anyway)
+const V4_ACTIVE_WINDOW = BigInt(process.env.V4_ACTIVE_WINDOW || 40000); // blocks of recent V4 swaps to catch active launchpad pools
 const MIN_USDC = 40;                     // a pool must hold at least this much USDC to count as real
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
