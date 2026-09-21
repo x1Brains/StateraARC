@@ -180,8 +180,11 @@ async function main() {
   }), 12);
   rows.forEach((x, i) => { x.liq = liqs[i]; });
 
-  // 24h volume + change from each LIQUID pool's own swaps (bounded — dead nanocaps skipped)
-  const liquid = rows.filter((x) => x.liq >= VOL_FLOOR);
+  // 24h volume + change from each LIQUID pool's own swaps. Scanning every one floods the RPCs (→ zeros),
+  // so scan the most-liquid TOP_VOL tokens (covers everything with real volume; sub-floor nanocaps have
+  // ~$0 volume anyway). Verified: GLITCH scans to $18.7k/24h.
+  const TOP_VOL = Number(process.env.ONCHAIN_TOP_VOL || 150);
+  const liquid = rows.filter((x) => x.liq >= VOL_FLOOR).sort((a, b) => b.liq - a.liq).slice(0, TOP_VOL);
   const day = await runLimited(liquid.map((x) => async () => {
     const spec = x.t.kind === 'v3' ? { address: x.t.pool, topics: [[T_V3_SWAP]] } : { address: PM_V4, topics: [T_V4_SWAP, x.t.poolId] };
     const ranges = []; for (let f = BigInt(head) - BigInt(blocks24); f < BigInt(head); f += CH) ranges.push([f, f + CH > BigInt(head) ? BigInt(head) : f + CH]);
