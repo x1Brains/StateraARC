@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown } from './icons';
 
@@ -65,7 +65,12 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       if (detail?.volume24 == null && detail?.change24h == null) {
         fetchOnchainDayStats(address, dec).then((s) => { if (alive) setDayStats(s); }).catch(() => {});
       }
-      fetchRadarHolders(address, dec, 100).then((h) => { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
+      fetchRadarHolders(address, dec, 100).then(async (h) => {
+        if (h.holders && h.holders.length) { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } return; }
+        // RadarDEX doesn't index this token (on-chain/launchpad coins) → arc-scan holder list.
+        const a = await fetchTokenHolders(address, 100).catch(() => []);
+        if (alive) { setHolders(a.map((x) => ({ rank: x.rank, address: x.address, amount: x.balance, percent: x.share, isPool: x.isContract, isDeployer: false }))); if (h.holderCount != null) setHolderCount(h.holderCount); }
+      }).catch(() => { if (alive) setHolders([]); });
       // Real trades feed: RadarDEX indexed swaps first; if it doesn't index this token (ARGUS etc.),
       // decode the pool's on-chain Swap events so we still show Buy/Sell — never "Transfer".
       fetchRadarSwaps(address, dec, 50).then(async (s) => {
@@ -224,7 +229,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
             {d?.lookalike && <span className="wl-note" style={{ marginLeft: 8 }}>Lookalike</span>}
             {d?.reservedName && <span className="wl-note" style={{ marginLeft: 8 }}>Reserved-name</span>}
           </div>
-          <div className="td-sym">{sym} · {d?.standard?.toUpperCase() || 'ERC-20'}</div>
+          <div className="td-sym">{sym} · {d?.standard?.toUpperCase() || 'ERC-20'}{seed?.hooked && <span className="wl-note" style={{ marginLeft: 8 }} title="This token trades on a Uniswap V4 pool with a hook, which can charge a swap tax (buy/sell fee). Verify before trading.">Hooked · may tax</span>}</div>
           <button className="addr" onClick={copy} title="copy address"><span className="addr-hex">{address.slice(0, 10)}…{address.slice(-8)}</span>{copied ? <><IconCheck className="i" /> Copied</> : <IconCopy className="i" />}</button>
         </div>
         {onTrade && (

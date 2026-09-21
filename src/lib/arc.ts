@@ -78,6 +78,11 @@ export interface Token {
   change6h?: number | null;  // 6h price change, percent
   fdv?: number | null;       // fully-diluted valuation
   source?: string | null;    // top DEX / pool version (e.g. Uni V3, WarpV2)
+  pool?: string | null;      // on-chain: the token's V3 pool address (for live re-pricing)
+  poolId?: string | null;    // on-chain: the token's V4 poolId (for live re-pricing)
+  usdcIsC0?: boolean;        // on-chain: USDC is currency0/token0 in that pool
+  decimals?: number;         // on-chain: token decimals (for live re-pricing)
+  hooked?: boolean;          // on-chain: V4 pool has a hook (may charge a swap tax)
   txns24?: number | null;    // 24h transaction count
   spark?: number[] | null;   // sparkline price series (recent → last)
 }
@@ -858,6 +863,19 @@ export async function fetchDeepPoolPrices(): Promise<Record<string, number>> {
   }), 5);
   return out;
 }
+// Live price for a set of ON-CHAIN screener rows (V3 slot0 / V4 extsload), so the top rows aren't ~15 min
+// stale between indexer bakes. Bounded to whatever list the caller passes (the visible top rows).
+export async function fetchOnchainScreenerPrices(rows: { address: string; pool?: string | null; poolId?: string | null; usdcIsC0?: boolean; decimals?: number }[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  await runLimited(rows.map((t) => async () => {
+    const dexp = 10 ** ((t.decimals ?? 18) - 6);
+    let price: number | null = null;
+    if (t.poolId) { const s0 = await mCall(PM_V4, '0x1e2eaeaf' + v4StateSlot(t.poolId).slice(2)).catch(() => null); if (s0 && s0 !== '0x') { try { const sq = BigInt(s0) & ((1n << 160n) - 1n); if (sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } } catch { /* */ } } }
+    else if (t.pool) { const s0 = await mCall(t.pool, '0x3850c7bd').catch(() => null); if (s0 && s0.length >= 66) { try { const sq = BigInt(s0.slice(0, 66)); if (sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } } catch { /* */ } } }
+    if (price != null && isFinite(price) && price > 0 && price < 1e6) out[t.address.toLowerCase()] = price;
+  }), 8);
+  return out;
+}
 
 // Combined price + USD liquidity + market cap for every tracked mainnet pool (one throttled pass).
 // mcap = price × total supply (all these tokens are 18-dec).
@@ -980,7 +998,8 @@ export async function fetchScreenerTokens(): Promise<{ tokens: Token[]; asOf: nu
           price: rnum(t.price), liq: rnum(t.liq), mcap: rnum(t.mcap),
           volume24h: rnum(t.volume24h), change24h: rnum(t.change24h), change1h: rnum(t.change1h),
           txns24: rnum(t.txns24), spark: Array.isArray(t.spark) ? t.spark.filter((n: any) => typeof n === 'number' && isFinite(n)) : null,
-          createdAt: rnum(t.createdAt),
+          createdAt: rnum(t.createdAt), source: t.source ?? null,
+          pool: t.pool ?? null, poolId: t.poolId ?? null, usdcIsC0: !!t.usdcIsC0, decimals: t.decimals ?? 18, hooked: !!t.hooked,
         }));
         const asOf = snap.generatedAt ? Date.parse(snap.generatedAt) : null;
         return { tokens, asOf: Number.isFinite(asOf) ? asOf : null };

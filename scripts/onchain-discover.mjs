@@ -113,7 +113,7 @@ async function main() {
   if (activeIds.length) {
     const initLogs = await scanLogs(PM_V4, [T_V4_INIT], from, BigInt(head)); // sparse: one map for all
     const idMap = new Map();
-    for (const l of initLogs) idMap.set(l.topics[1], { c0: ('0x' + l.topics[2].slice(26)).toLowerCase(), c1: ('0x' + l.topics[3].slice(26)).toLowerCase(), created: parseInt(l.blockNumber, 16) });
+    for (const l of initLogs) idMap.set(l.topics[1], { c0: ('0x' + l.topics[2].slice(26)).toLowerCase(), c1: ('0x' + l.topics[3].slice(26)).toLowerCase(), created: parseInt(l.blockNumber, 16), hooks: ('0x' + l.data.slice(2).slice(2*64 + 24, 2*64 + 64)).toLowerCase() });
     // ⛔ A token can have MANY active pools — real + WASH-TRADED DECOYS (GLITCH's real pool had 5736 swaps,
     // a decoy 38). Group by token and keep the poolId with the MOST swaps, so price/vol come from the real one.
     const byToken = new Map();
@@ -122,7 +122,7 @@ async function main() {
       if (cc.c0 !== USDC && cc.c1 !== USDC) continue;
       const token = cc.c0 === USDC ? cc.c1 : cc.c0;
       const prev = byToken.get(token);
-      if (!prev || cnt > prev.cnt) byToken.set(token, { poolId, cnt, usdcIsC0: cc.c0 === USDC, created: cc.created });
+      if (!prev || cnt > prev.cnt) byToken.set(token, { poolId, cnt, usdcIsC0: cc.c0 === USDC, created: cc.created, hooks: cc.hooks });
     }
     for (const [token, info] of byToken) {
       const known = state.tokens[token];
@@ -130,7 +130,7 @@ async function main() {
       if (known && known.cnt != null && known.cnt >= info.cnt) continue; // keep the better existing choice
       // new token, OR upgrade an existing token whose stored pool was a weaker (decoy) one
       if (known) { known.poolId = info.poolId; known.usdcIsC0 = info.usdcIsC0; known.cnt = info.cnt; continue; }
-      v4cand.push({ token, poolId: info.poolId, usdcIsC0: info.usdcIsC0, created: info.created, cnt: info.cnt });
+      v4cand.push({ token, poolId: info.poolId, usdcIsC0: info.usdcIsC0, created: info.created, cnt: info.cnt, hooks: info.hooks });
     }
   }
   console.log(`[disc] V4 active pools: ${v4active.size}, new USDC tokens: ${v4cand.length}`);
@@ -160,7 +160,7 @@ async function main() {
       let icon = decStr(mr[i * 5 + 4]?.data) || null; if (icon && !/^(https?:|ipfs:|ar:)/i.test(icon)) icon = null; // only keep a real URI (client resolves ipfs)
       state.tokens[t.token] = { symbol: sym, name: nm, decimals: Number.isFinite(dec) && dec <= 36 ? dec : 18,
         kind: t.kind, pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: t.usdcIsC0 ?? t.usdcIsToken0 ?? false,
-        supplyRaw: supHex && supHex !== '0x' ? supHex : null, created: t.created || null, cnt: t.cnt ?? null, iconUrl: icon, firstSeen: Date.now() };
+        supplyRaw: supHex && supHex !== '0x' ? supHex : null, created: t.created || null, cnt: t.cnt ?? null, hooks: t.hooks || null, iconUrl: icon, firstSeen: Date.now() };
     });
     // ⛔ Age from (head-created)*blockTime is inaccurate over millions of blocks (block time isn't constant
     // → some V3 pools showed 66-103d on a days-old chain). Read the creation block's REAL timestamp ONCE.
@@ -309,6 +309,9 @@ async function main() {
       volume24h: vol, change24h: chg, change1h: chg1h, spark, createdAt,
       holders: t.holders ?? null,
       iconUrl: t.iconUrl || null,
+      // pool identity so the client can re-price the row LIVE (kills the ~15-min screener staleness).
+      pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: !!t.usdcIsC0, decimals: dec,
+      hooked: !!(t.hooks && t.hooks !== ZERO && /[1-9a-f]/.test(t.hooks.slice(2))),
       source: t.kind.toUpperCase(), launchpad: t.kind === 'v4' ? 'onchain' : null });
   }
   console.log(`[disc] priced ${out.length}, liquid (vol/chg scanned) ${liquid.length}`);

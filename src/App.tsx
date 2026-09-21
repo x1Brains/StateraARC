@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchPoolVolume24h, fetchCuratedV4Tokens, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
+import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchPoolVolume24h, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -162,6 +162,12 @@ export default function App() {
       // searchable now — priced on-chain. (Full chain-wide V4 discovery bake is the proper fix.)
       fetchCuratedV4Tokens().then((extra) => {
         if (extra.length) setTokens((prev) => { const have = new Set(prev.map((t) => t.address.toLowerCase())); return [...prev, ...extra.filter((e) => !have.has(e.address.toLowerCase()))]; });
+      }).catch(() => {});
+      // Live re-price the top ON-CHAIN rows (V3 slot0 / V4 extsload) so what's visible isn't ~15 min stale
+      // between indexer bakes. RadarDEX rows get their own live overlay below.
+      const ocTop = list.filter((t) => (t.source === 'V3' || t.source === 'V4') && (t.pool || t.poolId)).sort((a, b) => (b.liq ?? 0) - (a.liq ?? 0)).slice(0, 60);
+      if (ocTop.length) fetchOnchainScreenerPrices(ocTop).then((px) => {
+        if (Object.keys(px).length) setTokens((prev) => prev.map((t) => { const p = px[t.address.toLowerCase()]; return p != null ? { ...t, price: p } : t; }));
       }).catch(() => {});
       // Safety net: if the snapshot ever lacks volume for a deep pool, fill it on-chain (usually a no-op
       // now that the snapshot bakes it).
