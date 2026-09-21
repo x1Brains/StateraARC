@@ -224,7 +224,7 @@ async function main() {
   // 24h volume + change from each LIQUID pool's own swaps. Scanning every one floods the RPCs (→ zeros),
   // so scan the most-liquid TOP_VOL tokens (covers everything with real volume; sub-floor nanocaps have
   // ~$0 volume anyway). Verified: GLITCH scans to $18.7k/24h.
-  const TOP_VOL = Number(process.env.ONCHAIN_TOP_VOL || 220);
+  const TOP_VOL = Number(process.env.ONCHAIN_TOP_VOL || 150);
   const withLiq = rows.filter((x) => x.liq >= VOL_FLOOR);
   const byLiq = [...withLiq].sort((a, b) => b.liq - a.liq).slice(0, TOP_VOL);
   const active = withLiq.filter((x) => (x.t.cnt || 0) >= 50); // active launchpad coins (GLITCH cnt 880) even if liq-rank is lower
@@ -282,7 +282,9 @@ async function main() {
     const supply = t.supplyRaw ? num(t.supplyRaw, dec) : null;
     const mcap = supply ? price * supply : null;
     const ds = dayMap.get(addr);
-    const vol = ds && isFinite(ds.vol) && ds.vol >= 0 && ds.vol < 1e10 ? ds.vol : null;
+    // Sane volume: < $1B AND < 300× the pool's liquidity (a bad-decimals pool made cirBTC read $8.2B).
+    const volCap = Math.min(1e9, (liq || 1e9) * 300);
+    const vol = ds && isFinite(ds.vol) && ds.vol >= 0 && ds.vol < volCap ? ds.vol : null;
     const chg = ds && ds.chg != null && isFinite(ds.chg) ? Math.max(-99, Math.min(9999, ds.chg)) : null;
     // createdAt (ms): prefer the real creation-block timestamp; fall back to block-extrapolation.
     const createdAt = t.createdAt || (t.created ? Date.now() - Math.round((head - t.created) * blockTime) * 1000 : null);
