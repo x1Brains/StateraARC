@@ -28,7 +28,7 @@ const STATE_FILE = process.env.ONCHAIN_STATE || './onchain-state.json';
 const OUT_FILE = process.env.ONCHAIN_OUT || './onchain-tokens.json';
 const CH = 95000n;                       // getLogs range for the big-range RPCs
 const INITIAL_LOOKBACK = BigInt(process.env.ONCHAIN_LOOKBACK || 1_200_000); // first run: how far back to sweep
-const MAX_NEW_PER_RUN = Number(process.env.ONCHAIN_MAX_NEW || 25000); // cap per-run filter work (high enough to cover the one-time backfill; incremental runs see few new pools anyway)
+const MAX_NEW_PER_RUN = Number(process.env.ONCHAIN_MAX_NEW || 3000); // V3 candidates to liquidity-check per run; the rest carry over in a backlog so a run never hangs on 19k checks
 const V4_ACTIVE_WINDOW = BigInt(process.env.V4_ACTIVE_WINDOW || 40000); // blocks of recent V4 swaps to catch active launchpad pools
 const MIN_USDC = 40;                     // a pool must hold at least this much USDC to count as real
 
@@ -123,10 +123,14 @@ async function main() {
   console.log(`[disc] V4 active pools: ${v4active.size}, new USDC tokens: ${v4cand.length}`);
 
   // ── 3) Filter V3 candidates by REAL USDC liquidity (parallel eth_getBalance) ───────────────────────
-  const v3slice = v3cand.slice(0, MAX_NEW_PER_RUN);
+  // Only MAX_NEW_PER_RUN are checked per run; the rest carry over in a backlog (so a run never hangs on
+  // the ~19k historical candidates). New pools jump the queue via the fresh scan above.
+  const v3all = [...(state.v3backlog || []), ...v3cand];
+  const v3slice = v3all.slice(0, MAX_NEW_PER_RUN);
+  state.v3backlog = v3all.slice(MAX_NEW_PER_RUN);
   const bals = await runLimited(v3slice.map((c) => async () => { const b = await rpc('eth_getBalance', [c.pool, 'latest']); return b ? Number(BigInt(b)) / 1e18 : 0; }), 12);
   const v3keep = v3slice.map((c, i) => ({ ...c, usdc: bals[i] })).filter((c) => c.usdc >= MIN_USDC);
-  console.log(`[disc] V3 real (>= $${MIN_USDC}): ${v3keep.length}`);
+  console.log(`[disc] V3 checked ${v3slice.length}/${v3all.length} (backlog ${state.v3backlog.length}), real: ${v3keep.length}`);
 
   // ── 4) Metadata for all NEW real tokens (symbol/name/decimals/totalSupply via Multicall) ──────────
   const newTokens = [...v3keep.map((x) => ({ ...x, kind: 'v3' })), ...v4cand.map((x) => ({ ...x, kind: 'v4' }))];
