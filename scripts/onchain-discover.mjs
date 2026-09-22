@@ -110,7 +110,12 @@ async function runLimited(tasks, limit) { const out = new Array(tasks.length); l
 async function scanLogs(address, topics, from, head, chunk = CH) {
   const ranges = []; for (let f = from; f < head; f += chunk) ranges.push([f, f + chunk > head ? head : f + chunk]);
   const res = await runLimited(ranges.map(([f, t]) => () => rpc('eth_getLogs', [{ address, topics, fromBlock: '0x' + f.toString(16), toBlock: '0x' + t.toString(16) }], true)), 8);
-  const out = []; for (const r of res) if (Array.isArray(r)) out.push(...r); return out;
+  // ⛔ A failed chunk (RPC error / the endpoints' 20k-results cap) returns null and would be SILENTLY dropped
+  // → missing logs → undercounted discovery/volume. Count + warn so partial scans are never invisible.
+  const out = []; let failed = 0;
+  for (const r of res) { if (Array.isArray(r)) out.push(...r); else failed++; }
+  if (failed) console.log(`[scan] WARN ${failed}/${ranges.length} log chunks failed (RPC cap/error) at chunk=${chunk} — results are PARTIAL`);
+  return out;
 }
 
 // Batched parallel eth_call (reliable — no hand-rolled ABI encoding). Returns results aligned to `calls`.

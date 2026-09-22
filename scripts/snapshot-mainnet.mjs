@@ -29,12 +29,12 @@ const SWAP_V2 = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d
 // and the third-party Animus suite as "core"). ARC is Circle's official 10B-supply token — no pool yet, so
 // it carries no price/liq until it launches (the sniper watches for that); listed so it's the canonical ARC.
 const ECO = [
-  { address: NATIVE_USDC, name: 'USD Coin', symbol: 'USDC', iconUrl: '/coins/USDC.svg', price: 1 },
-  { address: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', name: 'Circle Wrapped Bitcoin', symbol: 'cirBTC' },
-  { address: '0x128cc466b61f542da60c70e3aa11c10e19b84edb', name: 'Wrapped Ether', symbol: 'WETH' },
-  { address: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', name: 'EURC', symbol: 'EURC' },
-  { address: '0x8a5d989bbb96929f689b0200f435f53da42bf490', name: 'US Yield Coin', symbol: 'USYC' },
-  { address: '0xa12cd81d0f9988e3d60c4b6a0d52d368ef3c788d', name: 'Arc', symbol: 'ARC' },
+  { address: NATIVE_USDC, name: 'USD Coin', symbol: 'USDC', iconUrl: '/coins/USDC.svg', price: 1, decimals: 6 },
+  { address: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', name: 'Circle Wrapped Bitcoin', symbol: 'cirBTC', decimals: 8 },
+  { address: '0x128cc466b61f542da60c70e3aa11c10e19b84edb', name: 'Wrapped Ether', symbol: 'WETH', decimals: 18 },
+  { address: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', name: 'EURC', symbol: 'EURC', decimals: 6 },
+  { address: '0x8a5d989bbb96929f689b0200f435f53da42bf490', name: 'US Yield Coin', symbol: 'USYC', decimals: 6 },
+  { address: '0xa12cd81d0f9988e3d60c4b6a0d52d368ef3c788d', name: 'Arc', symbol: 'ARC', decimals: 6 },
 ];
 const ECO_ADDRS = new Set(ECO.map((e) => e.address.toLowerCase()));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -300,7 +300,7 @@ async function poolStats(token, pool) {
 
   // 4) Circle & Arc core (USDC, cirBTC, WETH, EURC, USYC, ARC) — always present + flagged as ecosystem.
   for (const e of ECO) {
-    set(mk({ address: e.address, name: e.name, symbol: e.symbol, iconUrl: e.iconUrl ?? null, price: e.price ?? null, isEcosystem: true }));
+    set(mk({ address: e.address, name: e.name, symbol: e.symbol, iconUrl: e.iconUrl ?? null, price: e.price ?? null, decimals: e.decimals ?? null, isEcosystem: true }));
     const row = map.get(e.address.toLowerCase()); if (row) { row.isEcosystem = true; if (e.iconUrl && !row.iconUrl) row.iconUrl = e.iconUrl; }
   }
 
@@ -314,7 +314,7 @@ async function poolStats(token, pool) {
       let added = 0;
       for (const t of (oc.tokens || [])) {
         const a = (t.address || '').toLowerCase(); if (!a) continue;
-        if (map.has(a)) { const row = map.get(a); if (row.price == null && t.price != null) row.price = t.price; if (row.liq == null && t.liq != null) row.liq = t.liq; if (row.mcap == null && t.mcap != null) row.mcap = t.mcap; if (row.volume24h == null && t.volume24h != null) row.volume24h = t.volume24h; if (row.change24h == null && t.change24h != null) row.change24h = t.change24h; if (!row.iconUrl && t.iconUrl) row.iconUrl = t.iconUrl; if (row.holders == null && t.holders != null) row.holders = t.holders; if (!row.poolId && t.poolId) { row.poolId = t.poolId; row.usdcIsC0 = !!t.usdcIsC0; row.decimals = t.decimals ?? row.decimals; } if (!row.pool && t.pool) row.pool = t.pool; if (t.hooked) row.hooked = true; continue; }
+        if (map.has(a)) { const row = map.get(a); if (row.price == null && t.price != null) row.price = t.price; if (row.liq == null && t.liq != null) row.liq = t.liq; if (row.mcap == null && t.mcap != null) row.mcap = t.mcap; if (row.volume24h == null && t.volume24h != null) row.volume24h = t.volume24h; if (row.change24h == null && t.change24h != null) row.change24h = t.change24h; if (!row.iconUrl && t.iconUrl) row.iconUrl = t.iconUrl; if (row.holders == null && t.holders != null) row.holders = t.holders; if (!row.poolId && t.poolId) { row.poolId = t.poolId; row.usdcIsC0 = !!t.usdcIsC0; } if (row.decimals == null && t.decimals != null) row.decimals = t.decimals; if (!row.pool && t.pool) row.pool = t.pool; if (t.hooked) row.hooked = true; continue; }
         const row = mk({ address: a, name: t.name, symbol: t.symbol, price: t.price ?? null, liq: t.liq ?? null, mcap: t.mcap ?? null, launchpad: t.launchpad ?? null, source: t.source ?? 'onchain', iconUrl: t.iconUrl ?? null, holders: t.holders ?? null });
         row.volume24h = t.volume24h ?? null; row.change24h = t.change24h ?? null; row.change1h = t.change1h ?? null; row.createdAt = t.createdAt ?? null; if (Array.isArray(t.spark)) row.spark = t.spark;
         row.pool = t.pool ?? null; row.poolId = t.poolId ?? null; row.usdcIsC0 = !!t.usdcIsC0; row.decimals = t.decimals ?? 18; row.hooked = !!t.hooked;
