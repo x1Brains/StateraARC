@@ -1319,8 +1319,13 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
       const slot0 = await mCall(f.pool, '0x3850c7bd').catch(() => null); // slot0(): sqrtPriceX96 in word 0
       if (slot0 && slot0.length >= 66) { try { const sqrtP = BigInt(slot0.slice(0, 66)); if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp; } } catch { /* */ } }
     } else if (usdc != null && tokRes) { price = usdc / tokRes; }
-    if (price != null && (!isFinite(price) || price <= 0)) price = null;
-    const liquidityUsdc = usdc != null ? usdc + (tokRes != null && price != null ? tokRes * price : 0) : null;
+    // ⛔ A near-empty V3 pool sits at an uninitialized/extreme tick → a GARBAGE derived price (~1e40), and
+    // `tokRes * price` then explodes to $1e35 (this put a $1e35 TVL on the cirBTC/WETH pages). No real
+    // USDC-quoted token is worth > $1e9, so treat such a price as invalid. The USDC reserve is always real;
+    // cap the token-side value at a sane multiple of it so one bad leg can't blow up the pool's liquidity.
+    if (price != null && (!isFinite(price) || price <= 0 || price > 1e9)) price = null;
+    const tokenSide = (tokRes != null && price != null) ? tokRes * price : 0;
+    const liquidityUsdc = usdc != null ? usdc + (usdc > 0 ? Math.min(tokenSide, usdc * 100) : (tokenSide < 1e7 ? tokenSide : 0)) : null;
     return { pool: f.pool, version: f.version, feeTier: f.feeTier, quote: 'USDC', liquidityUsdc, price, tokenReserve: tokRes, usdcReserve: usdc };
   }));
   const pools = out.filter((p) => p.liquidityUsdc != null && p.liquidityUsdc > 1).sort((a, b) => (b.liquidityUsdc || 0) - (a.liquidityUsdc || 0));
@@ -1330,7 +1335,8 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
   const v4 = await findV4Pool(token);
   if (v4) {
     const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
-    const [price, tokB] = await Promise.all([v4PriceOf(v4.poolId, v4.usdcIsC0, decimals), mCall(token, '0x70a08231' + pad(PM_V4)).catch(() => null)]);
+    let [price, tokB] = await Promise.all([v4PriceOf(v4.poolId, v4.usdcIsC0, decimals), mCall(token, '0x70a08231' + pad(PM_V4)).catch(() => null)]);
+    if (price != null && (!isFinite(price) || price <= 0 || price > 1e9)) price = null; // same garbage-price guard as V3
     let tokRes: number | null = null; try { if (tokB) tokRes = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
     const liq = tokRes != null && price != null ? tokRes * price : null;
     pools.push({ pool: v4.poolId, version: 'V4', feeTier: null, quote: 'USDC', liquidityUsdc: liq, price, tokenReserve: tokRes, usdcReserve: null });
