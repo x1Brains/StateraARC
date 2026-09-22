@@ -119,6 +119,7 @@ export default function App() {
   const [hideDupes, setHideDupes] = useState(true); // hide counterfeit/duplicate-ticker impersonators
   const [minHolders, setMinHolders] = useState(true); // hide sub-50-holder pools (thin/scam launches) by default
   const MIN_HOLDERS = 50;
+  const [dashTab, setDashTab] = useState<'liq' | 'new' | 'movers'>('liq'); // home dashboard tab
   // Click a column header to sort by it; click again to flip direction (name defaults A→Z, numbers high→low).
   const clickSort = (k: SortKey) => {
     if (sort === k) setDir((d) => (d === 'desc' ? 'asc' : 'desc'));
@@ -271,21 +272,21 @@ export default function App() {
   const launchpadCount = tokens.filter((t) => t.launchpad).length;
   const ecoCount = tokens.filter((t) => t.isEcosystem).length;
 
-  // Home preview lists. Drop impersonators (a symbol's non-canonical duplicates) so a wash-inflated fake
-  // "Argus" ($1.06M liq, 1k holders) can't outrank the real one (763K liq, 19k holders) in Most Liquidity.
-  const trending = useMemo(() => [...tokens].filter((t) => t.liq != null && !isDup(t) && (t.isEcosystem || (t.holders ?? 0) >= 50)).sort(byLiq).slice(0, 6), [tokens, canonical, tickerCount]); // eslint-disable-line
-  // Recent launches across ALL launchpads (Argus, Tolly, Long, DYOR, O1, Warp…) — newest first.
-  const launches = useMemo(() => [...tokens].filter((t) => t.launchpad && t.createdAt != null && !isDup(t))
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).slice(0, 6), [tokens, canonical, tickerCount]); // eslint-disable-line
-  // Ecosystem card: USDC (the native gas token) is always first, then the rest by holders.
-  const ecosystem = useMemo(() => {
-    const USDC_ADDR = '0x3600000000000000000000000000000000000000';
-    return [...tokens].filter((t) => t.isEcosystem).sort((a, b) => {
-      const au = a.address.toLowerCase() === USDC_ADDR, bu = b.address.toLowerCase() === USDC_ADDR;
-      if (au !== bu) return au ? -1 : 1;
-      return (b.holders ?? -1) - (a.holders ?? -1);
-    }).slice(0, 6);
-  }, [tokens]);
+  // Home DASHBOARD data — one panel, three tabs. Impersonators (non-canonical duplicate tickers) are always
+  // dropped so a wash-inflated fake never features. Top Liquidity + Movers also require >=50 holders (a
+  // "best of" list shouldn't show thin scams); the New tab keeps every fresh launch (they're small by nature).
+  const notDup = (t: Token) => !isDup(t);
+  const quality = (t: Token) => notDup(t) && (t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS);
+  const trending = useMemo(() => [...tokens].filter((t) => t.liq != null && quality(t)).sort(byLiq).slice(0, 8), [tokens, canonical, tickerCount]); // eslint-disable-line
+  const launches = useMemo(() => [...tokens].filter((t) => t.launchpad && t.createdAt != null && notDup(t))
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).slice(0, 8), [tokens, canonical, tickerCount]); // eslint-disable-line
+  const movers = useMemo(() => [...tokens].filter((t) => t.change24h != null && t.liq != null && quality(t))
+    .sort((a, b) => (b.change24h ?? 0) - (a.change24h ?? 0)).slice(0, 8), [tokens, canonical, tickerCount]); // eslint-disable-line
+  const dashStats = useMemo(() => ({
+    count: tokens.length,
+    vol24: tokens.reduce((s, t) => s + (t.volume24h ?? 0), 0),
+    newToday: tokens.filter((t) => t.createdAt != null && Date.now() - t.createdAt < 86400000).length,
+  }), [tokens]);
 
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const openToken = (addr: string) => { setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -436,11 +437,9 @@ export default function App() {
             </section>
 
             <div className="wrap"><section className="section home">
-              <div className="home-cards">
-                <Preview title="Trending" kicker="Most liquidity" items={trending} onOpen={openToken} onAll={() => goScreener('all')} loading={loading} />
-                <Preview title="Latest Launches" kicker="From launchpads" items={launches} onOpen={openToken} onAll={() => goScreener('new')} loading={loading} badge="launch" />
-                <Preview title="Ecosystem" kicker="Circle & Arc core" items={ecosystem} onOpen={openToken} onAll={() => goScreener('eco')} loading={loading} />
-              </div>
+              <Dashboard tab={dashTab} setTab={setDashTab}
+                data={{ liq: trending, new: launches, movers }} stats={dashStats}
+                onOpen={openToken} onAll={() => goScreener(dashTab === 'new' ? 'new' : 'all')} loading={loading} />
 
               <div className="home-cta">
                 <div>
@@ -627,29 +626,48 @@ export default function App() {
 }
 
 // ── home preview card (Trending / Launches / Ecosystem) ──
-function Preview({ title, kicker, items, onOpen, onAll, loading, badge }:
-  { title: string; kicker: string; items: Token[]; onOpen: (a: string) => void; onAll: () => void; loading: boolean; badge?: 'launch' }) {
+// The home Dashboard — one panel, three tabs (Top Liquidity / New / Movers), a live stats strip, and a
+// ranked table. Replaces the old three separate cards (Trending / Latest Launches / Ecosystem).
+function Dashboard({ tab, setTab, data, stats, onOpen, onAll, loading }: {
+  tab: 'liq' | 'new' | 'movers'; setTab: (t: 'liq' | 'new' | 'movers') => void;
+  data: { liq: Token[]; new: Token[]; movers: Token[] };
+  stats: { count: number; vol24: number; newToday: number };
+  onOpen: (a: string) => void; onAll: () => void; loading: boolean;
+}) {
+  const items = data[tab];
+  const TABS: [typeof tab, string][] = [['liq', 'Top Liquidity'], ['new', 'New'], ['movers', 'Movers']];
   return (
-    <div className="hcard panel">
-      <div className="hcard-head">
-        <div><div className="hcard-kick">{kicker}</div><h3>{title}</h3></div>
-        <button className="hcard-all" onClick={onAll}>All <IconArrowRight className="i" /></button>
+    <div className="dash panel">
+      <div className="dash-head">
+        <div><div className="hcard-kick">Live on Arc</div><h3>Dashboard</h3></div>
+        <div className="dash-stats">
+          <span><b>{fmt(stats.count)}</b> tokens</span>
+          <span><b>{usd(stats.vol24)}</b> 24h vol</span>
+          <span><b>{stats.newToday}</b> new today</span>
+        </div>
       </div>
-      <div className="hcard-list">
+      <div className="dash-tabs">
+        {TABS.map(([k, label]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>)}
+        <button className="dash-all" onClick={onAll}>All <IconArrowRight className="i" /></button>
+      </div>
+      <div className="dash-table">
+        <div className="dash-row dash-h">
+          <span className="dash-rank">#</span><span className="dash-tok">Token</span>
+          <span className="num">Price</span><span className="num dash-liq">Liquidity</span><span className="num">24h</span><span className="num dash-hld">Holders</span>
+        </div>
         {loading && !items.length && <div className="hcard-empty">Loading…</div>}
         {!loading && !items.length && <div className="hcard-empty">Nothing here yet.</div>}
         {items.map((t, i) => (
-          <div className="hrow" key={t.address} onClick={() => onOpen(t.address)}>
-            <span className="hrow-rank">{i + 1}</span>
-            <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
-            <span className="hrow-id">
-              <span className="hrow-name">{t.name}</span>
-              <span className="hrow-sym">{t.symbol}{badge === 'launch' && t.launchpad ? ` · ${t.launchpad}` : ''}</span>
+          <div className="dash-row" key={t.address} onClick={() => onOpen(t.address)}>
+            <span className="dash-rank">{i + 1}</span>
+            <span className="dash-tok">
+              <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
+              <span className="dash-id"><span className="dash-name">{t.name}</span><span className="dash-sym">{t.symbol}{t.launchpad ? ` · ${t.launchpad}` : ''}</span></span>
             </span>
-            <span className="hrow-px">
-              <span className="hrow-price">{tprice(t.price)}</span>
-              <span className="hrow-liq">{t.liq != null ? usd(t.liq) + ' liq' : t.holders != null ? fmt(t.holders) + ' holders' : '—'}</span>
-            </span>
+            <span className="num dash-px">{tprice(t.price)}</span>
+            <span className="num dash-liq">{t.liq != null ? usd(t.liq) : '—'}</span>
+            <span className={`num chg ${chgCls(t.change24h)}`}>{chgFmt(t.change24h)}</span>
+            <span className="num dash-hld">{fmt(t.holders)}</span>
           </div>
         ))}
       </div>

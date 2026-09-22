@@ -223,8 +223,39 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .addr:hover { color: var(--white); border-color: var(--red-dim); background: rgba(255,90,26,.06); }
 .flags { display: flex; gap: 6px; flex-wrap: wrap; }
 
-/* ============ home landing (preview cards) ============ */
+/* ============ home landing ============ */
 .section.home { padding-top: 30px; }
+
+/* home DASHBOARD — one panel, three tabs, a stats strip, a ranked table (replaced the 3 preview cards) */
+.dash { padding: 0; overflow: hidden; margin-bottom: 34px; }
+.dash-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 18px 18px 12px; }
+.dash-head h3 { font-family: var(--disp); font-weight: 700; font-size: 20px; letter-spacing: .5px; text-transform: uppercase; margin: 0; }
+.dash-stats { display: flex; gap: 20px; font-size: 12px; color: var(--gray-2); align-self: flex-end; }
+.dash-stats b { color: var(--white); font-family: var(--mono); margin-right: 4px; }
+.dash-tabs { display: flex; align-items: center; gap: 4px; padding: 0 12px 8px; border-bottom: 1px solid var(--line-soft); }
+.dash-tabs > button { background: none; border: 0; color: var(--gray-2); font-family: var(--disp); font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; padding: 7px 12px; border-radius: 8px; cursor: pointer; transition: all .12s; }
+.dash-tabs > button:hover { color: var(--white); }
+.dash-tabs > button.on { background: var(--line-soft); color: var(--white); }
+.dash-tabs .dash-all { margin-left: auto; color: var(--red-hi); display: inline-flex; align-items: center; gap: 4px; }
+.dash-table { padding: 5px 6px 8px; }
+.dash-row { display: grid; grid-template-columns: 28px minmax(0, 1.7fr) 96px 100px 62px 74px; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; cursor: pointer; transition: background .1s; }
+.dash-row:not(.dash-h):hover { background: var(--line-soft); }
+.dash-h { cursor: default; padding: 8px 12px; font-family: var(--disp); font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray-3); }
+.dash-rank { font-family: var(--mono); font-size: 12px; color: var(--gray-3); }
+.dash-tok { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.dash-id { min-width: 0; display: flex; flex-direction: column; }
+.dash-name { font-weight: 600; font-size: 13.5px; color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-sym { font-family: var(--disp); font-size: 9.5px; letter-spacing: .5px; text-transform: uppercase; color: var(--gray-2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash .num { text-align: right; font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--white); }
+.dash-h .num { color: var(--gray-3); }
+.dash-px { color: var(--white); }
+@media (max-width: 640px) {
+  .dash-stats { gap: 12px; font-size: 11px; }
+  .dash-row { grid-template-columns: 22px minmax(0, 1.5fr) 84px 58px; }
+  .dash-liq, .dash-hld { display: none; } /* drop Liquidity + Holders on phone; keep Price + 24h */
+}
+
+/* ============ home landing (legacy preview cards) ============ */
 .home-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 34px; }
 .hcard { padding: 6px 6px 10px; }
 .hcard-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 14px 12px; }
