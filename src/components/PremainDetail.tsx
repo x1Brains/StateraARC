@@ -31,7 +31,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [swaps, setSwaps] = useState<RadarSwap[] | null>(null);
   const [ocPool, setOcPool] = useState<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null; price?: number | null } | null>(null);
   const [ocPools, setOcPools] = useState<OnchainPool[] | null>(null);
-  const [dayStats, setDayStats] = useState<{ change24h: number | null; volume24h: number | null } | null>(null);
+  const [dayStats, setDayStats] = useState<{ change24h: number | null; volume24h: number | null; buys24: number | null; sells24: number | null; txns24: number | null; makers24: number | null } | null>(null);
   const [burn, setBurn] = useState<{ burnt: number; supply: number | null; pct: number | null } | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders'>('txns');
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
@@ -157,13 +157,18 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // Buy/sell pressure (24h) + top-10 concentration for the DEX-style panels.
   // Buy/sell/txns/makers: RadarDEX first, else count the ACTUAL on-chain trades (so a coin RadarDEX shows
   // 0 for — cirBTC etc. — still reflects its real recent activity instead of a broken all-zero panel).
+  // TRUE 24h buy/sell/txn/maker counts come from our own on-chain scan (fetchOnchainDayStats) FIRST — it
+  // reads the whole 24h window and its makers = distinct tx.origin (real wallets), not a router. RadarDEX
+  // is next, and the last-40-trades sample is the final fallback while the 24h scan is still loading. A
+  // legit 0 (e.g. a buy-only/honeypot token with 0 sells) is a real value, so only null falls through.
+  const pickNum = (...v: (number | null | undefined)[]) => { const f = v.find((x) => x != null && isFinite(x as number)); return f == null ? null : (f as number); };
   const ocBuys = swaps ? swaps.filter((s) => s.side === 'buy').length : null;
   const ocSells = swaps ? swaps.filter((s) => s.side === 'sell').length : null;
-  const buys = (rd?.buys24 ?? 0) > 0 ? rd!.buys24 : ocBuys;
-  const sells = (rd?.sells24 ?? 0) > 0 ? rd!.sells24 : ocSells;
+  const buys = pickNum(dayStats?.buys24, rd?.buys24, ocBuys);
+  const sells = pickNum(dayStats?.sells24, rd?.sells24, ocSells);
   const buyPct = buys != null && sells != null && buys + sells > 0 ? (buys / (buys + sells)) * 100 : null;
-  const txnsF = (rd?.txns24 ?? 0) > 0 ? rd!.txns24 : (swaps && swaps.length ? swaps.length : null);
-  const makersF = (rd?.traders24 ?? 0) > 0 ? rd!.traders24 : (swaps && swaps.length ? new Set(swaps.map((s) => s.trader)).size : null);
+  const txnsF = pickNum(dayStats?.txns24, rd?.txns24, swaps && swaps.length ? swaps.length : null);
+  const makersF = pickNum(dayStats?.makers24, rd?.traders24, swaps && swaps.length ? new Set(swaps.map((s) => s.trader)).size : null);
   // Clamp each holder % to [0,100] and cap the top-10 sum at 100 — a bad share (arc-scan) made it read 235%.
   const top10 = holders && holders.length ? Math.min(100, holders.slice(0, 10).reduce((s, h) => s + Math.max(0, Math.min(100, h.percent ?? 0)), 0)) : null;
 

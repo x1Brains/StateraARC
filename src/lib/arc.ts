@@ -1364,11 +1364,11 @@ async function scanPoolSwaps(token: string, decimals: number, spanCap: number): 
 // 24h change % + 24h USD volume computed straight from a token's own pool swaps (V3/V2/V4) — for coins no
 // indexer covers (GLITCH etc.), so the header's 24H and VOL 24H fill instead of showing "—". Bounded: it
 // scans only THIS pool's swaps (poolId/address-filtered), not the whole chain. Cached 60s.
-const dayStatsCache = new Map<string, { at: number; v: { change24h: number | null; volume24h: number | null } }>();
-export async function fetchOnchainDayStats(token: string, decimals = 18): Promise<{ change24h: number | null; volume24h: number | null }> {
+const dayStatsCache = new Map<string, { at: number; v: { change24h: number | null; volume24h: number | null; buys24: number | null; sells24: number | null; txns24: number | null; makers24: number | null } }>();
+export async function fetchOnchainDayStats(token: string, decimals = 18): Promise<{ change24h: number | null; volume24h: number | null; buys24: number | null; sells24: number | null; txns24: number | null; makers24: number | null }> {
   const t = token.toLowerCase();
   const hit = dayStatsCache.get(t); if (hit && Date.now() - hit.at < 60000) return hit.v;
-  const empty = { change24h: null, volume24h: null };
+  const empty = { change24h: null, volume24h: null, buys24: null, sells24: null, txns24: null, makers24: null };
   const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return empty;
   const head = BigInt(headHex);
   const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
@@ -1384,24 +1384,31 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
   for (let f = head - BigInt(blocks24); f < head; f += CH) ranges.push([f, f + CH > head ? head : f + CH]);
   const spec = pool ? { address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]] as any } : { address: PM_V4, topics: [V4_SWAP_TOPIC, v4!.poolId] as any };
   const results = await runLimited(ranges.map(([f, to], i) => () => getLogsBig({ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }, i)), 8);
-  const pts: { ts: number; price: number; usd: number }[] = [];
+  // Each swap carries its side + tx hash so the panel can show the TRUE 24h buy/sell/txn split (not a
+  // last-40-trades sample, which on a fast pump read "0 sells" over a 5-minute window).
+  const pts: { ts: number; price: number; usd: number; side: 'buy' | 'sell'; tx: string }[] = [];
   let usdcIsToken0 = false;
   if (pool) { const t0 = await mCall(pool, '0x0dfe1681').catch(() => null); usdcIsToken0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR : false; }
   for (const logs of results) {
     if (!Array.isArray(logs)) continue;
     for (const l of logs) {
       const ts = Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime);
+      const tx = l.transactionHash || '';
       if (v4) {
         const d = l.data.slice(2);
         const sqrtP = BigInt('0x' + d.slice(128, 192)); if (sqrtP <= 0n) continue;
         const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const price = (v4.usdcIsC0 ? 1 / ratio : ratio) * dexp;
         let tokAmt = BigInt('0x' + d.slice((v4.usdcIsC0 ? 1 : 0) * 64, (v4.usdcIsC0 ? 1 : 0) * 64 + 64)); if (tokAmt >= (1n << 255n)) tokAmt -= (1n << 256n);
+        if (tokAmt === 0n) continue;
         const amount = Math.abs(Number(tokAmt)) / 10 ** decimals;
-        if (isFinite(price) && price > 0) pts.push({ ts, price, usd: amount * price });
+        // V4 amounts are the CALLER's BalanceDelta: token leg POSITIVE = caller received token = BUY.
+        if (isFinite(price) && price > 0) pts.push({ ts, price, usd: amount * price, side: tokAmt > 0n ? 'buy' : 'sell', tx });
       } else {
         const topic = (l.topics?.[0] || '').toLowerCase();
-        if (topic === SWAP_V2_TOPIC) { const dec = decodeSwap(l.data, topic, usdcIsToken0); if (!dec || dec.tok <= 0n) continue; const price = (Number(dec.usdc) / Number(dec.tok)) * dexp; if (isFinite(price) && price > 0) pts.push({ ts, price, usd: Number(dec.usdc) / 1e6 }); }
-        else { const sqrtP = BigInt('0x' + l.data.slice(2).slice(128, 192)); if (sqrtP <= 0n) continue; const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp; const dec = decodeSwap(l.data, topic, usdcIsToken0); const usd = dec ? Number(dec.usdc) / 1e6 : 0; if (isFinite(price) && price > 0) pts.push({ ts, price, usd }); }
+        const d = l.data.slice(2);
+        const w = (i: number) => BigInt('0x' + d.slice(i * 64, i * 64 + 64));
+        if (topic === SWAP_V2_TOPIC) { const dec = decodeSwap(l.data, topic, usdcIsToken0); if (!dec || dec.tok <= 0n) continue; const price = (Number(dec.usdc) / Number(dec.tok)) * dexp; const usdcIn = (usdcIsToken0 ? w(0) : w(1)) > 0n; if (isFinite(price) && price > 0) pts.push({ ts, price, usd: Number(dec.usdc) / 1e6, side: usdcIn ? 'buy' : 'sell', tx }); }
+        else { const sqrtP = BigInt('0x' + d.slice(128, 192)); if (sqrtP <= 0n) continue; const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp; const dec = decodeSwap(l.data, topic, usdcIsToken0); const usd = dec ? Number(dec.usdc) / 1e6 : 0; const sw = usdcIsToken0 ? w(0) : w(1); const usdcIn = sw < (1n << 255n) && sw > 0n; if (isFinite(price) && price > 0) pts.push({ ts, price, usd, side: usdcIn ? 'buy' : 'sell', tx }); } // V3: USDC INTO pool = BUY of the token
       }
     }
   }
@@ -1410,7 +1417,22 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
   const volume24h = pts.reduce((s, p) => s + (isFinite(p.usd) ? p.usd : 0), 0);
   const first = pts[0].price, last = pts[pts.length - 1].price;
   const change24h = first > 0 ? ((last - first) / first) * 100 : null;
-  const v = { change24h, volume24h };
+  const buys24 = pts.filter((p) => p.side === 'buy').length;
+  const sells24 = pts.filter((p) => p.side === 'sell').length;
+  const uniqTx = [...new Set(pts.map((p) => p.tx).filter(Boolean))];
+  const txns24 = uniqTx.length;
+  // Real MAKERS = distinct tx.origin, NOT the swap event's `sender` topic — that is the ROUTER (one address
+  // for every launchpad/V4 trade), which collapsed the count to 1. Resolve origins for the most-recent txs
+  // (capped, so a hot token doesn't fire thousands of calls); when capped this is an honest floor.
+  const MAKER_TX_CAP = 140;
+  const sampleTx = uniqTx.slice(-MAKER_TX_CAP);
+  let makers24: number | null = null;
+  try {
+    const origins = await runLimited(sampleTx.map((h) => async () => { const tr = await mrpc('eth_getTransactionByHash', [h]).catch(() => null); return tr?.from ? tr.from.toLowerCase() : null; }), 8);
+    const set = new Set(origins.filter(Boolean) as string[]);
+    if (set.size) makers24 = set.size;
+  } catch { /* leave null on failure */ }
+  const v = { change24h, volume24h, buys24, sells24, txns24, makers24 };
   dayStatsCache.set(t, { at: Date.now(), v });
   return v;
 }
@@ -1483,7 +1505,20 @@ export async function fetchPoolVolume24h(token: string): Promise<number | null> 
 
 // Real buy/sell TRADES for a token straight from its pool's Swap events — the fallback trades feed for
 // tokens RadarDEX doesn't index (ARGUS etc.), so the Transactions table shows Buy/Sell not "Transfer".
-// side from the USDC delta sign (USDC INTO pool = a BUY of the token); maker = the swap recipient;
+// The swap event's on-chain sender/recipient is the ROUTER (one address for every launchpad/V4 trade), so
+// the Maker column read the same address on every row and Makers collapsed to 1. The TRUE maker is the
+// transaction's origin — resolve it for the (bounded, <= `want`) trade list and overwrite trader.
+async function resolveMakers(trades: RadarSwap[]): Promise<RadarSwap[]> {
+  const uniq = [...new Set(trades.map((t) => t.tx).filter(Boolean))];
+  if (!uniq.length) return trades;
+  try {
+    const origins = await runLimited(uniq.map((h) => async () => { const tr = await mrpc('eth_getTransactionByHash', [h]).catch(() => null); return [h, tr?.from ? tr.from.toLowerCase() : null] as const; }), 8);
+    const map = new Map(origins);
+    for (const t of trades) { const o = map.get(t.tx); if (o) t.trader = o; }
+  } catch { /* keep the router address rather than fail the whole table */ }
+  return trades;
+}
+// side from the USDC delta sign (USDC INTO pool = a BUY of the token); maker = the tx origin (real trader);
 // price = executed USD/token. Timestamps approximated from block height (fine for a table).
 export async function fetchPoolTrades(token: string, decimals = 18, want = 40): Promise<RadarSwap[]> {
   const pool = await findTokenPool(token);
@@ -1525,7 +1560,7 @@ export async function fetchPoolTrades(token: string, decimals = 18, want = 40): 
     }
   }
   out.sort((a, b) => b.time - a.time);
-  return out.slice(0, want).filter((s) => s.tx);
+  return resolveMakers(out.slice(0, want).filter((s) => s.tx));
 }
 // V4 buy/sell trades from the singleton's Swap events (poolId-filtered). Layout (verified on GLITCH):
 // w0=amount0, w1=amount1, w2=sqrtPriceX96, w3=liquidity, w4=tick, w5=fee. ⛔ V4 amounts are the CALLER's
@@ -1565,7 +1600,7 @@ async function fetchV4Trades(v4: V4Pool, decimals: number, want: number): Promis
     }
   }
   out.sort((a, b) => b.time - a.time);
-  return out.slice(0, want).filter((s) => s.tx);
+  return resolveMakers(out.slice(0, want).filter((s) => s.tx));
 }
 
 // On-chain token logo, read straight from the token address (no third-party dependency). Arc
