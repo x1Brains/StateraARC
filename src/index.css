@@ -162,19 +162,20 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 /* ============ section ============ */
 .section { padding: 28px 0; }
 .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-.section-head h2 { font-family: var(--disp); font-weight: 700; font-size: 24px; letter-spacing: 1px; text-transform: uppercase; margin: 0; }
-.section-head .kicker { font-family: var(--disp); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--red); margin-bottom: 6px; }
-.section-head p { color: var(--gray-2); font-size: 13px; margin: 4px 0 0; }
+.section-head h2 { font-family: var(--disp); font-weight: 700; font-size: 20px; letter-spacing: 1px; text-transform: uppercase; margin: 0; }
+.section-head .kicker { font-family: var(--disp); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--red); margin-bottom: 4px; }
+.section-head p { color: var(--gray-2); font-size: 12px; margin: 3px 0 0; max-width: 640px; }
 
 /* stat tiles */
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 14px; }
-.stat { background: linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,0) 40%), var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; position: relative; overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.045), 0 14px 30px -24px #000; transition: transform .2s, border-color .2s; }
-.stat:hover { transform: translateY(-2px); border-color: var(--line-2); }
-.stat::after { content: ''; position: absolute; top: 0; left: 0; width: 44px; height: 2px; background: var(--fire); box-shadow: 0 0 12px var(--red-glow); }
-.stat::before { content: ''; position: absolute; right: -30px; top: -30px; width: 90px; height: 90px; border-radius: 50%; background: radial-gradient(circle, rgba(255,90,25,.07), transparent 70%); }
-.stat .v { font-family: var(--disp); font-weight: 700; font-size: 26px; color: var(--white); position: relative; }
-.stat .l { font-family: var(--disp); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray-2); margin-top: 4px; position: relative; }
+/* compact inline stat strip (was 4 big full-width cards that ate the viewport before any token) */
+.stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.stat { flex: 0 0 auto; background: linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,0) 40%), var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 7px 16px; position: relative; overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.045); transition: border-color .2s; }
+.stat:hover { border-color: var(--line-2); }
+.stat::after { content: ''; position: absolute; top: 0; left: 0; width: 26px; height: 2px; background: var(--fire); box-shadow: 0 0 10px var(--red-glow); }
+.stat::before { display: none; }
+.stat .v { font-family: var(--disp); font-weight: 700; font-size: 15px; color: var(--white); position: relative; }
+.stat .l { font-family: var(--disp); font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray-2); margin-top: 1px; position: relative; }
 
 /* controls */
 .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
@@ -365,7 +366,7 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 a .i, button .i { pointer-events: none; }
 
 /* Token detail: compact stat strip so the TOKEN (logo + name) is the focus, not six big boxes. */
-.td-stats { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.td-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; margin-bottom: 12px; }
 .td-stats .stat { padding: 10px 12px; border-radius: 10px; }
 .td-stats .stat .v { font-size: 16px; }
 .td-stats .stat .v.r { font-size: 16px; }
@@ -523,6 +524,17 @@ a .i, button .i { pointer-events: none; }
   .td-stats .stat .v, .td-stats .stat .v.r { font-size: 14px; }
   .section-head { text-align: center; justify-content: center; }
   .section-head > div { width: 100%; }
+  /* Screener on mobile: drop the stat strip, description, Refresh + kicker — just a slim title + the
+     search/filter controls (people scroll to the tokens, they don't read the header). */
+  #screener .stats { display: none; }
+  #screener .section-head p,
+  #screener .section-head .kicker,
+  #screener .section-head > button { display: none; }
+  #screener .section-head { margin-bottom: 10px; }
+  #screener .section-head h2 { font-size: 16px; }
+  #screener .controls { gap: 6px; }
+  #screener .controls .search { flex: 1 1 100%; order: -1; }
+  #screener .controls .tabs { flex: 1 1 100%; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
 }
 
 /* ============ token detail ============ */
