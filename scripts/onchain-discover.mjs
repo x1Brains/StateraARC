@@ -204,8 +204,20 @@ async function main() {
   }).filter((x) => x.price != null && isFinite(x.price) && x.price > 0 && x.price < 1e6);
 
   const liqs = await runLimited(rows.map((x) => async () => {
-    if (x.t.kind === 'v3') { const b = await rpc('eth_getBalance', [x.t.pool, 'latest']); return b ? Number(BigInt(b)) / 1e18 : 0; } // V3 pool USDC (native)
-    const b = await call(x.addr, '0x70a08231' + pad(PM_V4)); const tok = b && b !== '0x' ? Number(BigInt(b)) / 10 ** x.t.decimals : 0; return tok * x.price; // V4: token side value
+    if (x.t.kind === 'v3') {
+      // A V3-primary token can ALSO have a V4 pool (ARGUS = $744K V3 + ~$355K V4). Read BOTH: the V3 pool's
+      // native USDC AND the token side the V4 singleton holds (priced), so the aggregate is the TRUE total
+      // locked across the token's pools, not just its biggest one. (V4-primary tokens already count this via
+      // their own balanceOf(PM) read below.) balanceOf(PM_V4)==0 for a V3-only token, so this adds nothing.
+      const [b, vb] = await Promise.all([
+        rpc('eth_getBalance', [x.t.pool, 'latest']),
+        call(x.addr, '0x70a08231' + pad(PM_V4)).catch(() => null),
+      ]);
+      const v3usdc = b ? Number(BigInt(b)) / 1e18 : 0;
+      const v4tok = vb && vb !== '0x' ? Number(BigInt(vb)) / 10 ** x.t.decimals : 0;
+      return v3usdc + v4tok * x.price;
+    }
+    const b = await call(x.addr, '0x70a08231' + pad(PM_V4)); const tok = b && b !== '0x' ? Number(BigInt(b)) / 10 ** x.t.decimals : 0; return tok * x.price; // V4: token side value (all its V4 pools)
   }), 12);
   rows.forEach((x, i) => { x.liq = liqs[i]; });
 

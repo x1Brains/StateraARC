@@ -167,10 +167,30 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // Clamp each holder % to [0,100] and cap the top-10 sum at 100 — a bad share (arc-scan) made it read 235%.
   const top10 = holders && holders.length ? Math.min(100, holders.slice(0, 10).reduce((s, h) => s + Math.max(0, Math.min(100, h.percent ?? 0)), 0)) : null;
 
+  // ── Pools for this token + TRUE aggregate liquidity ──────────────────────────────────────────────
+  // Only pools with real depth (≥ $100, the indexer's discovery floor) count — a dust pool ($4.71) is
+  // noise: it must not show as a "pool", pad the count, or dilute the total. The header/TVL then show the
+  // SUM across the token's real pools (the main V3 pair AND its V4 pair), so liquidity is the TRUE total
+  // locked, not just the one biggest pool — that single-pool number mislead people (ARGUS read $744K of a
+  // real $1.10M). The Pools card underneath breaks that total down per pair.
+  const QUOTE_SYM: Record<string, string> = {
+    '0x3600000000000000000000000000000000000000': 'USDC',
+    '0x384c60f98ecd4c26345499345c03d677e40f115e': 'WARP',
+  };
+  const quoteSym = (a?: string) => { const k = (a || '').toLowerCase(); return QUOTE_SYM[k] || (k.length >= 10 ? `${k.slice(0, 6)}…` : 'USDC'); };
+  const MIN_POOL_LIQ = 100;
+  const allPoolsRaw = (rd?.pools && rd.pools.length
+    ? rd.pools.map((p) => ({ pool: p.pool, version: p.version, dex: p.dex, feeTier: p.feeTier, quote: p.quote, liquidityUsdc: p.liquidityUsdc, swaps: p.swaps, price: null as number | null }))
+    : (ocPools ?? []).map((p) => ({ pool: p.pool, version: p.version, dex: null as string | null, feeTier: p.feeTier, quote: p.quote, liquidityUsdc: p.liquidityUsdc, swaps: null as number | null, price: p.price })));
+  const allPools = allPoolsRaw.filter((p) => (p.liquidityUsdc ?? 0) >= MIN_POOL_LIQ);
+  // True aggregate = sum of the real pools; fall back to RadarDEX's own total only when we have no per-pool data.
+  const poolsTotalLiq = allPools.length ? allPools.reduce((s, p) => s + (p.liquidityUsdc ?? 0), 0) : (rd?.liquidityTotal ?? null);
+
   // ── Liquidity depth + pool age + FDV (RadarDEX first, then on-chain reserves, then seed) ─────────
-  // TVL = FULL pool value (BOTH sides): USDC leg + token leg priced. Showing only the USDC leg made TVL
-  // read ~1/10th of the real depth (WARP showed $13K TVL on a ~$147K pool). Same as the header liq.
-  const tvl = liq;
+  // TVL = the TRUE total locked across the token's real pools (main pair + any V4/secondary), not one pool.
+  // Take whichever aggregate found more depth — the per-pool on-chain SUM or the seed/indexer figure — but
+  // never add them (that would double count). This is why ARGUS reads its full ~$1.10M, not the $744K main pool.
+  const tvl = poolsTotalLiq != null && liq != null ? Math.max(poolsTotalLiq, liq) : firstPos(poolsTotalLiq, liq);
   // Total supply: prefer the ON-CHAIN totalSupply() (ground truth — RadarDEX had cirBTC at 233 vs the real
   // 551, making FDV disagree with mcap). Circulating = minted − burnt.
   const mintedSupply = burn?.supply ?? rd?.totalSupply ?? supplyNum ?? null;
@@ -193,18 +213,6 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
     ageStr ? { v: ageStr, l: 'Pool age' } : null,
     rd?.poolSwaps != null ? { v: compact(rd.poolSwaps), l: 'Swaps' } : null,
   ].filter(Boolean)) as { v: string; l: string }[];
-
-  // All pools for this token (per-pair breakdown). Resolve the quote side's ticker for the pair label.
-  const QUOTE_SYM: Record<string, string> = {
-    '0x3600000000000000000000000000000000000000': 'USDC',
-    '0x384c60f98ecd4c26345499345c03d677e40f115e': 'WARP',
-  };
-  const quoteSym = (a?: string) => { const k = (a || '').toLowerCase(); return QUOTE_SYM[k] || (k.length >= 10 ? `${k.slice(0, 6)}…` : 'USDC'); };
-  // Unified pool list: RadarDEX per-pool data when it has it, else the on-chain discovery (WARP tokens).
-  const allPools = (rd?.pools && rd.pools.length
-    ? rd.pools.map((p) => ({ pool: p.pool, version: p.version, dex: p.dex, feeTier: p.feeTier, quote: p.quote, liquidityUsdc: p.liquidityUsdc, swaps: p.swaps, price: null as number | null }))
-    : (ocPools ?? []).map((p) => ({ pool: p.pool, version: p.version, dex: null as string | null, feeTier: p.feeTier, quote: p.quote, liquidityUsdc: p.liquidityUsdc, swaps: null as number | null, price: p.price })));
-  const poolsTotalLiq = rd?.liquidityTotal ?? (allPools.length ? allPools.reduce((s, p) => s + (p.liquidityUsdc ?? 0), 0) : null);
 
   // ── Pool health: a transparent 0–100 score from on-chain signals (NOT a safety guarantee) ────────
   // Mirrors a DEX screener's health read. Each signal is a real, verifiable measurement; weights sum to 100.
@@ -269,7 +277,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
         <div className="stat"><div className="v r">{px != null ? tprice(px) : '—'}</div><div className="l">Price</div></div>
         <div className="stat"><div className={`v chg ${chgClass(chg)}`}>{chgTxt(chg)}</div><div className="l">24h</div></div>
         <div className="stat"><div className="v">{mc != null ? usd(mc) : '—'}</div><div className="l">Market Cap</div></div>
-        <div className="stat"><div className="v">{liq != null ? usd(liq) : '—'}</div><div className="l">Liquidity</div></div>
+        <div className="stat"><div className="v">{tvl != null ? usd(tvl) : '—'}</div><div className="l">Liquidity</div></div>
         <div className="stat"><div className="v">{vol != null ? usd(vol) : '—'}</div><div className="l">Vol 24h</div></div>
         <div className="stat"><div className="v">{fmtNum(holdersTotal)}</div><div className="l">Holders</div></div>
       </div>
@@ -361,12 +369,6 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
               <div className="ta-grid ta-grid-5">
                 {liqCells.map((c) => <div className="ta-cell" key={c.l}><div className="ta-v">{c.v}</div><div className="ta-l">{c.l}</div></div>)}
               </div>
-              {(reserveBase != null || reserveQuote != null) && (
-                <div className="lq-res">
-                  {reserveBase != null && <span className="lq-r"><b>{compact(reserveBase)}</b> {sym}</span>}
-                  {reserveQuote != null && <span className="lq-r"><b>{compact(reserveQuote)}</b> {rd?.quoteSymbol || 'USDC'}</span>}
-                </div>
-              )}
             </div>
           )}
 
