@@ -24,15 +24,19 @@ const MAX = Number(process.argv[2] || 500);
 const NATIVE_USDC = '0x3600000000000000000000000000000000000000';
 const SWAP_V3 = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 const SWAP_V2 = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822';
-// USDC + the Animus ecosystem suite (biggest holder base on Arc) — always in the Ecosystem card.
+// Circle & Arc CORE — verified on-chain (docs.arc.io/arc/references/contract-addresses + arc-scan). Always
+// present + flagged as ecosystem. ⛔ Decided by ADDRESS, never a name regex (a regex tagged "Chelsea USDC"
+// and the third-party Animus suite as "core"). ARC is Circle's official 10B-supply token — no pool yet, so
+// it carries no price/liq until it launches (the sniper watches for that); listed so it's the canonical ARC.
 const ECO = [
   { address: NATIVE_USDC, name: 'USD Coin', symbol: 'USDC', iconUrl: '/coins/USDC.svg', price: 1 },
-  { address: '0xf5b08979251f398180385b54381ee3d6fa1bbe09', name: 'Animus USD', symbol: 'AUSD', price: 1 },
-  { address: '0x8cd7e5a2240a1a7efaa9b164caa1dc80e9ed23a3', name: 'Animus EUR', symbol: 'AEUR', price: 1.08 },
-  { address: '0x04adf55844be2f4c8d23e3f5f2386b08400b0cd1', name: 'Animus WXT', symbol: 'AWXT' },
-  { address: '0x26d1ffbbb8b310b090ee0536748b4adfc88ae644', name: 'Animus Wirex Reward', symbol: 'AWORP' },
-  { address: '0x7ce5e3fb080545c8912cf93297d93441911e9e4d', name: 'Animus BTC', symbol: 'ABTC' },
+  { address: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', name: 'Circle Wrapped Bitcoin', symbol: 'cirBTC' },
+  { address: '0x128cc466b61f542da60c70e3aa11c10e19b84edb', name: 'Wrapped Ether', symbol: 'WETH' },
+  { address: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', name: 'EURC', symbol: 'EURC' },
+  { address: '0x8a5d989bbb96929f689b0200f435f53da42bf490', name: 'US Yield Coin', symbol: 'USYC' },
+  { address: '0xa12cd81d0f9988e3d60c4b6a0d52d368ef3c788d', name: 'Arc', symbol: 'ARC' },
 ];
+const ECO_ADDRS = new Set(ECO.map((e) => e.address.toLowerCase()));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const num = (v) => (v == null || v === '' || isNaN(Number(v)) ? null : Number(v));
 
@@ -62,7 +66,6 @@ const ICON_MAP = {
   '0xbe0cad585ea2d13de2f4e36376be755c0afd8b97': 'https://assets.coingecko.com/coins/images/102178427/small/arc_bat.jpg?1789537144',
   '0xf3715bf5c2de299f08b81180ffb739a8372a175f': 'https://assets.coingecko.com/coins/images/102178426/small/arcanine.jpg?1789536897',
 };
-const ECOSYSTEM = /animus|ausd|aeur|awxt|aworp|abtc/i;
 
 async function getJson(url, tries = 4) {
   for (let a = 0; a < tries; a++) {
@@ -240,7 +243,7 @@ async function poolStats(token, pool) {
     const lp = t.launchpad ? (RADAR_LP[t.launchpad] || (t.launchpad[0].toUpperCase() + t.launchpad.slice(1))) : null;
     set(mk({ address, name: t.name || t.symbol || '?', symbol: t.symbol || '?',
       holders: num(t.holderCount), iconUrl: t.icon || null, launchpad: lp,
-      isEcosystem: ECOSYSTEM.test(`${t.name} ${t.symbol}`),
+      isEcosystem: ECO_ADDRS.has(address),
       price: num(t.price), liq: num(t.liquidityUsdc), mcap: num(t.mcap), fdv: num(t.fdv),
       volume24h: num(t.volume24 ?? t.volume24hFixed), change5m: num(t.change5m), change1h: num(t.change1h),
       change6h: num(t.change6h), change24h: num(t.change24h),
@@ -295,7 +298,7 @@ async function poolStats(token, pool) {
     console.log(`  ${meta.symbol}: price=${row.price} liq=${row.liq?.toFixed?.(0)} vol24=${row.volume24h?.toFixed?.(0)} chg24=${row.change24h?.toFixed?.(1)} holders=${row.holders} icon=${row.iconUrl ? 'yes' : 'no'} spark=${row.spark ? row.spark.length : 0}`);
   }
 
-  // 4) Ecosystem suite (USDC + Animus) — always present + flagged for the Ecosystem card.
+  // 4) Circle & Arc core (USDC, cirBTC, WETH, EURC, USYC, ARC) — always present + flagged as ecosystem.
   for (const e of ECO) {
     set(mk({ address: e.address, name: e.name, symbol: e.symbol, iconUrl: e.iconUrl ?? null, price: e.price ?? null, isEcosystem: true }));
     const row = map.get(e.address.toLowerCase()); if (row) { row.isEcosystem = true; if (e.iconUrl && !row.iconUrl) row.iconUrl = e.iconUrl; }

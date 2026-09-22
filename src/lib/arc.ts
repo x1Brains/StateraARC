@@ -929,6 +929,7 @@ const ECOSYSTEM_TOKENS: { address: string; name: string; symbol: string; price: 
   { address: '0x128cc466b61f542da60c70e3aa11c10e19b84edb', name: 'Wrapped Ether', symbol: 'WETH', price: null, holders: 822, decimals: 18 },   // Arc's canonical WETH (NOT 0xd02d, a different one)
   { address: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', name: 'EURC', symbol: 'EURC', price: null, holders: 4310, decimals: 6 },           // Circle euro stablecoin (official)
   { address: '0x8a5d989bbb96929f689b0200f435f53da42bf490', name: 'US Yield Coin', symbol: 'USYC', price: null, holders: 0, decimals: 6 },     // Circle yield token
+  { address: '0xa12cd81d0f9988e3d60c4b6a0d52d368ef3c788d', name: 'Arc', symbol: 'ARC', price: null, holders: 11, decimals: 6 },              // official Circle ARC token — 10B supply, no pool yet (sniper watches for launch)
 ];
 // Ecosystem is decided by ADDRESS, never symbol — a fake "USDC" lookalike must NOT be tagged ECO.
 const ECOSYSTEM_ADDRS = new Set<string>([NATIVE_USDC_ADDR.toLowerCase(), ...ECOSYSTEM_TOKENS.map((e) => e.address.toLowerCase())]);
