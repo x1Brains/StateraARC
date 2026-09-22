@@ -211,9 +211,10 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
       .sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || b.balance - a.balance);
   }, [holdings, priceMap, pnl, radarByAddr, realAddrBySymbol, symStats, liveMcap]);
 
-  // Hide counterfeit airdrops AND sub-$1 dust by default (a token PRICED under $1 is dust; unpriced
-  // holdings stay visible since we can't judge their value). "Show" reveals everything.
-  const isDust = (r: typeof rows[number]) => r.value != null && r.value < 1;
+  // Default view = your VALUED bag. Hidden by default (all revealed by "Show"): counterfeit airdrops, sub-$1
+  // PRICED dust, AND unpriced tokens — the ones with no USDC pool to value them ("—"), which are almost
+  // always airdrop junk (the "?" no-metadata token, dust XAUM, etc.). A real unpriced hold is one click away.
+  const isDust = (r: typeof rows[number]) => r.value == null || r.value < 1;
   const hiddenCount = useMemo(() => rows.filter((r) => r.counterfeit || isDust(r)).length, [rows]);
   const spamCount = hiddenCount;
   const shownRows = useMemo(() => (showSpam ? rows : rows.filter((r) => !r.counterfeit && !isDust(r))), [rows, showSpam]);
@@ -259,7 +260,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
 
           {spamCount > 0 && (
             <div className="msg" style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span>{spamCount} {spamCount === 1 ? 'token' : 'tokens'} {showSpam ? 'shown' : 'hidden'} — counterfeit tickers &amp; sub-$1 dust.</span>
+              <span>{spamCount} {spamCount === 1 ? 'token' : 'tokens'} {showSpam ? 'shown' : 'hidden'} — counterfeit, sub-$1 &amp; unpriced dust.</span>
               <button className="btn ghost" style={{ padding: '4px 10px' }} onClick={() => setShowSpam((s) => !s)}>{showSpam ? 'Hide' : 'Show'}</button>
             </div>
           )}
