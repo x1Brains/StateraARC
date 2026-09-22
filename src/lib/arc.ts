@@ -903,7 +903,11 @@ async function mainnetStats(): Promise<Record<string, { price: number | null; li
 // Cloudflare-blocked, so they are pending the owner's addresses rather than a guess (a wrong address here
 // would show a squatter's price as "core").
 const ECOSYSTEM_TOKENS: { address: string; name: string; symbol: string; price: number | null; holders: number; decimals?: number }[] = [
-  { address: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', name: 'Circle Wrapped Bitcoin', symbol: 'cirBTC', price: null, holders: 3775, decimals: 8 },
+  // All verified on Arc mainnet (arc-scan + Circle docs docs.arc.io/arc/references/contract-addresses).
+  { address: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', name: 'Circle Wrapped Bitcoin', symbol: 'cirBTC', price: null, holders: 3826, decimals: 8 },
+  { address: '0x128cc466b61f542da60c70e3aa11c10e19b84edb', name: 'Wrapped Ether', symbol: 'WETH', price: null, holders: 822, decimals: 18 },   // Arc's canonical WETH (NOT 0xd02d, a different one)
+  { address: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', name: 'EURC', symbol: 'EURC', price: null, holders: 4310, decimals: 6 },           // Circle euro stablecoin (official)
+  { address: '0x8a5d989bbb96929f689b0200f435f53da42bf490', name: 'US Yield Coin', symbol: 'USYC', price: null, holders: 0, decimals: 6 },     // Circle yield token
 ];
 // Ecosystem is decided by ADDRESS, never symbol — a fake "USDC" lookalike must NOT be tagged ECO.
 const ECOSYSTEM_ADDRS = new Set<string>([NATIVE_USDC_ADDR.toLowerCase(), ...ECOSYSTEM_TOKENS.map((e) => e.address.toLowerCase())]);

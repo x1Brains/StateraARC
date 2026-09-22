@@ -28,6 +28,16 @@ const VOL_FLOOR = Number(process.env.ONCHAIN_MIN_LIQ || 100); // only scan 24h v
 // them is an impersonator (fake "Wrapped Ether" $267M etc.), and its faked high price inflates the
 // liquidity estimate so it ranks #1. Drop them from discovery. (Real ecosystem tokens come via RadarDEX.)
 const IMPERSONATOR = new Set(['WETH', 'ETH', 'WBTC', 'BTC', 'CBBTC', 'USDT', 'USDC', 'DAI', 'XRP', 'SOL', 'BNB', 'DOGE', 'ADA', 'AVAX', 'LINK', 'SUI', 'MATIC', 'SHIB', 'PEPE', 'TRX', 'LTC', 'DOT', 'GOLD', 'XAU', 'XAUM', 'SILVER', 'EURC', 'EUROC', 'USD', 'WBNB', 'STETH', 'TON', 'NVDA', 'AAPL', 'TSLA']);
+// ⛔ The IMPERSONATOR set drops a MAJOR ticker regardless of address — but some of those tickers DO have a
+// real, Circle-issued token on Arc (the canonical WETH/EURC/USYC). Allowlist their VERIFIED addresses
+// (arc-scan + docs.arc.io/arc/references/contract-addresses) so we stop hiding the real ones while still
+// killing the fakes (a $267M "Wrapped Ether" at a different address).
+const IMPERSONATOR_ALLOW = new Set([
+  '0x128cc466b61f542da60c70e3aa11c10e19b84edb', // WETH (Wrapped Ether) — canonical
+  '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', // EURC (Circle euro)
+  '0x8a5d989bbb96929f689b0200f435f53da42bf490', // USYC (Circle yield)
+  '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', // cirBTC (already whitelisted by symbol, kept for clarity)
+]);
 
 const STATE_FILE = process.env.ONCHAIN_STATE || './onchain-state.json';
 const OUT_FILE = process.env.ONCHAIN_OUT || './onchain-tokens.json';
@@ -304,7 +314,7 @@ async function main() {
   const out = [];
   for (const x of rows) {
     const { addr, t, price, liq } = x; const dec = t.decimals;
-    if (IMPERSONATOR.has((t.symbol || '').toUpperCase())) continue; // skip fake WETH/XRP/GOLD… impersonators
+    if (IMPERSONATOR.has((t.symbol || '').toUpperCase()) && !IMPERSONATOR_ALLOW.has(addr.toLowerCase())) continue; // skip fake WETH/XRP/GOLD… but keep the real Circle-issued ones
     const supply = t.supplyRaw ? num(t.supplyRaw, dec) : null;
     const mcap = supply ? price * supply : null;
     const ds = dayMap.get(addr);
