@@ -613,7 +613,7 @@ export default function App() {
 
         <footer><div className="wrap">
           <span className="fbrand">STATERA · ARC</span>
-          <span>Data via RadarDEX · Warp · ArcExplorer · Arc Mainnet · chain 5042</span>
+          <span>Read on-chain from Arc Mainnet (chain 5042) · own V3/V4 indexer + Uniswap V4 · arc-scan · Warp · RadarDEX</span>
           <span>
             <a className="flink" href="https://x.com/StateraArc" target="_blank" rel="noreferrer">@StateraArc on X</a>
             {' · '}<button className="flink" onClick={() => go('token')}>The $STR token</button>

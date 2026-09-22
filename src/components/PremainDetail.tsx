@@ -523,7 +523,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       </div>
 
       <div className="td-disc" style={{ marginTop: 12 }}>
-        Price, chart &amp; market data via Warp (circlewarp.fun) &amp; RadarDEX on Arc mainnet (chain 5042). Contract/holder data from independent indexers. All unofficial, not Circle. Unverified; DYOR.
+        Price, liquidity, volume, trades &amp; pools are read live on-chain from Arc mainnet pools (Uniswap V3/V4, chain 5042); holders &amp; contract data via arc-scan; some launchpad coverage via Warp (circlewarp.fun) &amp; RadarDEX. All unofficial, not Circle. Unverified; DYOR.
       </div>
     </section></div>
   );
