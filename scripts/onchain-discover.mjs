@@ -264,10 +264,14 @@ async function main() {
         for (const logs of res) if (Array.isArray(logs)) for (const l of logs) {
           const d = l.data.slice(2); const sq = BigInt('0x' + d.slice(128, 192)); if (sq <= 0n) continue;
           const ra = (Number(sq) / 2 ** 96) ** 2; const price = (pool.usdcIsC0 ? 1 / ra : ra) * 10 ** (x.t.decimals - 6);
+          // ⛔ DECIMALS-ROBUST garbage filter: skip swaps whose price is wildly off the token's real price
+          // (a near-empty decoy pool's broken sqrtP decoded ONE swap to $1e36). This is value-independent,
+          // so it works for 8-dec cirBTC, whale trades, everything — unlike a fixed $ cap that clipped real trades.
+          if (!isFinite(price) || price <= 0 || (x.price > 0 && (price < x.price / 20 || price > x.price * 20))) continue;
           const wi = (pool.kind === 'v4' ? (pool.usdcIsC0 ? 1 : 0) : (pool.usdcIsC0 ? 0 : 1)); // token amount word
           let a = BigInt('0x' + d.slice(wi * 64, wi * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n);
           const usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price;
-          if (isFinite(price) && price > 0 && isFinite(usd) && usd < 1e8) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
+          if (isFinite(usd) && usd >= 0) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
         }
         vol += pts.reduce((s, p) => s + p.usd, 0);
         if (pool.primary && pts.length) primaryPts = pts;
