@@ -12,15 +12,36 @@
 // Cost: 4 batched eth_calls total, no matter how many addresses — all through Multicall3.
 import { useEffect, useState } from 'react';
 import { keccak_256 } from '@noble/hashes/sha3';
-import { mCall } from './arc';
+import { mCall, NET, CHAIN } from './arc';
 
-const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11'; // verified deployed on Arc mainnet
+const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11'; // same address on both Arc nets
 
-// Registries we read. ArcNS is the only one with live mainnet names today (18 .arc, 8 .circle as
-// of 2026-09-22). Adding our own registry later = one more entry here, nothing else changes.
-const REGISTRIES = [
-  { label: 'ArcNS', registry: '0xcA4d60A6d237EDa59aA1F57EbAe6B3150BcAb8Fb', tlds: ['arc', 'circle'] },
-];
+// Which registries to read, per network. Resolution MUST follow the network the app is showing:
+// a testnet name on a mainnet page would be a lie about who owns what.
+//   mainnet — ArcNS, the only registry with live mainnet names (18 .arc, 8 .circle at 2026-09-22)
+//   testnet — our own registry (contracts in ~/bt/arc/contracts/ns)
+const REGISTRIES_BY_NET: Record<string, { label: string; registry: string; tlds: string[] }[]> = {
+  mainnet: [
+    { label: 'ArcNS', registry: '0xcA4d60A6d237EDa59aA1F57EbAe6B3150BcAb8Fb', tlds: ['arc', 'circle'] },
+  ],
+  testnet: [
+    { label: 'ArcNames', registry: '0x131f885D4abe0a136bCc1daEd63fEedAE50Ec05D', tlds: ['arc', 'circle', 'brains'] },
+  ],
+};
+const REGISTRIES = REGISTRIES_BY_NET[NET] || REGISTRIES_BY_NET.mainnet;
+
+/** eth_call on whichever net the app is running. mCall is mainnet-pinned, so testnet gets its own. */
+async function netCall(to: string, data: string): Promise<string | null> {
+  if (NET !== 'testnet') return mCall(to, data);
+  try {
+    const r = await fetch(CHAIN.rpc, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data }, 'latest'] }),
+    });
+    const j = await r.json();
+    return j?.result && j.result !== '0x' ? j.result : null;
+  } catch { return null; }
+}
 
 // selectors
 const SEL_RESOLVER = '0x0178b8bf'; // registry.resolver(bytes32)
@@ -123,7 +144,7 @@ function decodeAggregate3(ret: string | null, n: number): (string | null)[] {
 
 const batch = async (calls: Call[]): Promise<(string | null)[]> => {
   if (!calls.length) return [];
-  return decodeAggregate3(await mCall(MULTICALL3, encodeAggregate3(calls)), calls.length);
+  return decodeAggregate3(await netCall(MULTICALL3, encodeAggregate3(calls)), calls.length);
 };
 
 const decodeAddress = (h: string | null) => (h && h.length >= 66 ? '0x' + h.slice(-40) : null);
@@ -141,7 +162,7 @@ const decodeString = (h: string | null) => {
 // ── resolution ───────────────────────────────────────────────────────────────
 export interface NameRec { name: string; registry: string }
 
-const CACHE_KEY = 'arcnames.v1';
+const CACHE_KEY = `arcnames.v1.${NET}`;   // never serve a mainnet name from a testnet cache
 const TTL_MS = 10 * 60 * 1000;
 type CacheEntry = { name: string | null; registry: string | null; at: number };
 const mem = new Map<string, CacheEntry>();
