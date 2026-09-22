@@ -117,8 +117,7 @@ export default function App() {
   const [sort, setSort] = useState<SortKey>('liq');
   const [dir, setDir] = useState<'desc' | 'asc'>('desc');
   const [hideDupes, setHideDupes] = useState(true); // hide counterfeit/duplicate-ticker impersonators
-  const [minHolders, setMinHolders] = useState(true); // hide sub-50-holder pools (thin/scam launches) by default
-  const MIN_HOLDERS = 50;
+  const MIN_HOLDERS = 50; // sub-50-holder pools are always hidden from the screener (no toggle — owner call)
   const [dashTab, setDashTab] = useState<'liq' | 'new' | 'movers'>('liq'); // home dashboard tab
   // Click a column header to sort by it; click again to flip direction (name defaults A→Z, numbers high→low).
   const clickSort = (k: SortKey) => {
@@ -247,7 +246,7 @@ export default function App() {
     // Quality gate: a real project earns holders; a thin/scam launch has a handful (KLO646 = 3, GLASSHOUSE
     // = 12). Hide sub-50-holder pools by default — a token pops back in the moment it crosses 50. Core
     // ecosystem assets (USDC, cirBTC) are always exempt. Unknown holder count is treated as below the bar.
-    if (minHolders) r = r.filter((t) => t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS);
+    r = r.filter((t) => t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS); // always hide sub-50-holder pools
     // Value a token exposes for the active sort key (null = "no data", always sorts last).
     const val = (t: Token): number | null => (
       sort === 'volume' ? t.volume24h
@@ -263,9 +262,9 @@ export default function App() {
       if (bv == null) return -1;
       return dir === 'desc' ? bv - av : av - bv;
     });
-  }, [tokens, filter, q, sort, dir, hideDupes, minHolders, canonical, tickerCount]);
+  }, [tokens, filter, q, sort, dir, hideDupes, canonical, tickerCount]);
 
-  useEffect(() => { setPageNum(1); }, [filter, q, sort, dir, perPage, hideDupes, minHolders]);
+  useEffect(() => { setPageNum(1); }, [filter, q, sort, dir, perPage, hideDupes]);
   const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
   const pageRows = rows.slice((pageNum - 1) * perPage, pageNum * perPage);
 
@@ -508,12 +507,6 @@ export default function App() {
                 <button className={`dupe-toggle${hideDupes ? '' : ' on'}`} onClick={() => setHideDupes((v) => !v)}
                   title="Duplicate tickers on Arc are usually impersonators — only the most-liquid one is shown">
                   {hideDupes ? `Show ${dupCount} duplicate tickers` : 'Hide duplicate tickers'}
-                </button>
-              )}
-              {!q.trim() && (
-                <button className={`dupe-toggle${minHolders ? '' : ' on'}`} onClick={() => setMinHolders((v) => !v)}
-                  title="Thin/scam launches have a handful of holders. Hidden by default; a token reappears once it reaches 50 holders.">
-                  {minHolders ? 'Show <50-holder pools' : 'Hide <50-holder pools'}
                 </button>
               )}
               {asOf && (Date.now() - asOf < 90000
