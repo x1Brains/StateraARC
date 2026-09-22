@@ -49,9 +49,9 @@ export const LAUNCHPADS: Record<string, string> = {
   '0x8271e06e5887fe5ba05234f5315c19f3ec90e8ad': 'Curve factory',
 };
 
-// Our own + notable ecosystem tokens, tagged for the views.
+// Our own token. Ecosystem membership is decided by ADDRESS (ECOSYSTEM_ADDRS), never a symbol regex — a
+// regex on name/symbol tagged squatters ("Chelsea USDC", any *cir* meme) as Circle & Arc core.
 export const OURS = new Set(['0xc8e1ffc83da48b347dd89a42a19fd510723f16bb']); // BRAINS
-export const ECOSYSTEM = /xylo|swaparc|synthra|arcflow|curve|cir|usyc|eurc|usdc|usdt/i;
 
 export interface Token {
   address: string;
@@ -150,7 +150,7 @@ export async function fetchTokens(limit = 500): Promise<Token[]> {
         iconUrl: t.icon_url ?? null,
         launchpad: null, // filled lazily via enrichLaunchpad
         isOurs: OURS.has(address),
-        isEcosystem: ECOSYSTEM.test(`${t.name} ${t.symbol}`),
+        isEcosystem: ECOSYSTEM_ADDRS.has(address), // by ADDRESS only — a symbol regex tagged "Chelsea USDC" etc. as core
         price: null, liq: null, mcap: null,
       });
     }
@@ -896,13 +896,14 @@ async function mainnetStats(): Promise<Record<string, { price: number | null; li
   return out;
 }
 
-// Arc ecosystem assets (Animus wrapped suite — biggest holder base on chain) for the Ecosystem card.
-const ECOSYSTEM_TOKENS: { address: string; name: string; symbol: string; price: number | null; holders: number }[] = [
-  { address: '0xf5b08979251f398180385b54381ee3d6fa1bbe09', name: 'Animus USD', symbol: 'AUSD', price: 1, holders: 21268 },
-  { address: '0x8cd7e5a2240a1a7efaa9b164caa1dc80e9ed23a3', name: 'Animus EUR', symbol: 'AEUR', price: 1.08, holders: 22237 },
-  { address: '0x04adf55844be2f4c8d23e3f5f2386b08400b0cd1', name: 'Animus WXT', symbol: 'AWXT', price: null, holders: 20485 },
-  { address: '0x26d1ffbbb8b310b090ee0536748b4adfc88ae644', name: 'Animus Wirex Reward', symbol: 'AWORP', price: null, holders: 14773 },
-  { address: '0x7ce5e3fb080545c8912cf93297d93441911e9e4d', name: 'Animus BTC', symbol: 'ABTC', price: null, holders: 5566 },
+// CIRCLE & ARC CORE ecosystem assets — Circle's own infra on Arc, NOT third-party projects. USDC is the
+// native gas token (added separately). Every address here is VERIFIED on-chain (name/symbol/decimals via
+// arc-scan + eth_call) — never a symbol regex, which tagged squatters like "Chelsea USDC" as core.
+// ⛔ Only list a token whose address is confirmed. cirETH / the ARC token have no pool yet + the explorer is
+// Cloudflare-blocked, so they are pending the owner's addresses rather than a guess (a wrong address here
+// would show a squatter's price as "core").
+const ECOSYSTEM_TOKENS: { address: string; name: string; symbol: string; price: number | null; holders: number; decimals?: number }[] = [
+  { address: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', name: 'Circle Wrapped Bitcoin', symbol: 'cirBTC', price: null, holders: 3775, decimals: 8 },
 ];
 // Ecosystem is decided by ADDRESS, never symbol — a fake "USDC" lookalike must NOT be tagged ECO.
 const ECOSYSTEM_ADDRS = new Set<string>([NATIVE_USDC_ADDR.toLowerCase(), ...ECOSYSTEM_TOKENS.map((e) => e.address.toLowerCase())]);
