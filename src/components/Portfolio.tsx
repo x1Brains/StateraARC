@@ -4,6 +4,7 @@ import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
 import { SendModal, type SendToken } from './SendModal';
 import { IconExternal, IconCheck, IconCopy, IconSend } from './icons';
+import { useNames, displayName, hasName } from '../lib/names';
 
 const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
 const USDC_ADDR = '0x3600000000000000000000000000000000000000';
@@ -11,6 +12,8 @@ const USDC_ADDR = '0x3600000000000000000000000000000000000000';
 export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = false }: { tokens: Token[]; wallet: string | null; onConnect: () => void; onOpenToken?: (addr: string) => void; mainnet?: boolean }) {
   const [addr, setAddr] = useState('');
   const [input, setInput] = useState('');
+  // Arc name for the wallet being viewed. Only forward-confirmed names come back (see lib/names.ts).
+  const names = useNames([addr]);
   const [copied, setCopied] = useState<string | null>(null);
   const copyAddr = (e: React.MouseEvent, a: string) => {
     e.stopPropagation();
@@ -251,7 +254,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
               <div className="stat"><div className={`v ${hasPnl ? (totalPnlSum >= 0 ? 'chg up' : 'chg down') : ''}`}>{hasPnl ? `${totalPnlSum >= 0 ? '+' : '−'}${usd(Math.abs(totalPnlSum))}` : pnlLoading ? '…' : '—'}</div><div className="l">Total P&amp;L</div></div>
             )}
             <div className="stat"><div className="v">{shownRows.length}</div><div className="l">Tokens Held</div></div>
-            <div className="stat"><div className="v">{short(addr)}</div><div className="l">Address</div></div>
+            <div className="stat" title={addr}><div className={`v${hasName(addr, names) ? ' named' : ''}`}>{displayName(addr, names, short)}</div><div className="l">{hasName(addr, names) ? 'Arc Name' : 'Address'}</div></div>
           </div>
 
           {spamCount > 0 && (

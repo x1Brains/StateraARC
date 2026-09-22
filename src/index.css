@@ -1197,6 +1197,11 @@ footer .flink:hover { text-decoration: underline; }
 .wbtn-main:hover { border-color: var(--red-hi); }
 .wbtn-dot { width: 6px; height: 6px; border-radius: 50%; background: #3ec46f; box-shadow: 0 0 8px #3ec46f; flex: none; }
 .wbtn-addr { letter-spacing: .3px; }
+/* A forward-confirmed Arc name (.arc / .circle). Never applied to an unverified reverse record —
+   see src/lib/names.ts. The hex address always stays in the element's title attribute. */
+.named { color: var(--red-hi); letter-spacing: 0; }
+.wbtn-addr.named { font-weight: 600; }
+.tr-mk.named, .txn-mk.named, .hl-addr.named { font-family: inherit; }
 .wbtn-caret { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--gray-2); transition: transform .15s; }
 .wbtn-caret.up { transform: rotate(180deg); }
 .wbtn-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 50; min-width: 214px; padding: 6px; border-radius: 12px;

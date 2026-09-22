@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
@@ -6,6 +6,7 @@ import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, fetchTokenBurn, primePool, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown } from './icons';
+import { useNames, displayName } from '../lib/names';
 
 // Pre-public (chain 5042) token detail. Source: arc-scan.org REST /tokens/{a} (UNOFFICIAL indexer,
 // reliable, unverified aggregates). No internal on-chain detail — 5042 has no Blockscout API and the
@@ -250,6 +251,18 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const txKind = (t: TokenTransfer): 'buy' | 'sell' | 'xfer' =>
     !pool ? 'xfer' : t.from.toLowerCase() === pool ? 'buy' : t.to.toLowerCase() === pool ? 'sell' : 'xfer';
   const txMaker = (t: TokenTransfer) => (txKind(t) === 'buy' ? t.to : t.from);
+
+  // Arc names for every wallet on this page — traders, transfer makers and top holders. One batched
+  // lookup for all of them; only forward-confirmed .arc/.circle names come back, everything else
+  // keeps rendering as a hex address. Capped so a huge holder list can't fan out into a big call.
+  const nameAddrs = useMemo(() => {
+    const set = new Set<string>();
+    for (const s2 of (swaps || []).slice(0, 60)) if (s2.trader) set.add(s2.trader.toLowerCase());
+    for (const t of (txs || []).slice(0, 60)) { const m = txMaker(t); if (m) set.add(m.toLowerCase()); }
+    for (const h of (holders || []).slice(0, 30)) if (h.address) set.add(h.address.toLowerCase());
+    return [...set].slice(0, 120);
+  }, [swaps, txs, holders]); // eslint-disable-line
+  const names = useNames(nameAddrs);
   // The chart pulls Warp candles (same wrong scale as warp.price for non-18-dec tokens). Rescale them
   // to the correct price using the ratio of the trusted seed price to Warp's price (=1 when they agree).
   const chartScale = (warp?.price != null && warp.price > 0 && seed?.price != null && seed.price > 0)
@@ -477,7 +490,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                       <span className={`num mono tr-usd ${s.side}`}>{s.usd != null ? usd(s.usd) : '—'}</span>
                       <span className="num mono">{compact(s.amount)}</span>
                       <span className="num mono tr-px">{s.price != null ? tprice(s.price) : '—'}</span>
-                      <a className="tr-mk mono" href={`https://explorer.arc.io/address/${s.trader}`} target="_blank" rel="noreferrer">{s.trader.slice(0, 6)}…{s.trader.slice(-4)}</a>
+                      <a className="tr-mk mono" href={`https://explorer.arc.io/address/${s.trader}`} target="_blank" rel="noreferrer" title={s.trader}>{displayName(s.trader, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a>
                       <a className="tr-tx num tx" href={`https://explorer.arc.io/tx/${s.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
                     </div>
                   ))}
@@ -492,7 +505,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                     <div className="txn-row" key={t.tx + i}>
                       <span className={`txn-type ${k}`}>{k === 'buy' ? 'Buy' : k === 'sell' ? 'Sell' : 'Transfer'}</span>
                       <span className="num mono">{compact(t.amount)} <span className="txn-sym">{sym}</span></span>
-                      <a className="txn-mk mono" href={`https://explorer.arc.io/address/${mk}`} target="_blank" rel="noreferrer">{mk.slice(0, 6)}…{mk.slice(-4)}</a>
+                      <a className="txn-mk mono" href={`https://explorer.arc.io/address/${mk}`} target="_blank" rel="noreferrer" title={mk}>{displayName(mk, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a>
                       <a className="txn-tx num tx" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
                     </div> ); })}
                 </div>
@@ -509,7 +522,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                   {holders.map((h) => (
                     <div className="hl-row" key={h.address}>
                       <span className="hl-rank">{h.rank}</span>
-                      <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer">{h.address.slice(0, 8)}…{h.address.slice(-6)}</a>
+                      <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer" title={h.address}>{displayName(h.address, names, (a) => a.slice(0, 8) + '…' + a.slice(-6))}</a>
                       {h.isPool && <span className="hl-tag pool">POOL</span>}
                       {h.isDeployer && <span className="hl-tag dev">DEV</span>}
                       <span className="hl-barwrap"><span className="hl-bar" style={{ width: `${Math.min(100, h.percent ?? 0)}%` }} /></span>

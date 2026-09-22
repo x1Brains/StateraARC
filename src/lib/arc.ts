@@ -778,7 +778,7 @@ async function runLimited<T>(tasks: (() => Promise<T>)[], limit = 4): Promise<T[
   }));
   return out;
 }
-const mCall = (to: string, data: string) => mrpc('eth_call', [{ to, data }, 'latest']);
+export const mCall = (to: string, data: string) => mrpc('eth_call', [{ to, data }, 'latest']);
 const mHexToStr = (hex: string) => { let s = ''; for (let i = 0; i + 1 < hex.length; i += 2) { const c = parseInt(hex.substr(i, 2), 16); if (c) s += String.fromCharCode(c); } return s; };
 const mReadStr = async (t: string, sel: string): Promise<string | null> => {
   const r = await mCall(t, sel); if (!r || r === '0x' || r.length < 130) return null;

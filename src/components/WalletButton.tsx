@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { IconCopy, IconCheck, IconExternal, IconSwitch, IconPower } from './icons';
+import { useNames, displayName, hasName } from '../lib/names';
 
 // Nav wallet control. Disconnected → a compact "Connect" button. Connected → the address with a
 // dropdown to copy it, switch account, view on the explorer, or disconnect.
@@ -16,15 +17,19 @@ export function WalletButton({ wallet, onConnect, onDisconnect, onSwitch }: {
     return () => document.removeEventListener('mousedown', away);
   }, [open]);
 
+  // Forward-confirmed .arc / .circle name for the connected wallet, else the hex address.
+  const names = useNames([wallet]);
+
   if (!wallet) return <button className="connect sm" onClick={onConnect}>Connect Wallet</button>;
-  const short = wallet.slice(0, 6) + '…' + wallet.slice(-4);
+  const label = displayName(wallet, names);
+  const named = hasName(wallet, names);
   const copy = () => { navigator.clipboard?.writeText(wallet).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {}); };
 
   return (
     <div className="wbtn" ref={ref}>
       <button className="wbtn-main" onClick={() => setOpen((o) => !o)} title="Wallet">
         <span className="wbtn-dot" />
-        <span className="wbtn-addr">{short}</span>
+        <span className={`wbtn-addr${named ? ' named' : ''}`} title={wallet}>{label}</span>
         <span className={`wbtn-caret${open ? ' up' : ''}`} />
       </button>
       {open && (
