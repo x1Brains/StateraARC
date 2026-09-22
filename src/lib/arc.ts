@@ -302,6 +302,27 @@ export async function fetchPortfolioMainnet(addr: string): Promise<{ total: numb
   } catch { return { total: null, holdings: [] }; }
 }
 
+// NFT (ERC-721 / ERC-1155) holdings for the wallet, from the SAME explorer token-balances endpoint the
+// portfolio already reads (fetchPortfolioMainnet filters these OUT as non-ERC-20). `value` is the count of
+// tokens held in the collection (no decimals). Real collections exist on Arc (ARC WIZARDS, Arcals, The Arc
+// Begins, Uniswap V3/V4 position NFTs). No USD price — NFTs aren't pool-priced.
+export interface NftHolding { address: string; name: string; symbol: string; type: string; count: number; icon: string | null; }
+export async function fetchNftHoldings(addr: string): Promise<NftHolding[]> {
+  try {
+    const j = await req(`${CHAIN.api}/addresses/${addr.toLowerCase()}/token-balances`);
+    const arr: any[] = Array.isArray(j) ? j : (j?.items || []);
+    return arr
+      .filter((x: any) => { const ty = String(x?.token?.type || ''); return ty.includes('721') || ty.includes('1155'); })
+      .map((x: any) => { const t = x.token || {}; return {
+        address: addrOf(t.address_hash || t.address || '').toLowerCase(),
+        name: t.name || t.symbol || 'NFT', symbol: t.symbol || '', type: String(t.type || 'ERC-721'),
+        count: Number(x.value || 0), icon: normIcon(t.icon_url),
+      } as NftHolding; })
+      .filter((n: NftHolding) => n.address && n.count > 0)
+      .sort((a: NftHolding, b: NftHolding) => b.count - a.count);
+  } catch { return []; }
+}
+
 // ── DEX-style token detail + holders (RadarDEX) ───────────────────────────────────────────────
 export interface RadarPool { pool: string; version: string; dex: string | null; feeTier: number | null; quote: string; liquidityUsdc: number | null; volumeAll: number | null; swaps: number | null; }
 export interface RadarTokenDetail {

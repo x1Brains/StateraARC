@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchHoldings, fetchHoldingsMainnet, fetchHoldingsOnchain, fetchPortfolioMainnet, fetchRadarPortfolio, fetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type RadarHolding, type TokenPnl } from '../lib/arc';
+import { fetchHoldings, fetchHoldingsMainnet, fetchHoldingsOnchain, fetchPortfolioMainnet, fetchRadarPortfolio, fetchNftHoldings, fetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type RadarHolding, type NftHolding, type TokenPnl } from '../lib/arc';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
 import { SendModal, type SendToken } from './SendModal';
@@ -17,6 +17,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     navigator.clipboard?.writeText(a).then(() => { setCopied(a); setTimeout(() => setCopied((c) => (c === a ? null : c)), 1200); }).catch(() => {});
   };
   const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [nfts, setNfts] = useState<NftHolding[]>([]); // ERC-721/1155 collections the wallet holds
   const [loading, setLoading] = useState(false);
   const [enriching, setEnriching] = useState(false); // fast view shown; full on-chain scan still running
   const [err, setErr] = useState<string | null>(null);
@@ -79,7 +80,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     if (!addr || !isAddress(addr)) return;
     let alive = true;
     let hideTimer: ReturnType<typeof setTimeout> | undefined;
-    setLoading(true); setErr(null); setHoldings([]); setLivePx({}); setLiveMcap({}); setEnriching(false);
+    setLoading(true); setErr(null); setHoldings([]); setNfts([]); setLivePx({}); setLiveMcap({}); setEnriching(false);
     // Map a holdings source into the view + seed the prices it already carries.
     const apply = (src: RadarHolding[]) => {
       const h = src.map((r) => ({ address: r.address, name: r.name, symbol: r.symbol, decimals: r.decimals, balance: r.amount, iconUrl: r.icon }));
@@ -111,6 +112,9 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     (async () => {
       try {
         if (!mainnet) { const h = await fetchHoldings(addr); if (alive) { setHoldings(h); setLoading(false); } return; }
+
+        // NFTs (ERC-721/1155) — non-blocking, from the same explorer endpoint; paints alongside the bag.
+        fetchNftHoldings(addr).then((n) => { if (alive) setNfts(n); }).catch(() => {});
 
         // PHASE 1 — fast indexer sources (RadarDEX + explorer) so the wallet's bag paints in ~1-2s
         // instead of a long blank spinner while the full on-chain scan runs.
@@ -325,7 +329,23 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
               ); })}
             </div>
           )}
-          {!rows.length && <div className="msg">No token holdings found for this address on {mainnet ? 'Arc Mainnet' : CHAIN.name}.</div>}
+          {!!nfts.length && (
+            <div className="pf-nfts">
+              <div className="pf-nfts-head">NFTs <span>{nfts.length} {nfts.length === 1 ? 'collection' : 'collections'}</span></div>
+              <div className="pf-nft-grid">
+                {nfts.map((n) => (
+                  <a className="pf-nft" key={n.address} href={`${CHAIN.scan}/token/${n.address}`} target="_blank" rel="noreferrer" title={n.name}>
+                    <TokenLogo symbol={n.symbol || n.name} seed={n.address} url={n.icon} />
+                    <span className="pf-nft-id">
+                      <span className="pf-nft-nm">{n.name}</span>
+                      <span className="pf-nft-ct">{compact(n.count)} {n.type.includes('1155') ? 'items' : n.count === 1 ? 'NFT' : 'NFTs'}</span>
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+          {!rows.length && !nfts.length && <div className="msg">No token holdings found for this address on {mainnet ? 'Arc Mainnet' : CHAIN.name}.</div>}
         </>
       )}
       {sendTok && wallet && <SendModal token={sendTok} wallet={wallet} onClose={() => setSendTok(null)} onSent={() => setTimeout(() => setRefreshTick((t) => t + 1), 4000)} />}

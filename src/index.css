@@ -659,6 +659,18 @@ a .i, button .i { pointer-events: none; }
 .pf-group { border-bottom: 1px solid var(--line-soft); }
 .pf-group:last-child { border-bottom: 0; }
 .pf-group .pf-row { border-bottom: 0; }
+
+/* portfolio NFTs (ERC-721/1155 collections) */
+.pf-nfts { margin-top: 22px; }
+.pf-nfts-head { font-family: var(--disp); font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); margin-bottom: 12px; display: flex; align-items: baseline; gap: 8px; }
+.pf-nfts-head span { font-size: 10px; letter-spacing: .5px; color: var(--gray-3); }
+.pf-nft-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.pf-nft { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); text-decoration: none; transition: border-color .12s, background .12s; min-width: 0; }
+.pf-nft:hover { border-color: var(--red-dim); background: rgba(255,90,26,.05); }
+.pf-nft-id { min-width: 0; display: flex; flex-direction: column; }
+.pf-nft-nm { font-weight: 600; font-size: 13px; color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-nft-ct { font-family: var(--mono); font-size: 11px; color: var(--gray-2); margin-top: 2px; }
+@media (max-width: 520px) { .pf-nft-grid { grid-template-columns: 1fr 1fr; } }
 .trow.tok.pf-row.open { background: var(--panel-2); }
 .pf-detail { padding: 4px 16px 16px; background: var(--panel-2); }
 .pf-detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
