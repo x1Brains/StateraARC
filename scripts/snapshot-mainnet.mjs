@@ -325,8 +325,17 @@ async function poolStats(token, pool) {
     } else { console.log('[snap] no on-chain discovery file yet'); }
   } catch (e) { console.log('[snap] on-chain merge skipped:', e.message); }
 
-  const tokens = [...map.values()].sort((a, b) => (b.liq ?? -1) - (a.liq ?? -1));
+  // ⛔ Drop true-DUST from the whole snapshot universe: a pool with a KNOWN liquidity under $100 AND under 50
+  // holders is noise (a dead/rug micro-launch like ARCPAD — $0.26 liq, 3 holders). The indexer's $100 floor
+  // only covers indexer-sourced tokens; RadarDEX-sourced dust bypassed it, so half the snapshot (≈1100/2263)
+  // was sub-$100. Ecosystem tokens are always kept; unknown-liq (liq=null) tokens are kept (not proven dust);
+  // a direct address lookup still renders the token page from on-chain, so nothing becomes unviewable.
+  const DUST_LIQ = 100, DUST_HOLDERS = 50;
+  const all = [...map.values()];
+  const tokens = all
+    .filter((t) => t.isEcosystem || !(t.liq != null && t.liq < DUST_LIQ && (t.holders ?? 0) < DUST_HOLDERS))
+    .sort((a, b) => (b.liq ?? -1) - (a.liq ?? -1));
   const file = path.join(__dirname, '..', 'public', 'tokens-snapshot.json');
   fs.writeFileSync(file, JSON.stringify({ generatedAt: new Date().toISOString(), count: tokens.length, tokens }));
-  console.log(`[snap] wrote ${tokens.length} tokens, ${(fs.statSync(file).size / 1024).toFixed(0)}KB — ${tokens.filter((t) => t.volume24h != null).length} with volume, ${tokens.filter((t) => t.spark).length} with sparkline`);
+  console.log(`[snap] wrote ${tokens.length} tokens (dropped ${all.length - tokens.length} sub-$100/sub-50-holder dust), ${(fs.statSync(file).size / 1024).toFixed(0)}KB — ${tokens.filter((t) => t.volume24h != null).length} with volume, ${tokens.filter((t) => t.spark).length} with sparkline`);
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });
