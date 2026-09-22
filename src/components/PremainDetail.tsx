@@ -171,7 +171,11 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // TVL = FULL pool value (BOTH sides): USDC leg + token leg priced. Showing only the USDC leg made TVL
   // read ~1/10th of the real depth (WARP showed $13K TVL on a ~$147K pool). Same as the header liq.
   const tvl = liq;
-  const fdv = rd?.fdv ?? (px != null && (rd?.totalSupply ?? supplyNum) ? px * (rd?.totalSupply ?? supplyNum)! : null);
+  // Total supply: prefer the ON-CHAIN totalSupply() (ground truth — RadarDEX had cirBTC at 233 vs the real
+  // 551, making FDV disagree with mcap). Circulating = minted − burnt.
+  const mintedSupply = burn?.supply ?? rd?.totalSupply ?? supplyNum ?? null;
+  const circSupply = mintedSupply != null ? Math.max(0, mintedSupply - (burnedSupply ?? 0)) : (rd?.circulating ?? null);
+  const fdv = (px != null && mintedSupply) ? px * mintedSupply : (rd?.fdv ?? null);
   const valuation = mc ?? fdv ?? null;
   const depthPct = tvl != null && valuation ? (tvl / valuation) * 100 : null; // pool depth as % of valuation
   const agoStr = (sec: number) => {
@@ -391,16 +395,16 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
           )}
 
           {/* Supply — minted / burnt / circulating / FDV. */}
-          {rd && rd.totalSupply != null && (
+          {mintedSupply != null && (
             <div className="panel side-card">
               <h3>Supply</h3>
               <div className="ta-grid">
-                <div className="ta-cell"><div className="ta-v">{compact(rd.totalSupply)}</div><div className="ta-l">Minted</div></div>
+                <div className="ta-cell"><div className="ta-v">{compact(mintedSupply)}</div><div className="ta-l">Minted</div></div>
                 <div className="ta-cell"><div className="ta-v">{burnedSupply != null ? compact(burnedSupply) : (burn ? '0' : '—')}</div><div className="ta-l">Burnt{burnedPct != null ? ` ${burnedPct.toFixed(1)}%` : ''}</div></div>
-                <div className="ta-cell"><div className="ta-v">{rd.circulating != null ? compact(rd.circulating) : compact(rd.totalSupply)}</div><div className="ta-l">Circulating</div></div>
+                <div className="ta-cell"><div className="ta-v">{circSupply != null ? compact(circSupply) : '—'}</div><div className="ta-l">Circulating</div></div>
                 <div className="ta-cell"><div className="ta-v">{fdv != null ? usd(fdv) : '—'}</div><div className="ta-l">FDV</div></div>
               </div>
-              {(rd.mintable || rd.reflection || rd.lpTokenId) && (
+              {rd && (rd.mintable || rd.reflection || rd.lpTokenId || rd.totalSupply != null) && (
                 <div className="lq-res">
                   {rd.mintable && <span className="lq-r" style={{ color: '#ff5a5a' }}>Mintable</span>}
                   {!rd.mintable && <span className="lq-r" style={{ color: '#4ecb71' }}>Fixed supply</span>}
