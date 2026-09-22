@@ -231,17 +231,22 @@ async function main() {
   }), 12);
   rows.forEach((x, i) => { x.liq = liqs[i]; });
 
-  // HOLDERS from arc-scan for the top tokens by liquidity (bounded), cached ~6h in state so we don't
-  // re-fetch every run. arc-scan is a REST indexer the VPS can reach (GLITCH 5969, ARGUS 19162 verified).
-  const HOLDERS_TTL = 6 * 3600 * 1000, HOLDERS_TOP = Number(process.env.ONCHAIN_HOLDERS_TOP || 300);
-  const needH = rows.filter((x) => x.liq >= 200).sort((a, b) => b.liq - a.liq).slice(0, HOLDERS_TOP)
-    .filter((x) => { const st = state.tokens[x.addr]; return !st.holders || (Date.now() - (st.holdersAt || 0) > HOLDERS_TTL); });
+  // HOLDERS from arc-scan for EVERY token we'll output (not just the old top-300-by-liq) — else a real
+  // token whose count we never fetched shows holders:null and is wrongly hidden by the screener's default
+  // 50-holder filter. arc-scan (api.arc-scan.org) is fast, unblocked from the VPS, and has counts across the
+  // whole liq spectrum (measured: 30/30 incl. low-liq tokens). ⛔ Blockscout/explorer.arc.io is Cloudflare-
+  // challenge-blocked even with a browser UA, so it is NOT usable as a source. Cached ~6h in state; capped
+  // per run (highest-liquidity first) so the cache fills over a couple runs without hammering arc-scan.
+  const HOLDERS_TTL = 6 * 3600 * 1000, HOLDERS_MAX_PER_RUN = Number(process.env.ONCHAIN_HOLDERS_MAX || 800);
+  const needH = rows.filter((x) => x.liq >= MIN_LIQ).sort((a, b) => b.liq - a.liq)
+    .filter((x) => { const st = state.tokens[x.addr]; return !st.holders || (Date.now() - (st.holdersAt || 0) > HOLDERS_TTL); })
+    .slice(0, HOLDERS_MAX_PER_RUN);
   if (needH.length) {
     const hr = await runLimited(needH.map((x) => async () => {
       try { const r = await fetch(`https://api.arc-scan.org/v1/tokens/${x.addr}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) }); const j = await r.json(); return j.holders != null ? Number(j.holders) : null; } catch { return null; }
-    }), 6);
+    }), 8);
     needH.forEach((x, i) => { if (hr[i] != null && isFinite(hr[i])) { state.tokens[x.addr].holders = hr[i]; state.tokens[x.addr].holdersAt = Date.now(); } });
-    console.log(`[disc] holders fetched for ${needH.length} tokens`);
+    console.log(`[disc] holders fetched for ${needH.length} tokens (arc-scan, full-coverage)`);
   }
 
   // 24h volume + change from each LIQUID pool's own swaps. Scanning every one floods the RPCs (→ zeros),
