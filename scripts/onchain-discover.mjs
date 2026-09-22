@@ -184,8 +184,10 @@ async function main() {
   // activity-based getLogs scan missed. ADD-ONLY: only tokens we don't already know and haven't queued;
   // they then flow through the SAME metadata + on-chain price/liquidity + impersonator + MIN_LIQ pipeline as
   // every other token, so nothing here is trusted beyond "this poolId exists for this token".
+  const sgV4ByToken = new Map(); // token -> its top V4 pool (subgraph); lets a V3-primary token aggregate its V4-pool VOLUME
   {
     const sgCands = await fetchSubgraphV4Cands();
+    for (const c of sgCands) sgV4ByToken.set(c.token.toLowerCase(), c);
     const inCand = new Set(v4cand.map((c) => c.token));
     let added = 0;
     for (const c of sgCands) {
@@ -315,6 +317,10 @@ async function main() {
     const pools = []; let extraUsdc = 0;
     if (x.t.pool) pools.push({ kind: 'v3', address: x.t.pool, usdcIsC0: x.t.usdcIsC0, primary: true });
     if (x.t.poolId) pools.push({ kind: 'v4', poolId: x.t.poolId, usdcIsC0: x.t.usdcIsC0, primary: true });
+    // A V3-primary token (has a V3 pool, no stored poolId) can ALSO trade on a V4 pool the subgraph knows.
+    // Add it so 24h VOLUME sums across V3 + V4, not just the primary. (Liquidity already aggregates V4 via
+    // the balanceOf read; this pool is volume-only here and never touches extraUsdc, so no double count.)
+    else if (x.t.pool) { const sg = sgV4ByToken.get(x.addr.toLowerCase()); if (sg?.poolId) pools.push({ kind: 'v4', poolId: sg.poolId, usdcIsC0: sg.usdcIsC0, primary: false }); }
     const seen = new Set(pools.filter((p) => p.address).map((p) => p.address));
     const cand = await Promise.all([100, 500, 3000, 10000].map((fee) => call(V3_FACTORY, '0x1698ee82' + pad(x.addr) + pad(USDC) + fee.toString(16).padStart(64, '0')).catch(() => null)));
     for (const r of cand) {
