@@ -1414,6 +1414,21 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
   dayStatsCache.set(t, { at: Date.now(), v });
   return v;
 }
+// On-chain burn: tokens sent to the null/dead addresses, as an amount + % of total supply. Works for any
+// token/decimals (no indexer needed) so the Supply card shows a real Burnt figure for coins RadarDEX skips.
+export async function fetchTokenBurn(token: string, decimals = 18): Promise<{ burnt: number; supply: number | null; pct: number | null }> {
+  const balSel = (addr: string) => '0x70a08231' + addr.toLowerCase().replace('0x', '').padStart(64, '0');
+  const [b0, bd, sup] = await Promise.all([
+    mCall(token, balSel('0x0')).catch(() => null),
+    mCall(token, balSel('0x000000000000000000000000000000000000dEaD')).catch(() => null),
+    mCall(token, '0x18160ddd').catch(() => null), // totalSupply()
+  ]);
+  let burnt = 0; try { if (b0 && b0 !== '0x') burnt += Number(BigInt(b0)) / 10 ** decimals; } catch { /* */ }
+  try { if (bd && bd !== '0x') burnt += Number(BigInt(bd)) / 10 ** decimals; } catch { /* */ }
+  let supply: number | null = null; try { if (sup && sup !== '0x') supply = Number(BigInt(sup)) / 10 ** decimals; } catch { /* */ }
+  const pct = supply && supply > 0 ? (burnt / supply) * 100 : null;
+  return { burnt, supply, pct: pct != null && isFinite(pct) ? Math.max(0, Math.min(100, pct)) : null };
+}
 const candleCache = new Map<string, { at: number; data: Candle[] }>();
 export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number, lookbackSec?: number): Promise<Candle[]> {
   const ck = token.toLowerCase() + ':' + intervalSec + ':' + (lookbackSec ?? 0);

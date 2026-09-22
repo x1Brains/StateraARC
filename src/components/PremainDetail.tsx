@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, primePool, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, fetchTokenBurn, primePool, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown } from './icons';
 
@@ -32,6 +32,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [ocPool, setOcPool] = useState<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null; price?: number | null } | null>(null);
   const [ocPools, setOcPools] = useState<OnchainPool[] | null>(null);
   const [dayStats, setDayStats] = useState<{ change24h: number | null; volume24h: number | null } | null>(null);
+  const [burn, setBurn] = useState<{ burnt: number; supply: number | null; pct: number | null } | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders'>('txns');
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
   const [poolsOpen, setPoolsOpen] = useState(false);
@@ -67,6 +68,8 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       if (detail?.volume24 == null && detail?.change24h == null) {
         fetchOnchainDayStats(address, dec).then((s) => { if (alive) setDayStats(s); }).catch(() => {});
       }
+      // Burn % on-chain (null/dead balances vs supply) when RadarDEX doesn't report it.
+      if (detail?.burnedPct == null) fetchTokenBurn(address, dec).then((b) => { if (alive) setBurn(b); }).catch(() => {});
       fetchRadarHolders(address, dec, 100).then(async (h) => {
         if (h.holders && h.holders.length) { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } return; }
         // RadarDEX doesn't index this token (on-chain/launchpad coins) → arc-scan holder list.
@@ -144,15 +147,25 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const liq = firstPos(seed?.liq, bothSides, ocPool?.tvl, rd?.liquidityTotal, warp?.liquidity);
   const mc = firstPos(seed?.mcap, warp?.mcap, px != null && supplyNum ? px * supplyNum : null);
   const vol = firstPos(rd?.volume24, seed?.volume24h, dayStats?.volume24h, warp?.volume24h);
+  const burnedPct = rd?.burnedPct ?? burn?.pct ?? null; // burn %: RadarDEX first, else on-chain null/dead balances
+  const burnedSupply = rd?.burnedSupply ?? (burn?.burnt && burn.burnt > 0 ? burn.burnt : null);
   const chg = rd?.change24h ?? seed?.change24h ?? dayStats?.change24h ?? null;
   // Holder count: on-chain (arc-scan) and Warp agree and are ground truth; RadarDEX's count is stale/
   // partial (it only lists ~50 rows and undercounted ARGUS 12k vs the real 18k), so it goes LAST — else
   // it loaded late and OVERRODE the correct number, making the header flip 18k -> 12k.
   const holdersTotal = d?.holders ?? warp?.holders ?? seed?.holders ?? holderCount ?? null;
   // Buy/sell pressure (24h) + top-10 concentration for the DEX-style panels.
-  const buys = rd?.buys24 ?? null, sells = rd?.sells24 ?? null;
+  // Buy/sell/txns/makers: RadarDEX first, else count the ACTUAL on-chain trades (so a coin RadarDEX shows
+  // 0 for — cirBTC etc. — still reflects its real recent activity instead of a broken all-zero panel).
+  const ocBuys = swaps ? swaps.filter((s) => s.side === 'buy').length : null;
+  const ocSells = swaps ? swaps.filter((s) => s.side === 'sell').length : null;
+  const buys = (rd?.buys24 ?? 0) > 0 ? rd!.buys24 : ocBuys;
+  const sells = (rd?.sells24 ?? 0) > 0 ? rd!.sells24 : ocSells;
   const buyPct = buys != null && sells != null && buys + sells > 0 ? (buys / (buys + sells)) * 100 : null;
-  const top10 = holders && holders.length ? holders.slice(0, 10).reduce((s, h) => s + (h.percent ?? 0), 0) : null;
+  const txnsF = (rd?.txns24 ?? 0) > 0 ? rd!.txns24 : (swaps && swaps.length ? swaps.length : null);
+  const makersF = (rd?.traders24 ?? 0) > 0 ? rd!.traders24 : (swaps && swaps.length ? new Set(swaps.map((s) => s.trader)).size : null);
+  // Clamp each holder % to [0,100] and cap the top-10 sum at 100 — a bad share (arc-scan) made it read 235%.
+  const top10 = holders && holders.length ? Math.min(100, holders.slice(0, 10).reduce((s, h) => s + Math.max(0, Math.min(100, h.percent ?? 0)), 0)) : null;
 
   // ── Liquidity depth + pool age + FDV (RadarDEX first, then on-chain reserves, then seed) ─────────
   // TVL = FULL pool value (BOTH sides): USDC leg + token leg priced. Showing only the USDC leg made TVL
@@ -204,7 +217,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const redFlags: string[] = [];
   if (depthPct != null && depthPct < 3) redFlags.push('Pool depth under 3% of valuation');
   if (top10 != null && top10 > 80) redFlags.push(`Top 10 wallets hold ${top10.toFixed(0)}%`);
-  if (rd?.mintable) redFlags.push('Supply is mintable');
+  // (mintable is shown once, in the Supply card — don't duplicate it here as a red flag)
   const healthLabel = healthScore == null ? '' : healthScore >= 70 ? 'Healthy' : healthScore >= 40 ? 'Caution' : 'High risk';
   const healthClass = healthScore == null ? '' : healthScore >= 70 ? 'good' : healthScore >= 40 ? 'mid' : 'bad';
   const SIG_LABEL: Record<keyof typeof HW, string> = { depth: 'Liquidity Depth', dist: 'Holder Distribution', quality: 'Trading Quality', age: 'Pool Age', vol: 'Stability' };
@@ -282,7 +295,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
             {rd?.bestPool && <div className="ir"><span className="ir-k">Pool ID</span><a className="ir-v mono" href={`https://explorer.arc.io/address/${rd.bestPool}`} target="_blank" rel="noreferrer" style={{ color: 'var(--red-hi)', textDecoration: 'none' }}>{rd.bestPool.slice(0, 10)}…{rd.bestPool.slice(-6)}</a></div>}
             {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
             {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
-            {rd?.burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{rd.burnedPct.toFixed(2)}%</span></div>}
+            {burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{burnedPct.toFixed(2)}%</span></div>}
             {rd?.verified && <div className="ir"><span className="ir-k">Verified</span><span className="ir-v" style={{ color: '#4ecb71' }}>Yes</span></div>}
             {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
             {!!socials.length && (
@@ -294,7 +307,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
           </div>
 
           {/* Trade activity (24h) — buy/sell pressure, traders, txns (RadarDEX) */}
-          {rd && (buys != null || sells != null || rd.txns24 != null) && (
+          {(buys != null || sells != null || txnsF != null) && (
             <div className="panel side-card">
               <h3>Trade Activity · 24h</h3>
               {buyPct != null && (
@@ -308,9 +321,9 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                 <span className="bs-s">Sells {sells != null ? sells.toLocaleString() : '—'}</span>
               </div>
               <div className="ta-grid">
-                <div className="ta-cell"><div className="ta-v">{rd.txns24 != null ? rd.txns24.toLocaleString() : '—'}</div><div className="ta-l">Txns</div></div>
-                <div className="ta-cell"><div className="ta-v">{rd.traders24 != null ? rd.traders24.toLocaleString() : '—'}</div><div className="ta-l">Makers</div></div>
-                <div className="ta-cell"><div className="ta-v">{rd.burnedPct != null ? rd.burnedPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Burned</div></div>
+                <div className="ta-cell"><div className="ta-v">{txnsF != null ? txnsF.toLocaleString() : '—'}</div><div className="ta-l">Txns</div></div>
+                <div className="ta-cell"><div className="ta-v">{makersF != null ? makersF.toLocaleString() : '—'}</div><div className="ta-l">Makers</div></div>
+                <div className="ta-cell"><div className="ta-v">{burnedPct != null ? burnedPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Burned</div></div>
                 <div className="ta-cell"><div className="ta-v">{top10 != null ? top10.toFixed(1) + '%' : '—'}</div><div className="ta-l">Top 10</div></div>
               </div>
             </div>
@@ -383,7 +396,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
               <h3>Supply</h3>
               <div className="ta-grid">
                 <div className="ta-cell"><div className="ta-v">{compact(rd.totalSupply)}</div><div className="ta-l">Minted</div></div>
-                <div className="ta-cell"><div className="ta-v">{rd.burnedSupply != null ? compact(rd.burnedSupply) : '—'}</div><div className="ta-l">Burnt{rd.burnedPct != null ? ` ${rd.burnedPct.toFixed(1)}%` : ''}</div></div>
+                <div className="ta-cell"><div className="ta-v">{burnedSupply != null ? compact(burnedSupply) : (burn ? '0' : '—')}</div><div className="ta-l">Burnt{burnedPct != null ? ` ${burnedPct.toFixed(1)}%` : ''}</div></div>
                 <div className="ta-cell"><div className="ta-v">{rd.circulating != null ? compact(rd.circulating) : compact(rd.totalSupply)}</div><div className="ta-l">Circulating</div></div>
                 <div className="ta-cell"><div className="ta-v">{fdv != null ? usd(fdv) : '—'}</div><div className="ta-l">FDV</div></div>
               </div>
