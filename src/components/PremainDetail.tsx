@@ -370,6 +370,33 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
             </div>
           )}
 
+          {/* All pools for this token — directly under Liquidity & Pool (aggregated depth + per-pair, click to expand). */}
+          {allPools.length > 0 && (
+            <div className="panel side-card pl-card">
+              <button className="pl-head" onClick={() => setPoolsOpen((o) => !o)}>
+                <h3>Pools · {allPools.length}</h3>
+                <span className="pl-sum">
+                  {poolsTotalLiq != null && <b>{usd(poolsTotalLiq)}</b>}
+                  <span className="pl-cnt">total liq</span>
+                  <IconChevronDown className={`pl-chev i ${poolsOpen ? 'open' : ''}`} />
+                </span>
+              </button>
+              {poolsOpen && (
+                <div className="pl-list">
+                  <div className="pl-row pl-head-row"><span>Pair</span><span className="pl-price">Price</span><span className="pl-liq">Liquidity</span><span className="pl-tx">Tx</span></div>
+                  {allPools.map((p) => (
+                    <div className="pl-row" key={p.pool}>
+                      <span className="pl-pair">{sym}/{quoteSym(p.quote)}{p.feeTier ? <small> · {(p.feeTier / 1e4).toFixed(2)}%</small> : null}<em className="pl-dex">{p.dex || (p.version || '').toUpperCase()}</em></span>
+                      <span className="pl-price">{p.price != null ? tprice(p.price) : (px != null ? tprice(px) : '—')}</span>
+                      <span className="pl-liq">{p.liquidityUsdc != null ? usd(p.liquidityUsdc) : '—'}{p.swaps != null ? <small>{compact(p.swaps)} swaps</small> : null}</span>
+                      <a className="pl-tx" href={`https://explorer.arc.io/address/${p.pool}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Pool health — a transparent score from on-chain signals. NOT a safety guarantee. */}
           {healthScore != null && (
             <div className="panel side-card">
@@ -416,33 +443,6 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
           )}
         </div>
       </div>
-
-      {/* All pools for this token — aggregated depth + per-pair breakdown (click to expand). */}
-      {allPools.length > 0 && (
-        <div className="panel side-card pl-card">
-          <button className="pl-head" onClick={() => setPoolsOpen((o) => !o)}>
-            <h3>Pools · {allPools.length}</h3>
-            <span className="pl-sum">
-              {poolsTotalLiq != null && <b>{usd(poolsTotalLiq)}</b>}
-              <span className="pl-cnt">total liq</span>
-              <IconChevronDown className={`pl-chev i ${poolsOpen ? 'open' : ''}`} />
-            </span>
-          </button>
-          {poolsOpen && (
-            <div className="pl-list">
-              <div className="pl-row pl-head-row"><span>Pair</span><span className="pl-price">Price</span><span className="pl-liq">Liquidity</span><span className="pl-tx">Tx</span></div>
-              {allPools.map((p) => (
-                <div className="pl-row" key={p.pool}>
-                  <span className="pl-pair">{sym}/{quoteSym(p.quote)}{p.feeTier ? <small> · {(p.feeTier / 1e4).toFixed(2)}%</small> : null}<em className="pl-dex">{p.dex || (p.version || '').toUpperCase()}</em></span>
-                  <span className="pl-price">{p.price != null ? tprice(p.price) : (px != null ? tprice(px) : '—')}</span>
-                  <span className="pl-liq">{p.liquidityUsdc != null ? usd(p.liquidityUsdc) : '—'}{p.swaps != null ? <small>{compact(p.swaps)} swaps</small> : null}</span>
-                  <a className="pl-tx" href={`https://explorer.arc.io/address/${p.pool}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Compact tabbed section — Transactions / Holders (scrolls inside itself, not the page) */}
       <div className="panel td-tabpanel" style={{ marginTop: 12 }}>
