@@ -870,7 +870,7 @@ export async function fetchOnchainScreenerPrices(rows: { address: string; pool?:
   await runLimited(rows.map((t) => async () => {
     const dexp = 10 ** ((t.decimals ?? 18) - 6);
     let price: number | null = null;
-    if (t.poolId) { const s0 = await mCall(PM_V4, '0x1e2eaeaf' + v4StateSlot(t.poolId).slice(2)).catch(() => null); if (s0 && s0 !== '0x') { try { const sq = BigInt(s0) & ((1n << 160n) - 1n); if (sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } } catch { /* */ } } }
+    if (t.poolId) { const sq = await v4Slot0Sqrt(t.poolId); if (sq != null && sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } }
     else if (t.pool) { const s0 = await mCall(t.pool, '0x3850c7bd').catch(() => null); if (s0 && s0.length >= 66) { try { const sq = BigInt(s0.slice(0, 66)); if (sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } } catch { /* */ } } }
     if (price != null && isFinite(price) && price > 0 && price < 1e6) out[t.address.toLowerCase()] = price;
   }), 8);
@@ -1115,13 +1115,22 @@ export async function fetchCuratedV4Tokens(): Promise<Token[]> {
   }));
   return out;
 }
-// USD-per-token from the V4 pool's live sqrtPriceX96 (extsload).
-async function v4PriceOf(poolId: string, usdcIsC0: boolean, decimals: number): Promise<number | null> {
+// Official Uniswap V4 read contract (docs.arc.io/arc/references/contract-addresses). getSlot0(bytes32)=0xc815641c
+// returns (uint160 sqrtPriceX96, int24 tick, ...). Verified bit-identical to the extsload path on GLITCH +
+// ARGUS pools — but via the canonical contract, so we read the SAME slot the protocol reads. Falls back to
+// the hand-rolled extsload if StateView reverts / an RPC lacks it, so this can only match or beat the old read.
+const V4_STATEVIEW = '0xf3334192d15450cdd385c8b70e03f9a6bd9e673b';
+async function v4Slot0Sqrt(poolId: string): Promise<bigint | null> {
+  const sv = await mCall(V4_STATEVIEW, '0xc815641c' + poolId.replace(/^0x/, '').padStart(64, '0')).catch(() => null);
+  if (sv && sv !== '0x') { try { const sq = BigInt('0x' + sv.slice(2, 66)) & ((1n << 160n) - 1n); if (sq > 0n) return sq; } catch { /* fall through to extsload */ } }
   const s0 = await mCall(PM_V4, '0x1e2eaeaf' + v4StateSlot(poolId).slice(2)).catch(() => null);
   if (!s0 || s0 === '0x') return null;
-  let raw: bigint; try { raw = BigInt(s0); } catch { return null; }
-  const sqrtP = raw & ((1n << 160n) - 1n);
-  if (sqrtP <= 0n) return null;
+  try { const sq = BigInt(s0) & ((1n << 160n) - 1n); return sq > 0n ? sq : null; } catch { return null; }
+}
+// USD-per-token from the V4 pool's live sqrtPriceX96 (StateView, extsload fallback).
+async function v4PriceOf(poolId: string, usdcIsC0: boolean, decimals: number): Promise<number | null> {
+  const sqrtP = await v4Slot0Sqrt(poolId);
+  if (sqrtP == null || sqrtP <= 0n) return null;
   const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const dexp = 10 ** (decimals - 6);
   const price = (usdcIsC0 ? 1 / ratio : ratio) * dexp;
   return isFinite(price) && price > 0 ? price : null;

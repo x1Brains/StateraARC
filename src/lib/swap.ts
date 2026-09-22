@@ -536,16 +536,32 @@ const encBytesArr = (arr: string[]): string => {
   return padU(BigInt(n)) + offs + data;
 };
 const Q192_V4 = 2n ** 192n;
-// Live V4 quote from slot0 spot price × (1 − pool fee). Returns { outRaw, zeroForOne } or null.
+// Official Uniswap V4 Quoter (docs.arc.io/arc/references/contract-addresses). Returns the REAL amountOut
+// for an exact-in swap — including price impact AND hook tax — which the slot0 spot math ignores (it over-
+// quotes ~11% on a $1k trade and misses hook fees entirely; verified on the GLITCH pool 2026-09-21).
+// quoteExactInputSingle((address,address,uint24,int24,address),bool,uint128,bytes) = 0xaa9d21cb. eth_call-safe.
+export const V4_QUOTER = '0x8dc178efb8111bb0973dd9d722ebeff267c98f94';
+async function quoteV4Exact(cfg: V4Cfg, zeroForOne: boolean, amountInRaw: bigint): Promise<bigint | null> {
+  // params tuple: poolKey(5 static words) + zeroForOne + exactAmount + offset(0x100) + hookData len(0).
+  const params = padA(cfg.currency0) + padA(cfg.currency1) + padU(cfg.fee) + padU(cfg.tickSpacing) + padA(cfg.hooks)
+    + padU(zeroForOne ? 1n : 0n) + padU(amountInRaw) + padU(0x100n) + padU(0n);
+  const j = await rpc('eth_call', [{ to: V4_QUOTER, data: '0xaa9d21cb' + padU(0x20n) + params }, 'latest']).catch(() => null);
+  if (!j || j.error || !j.result || j.result === '0x') return null;
+  try { const out = BigInt('0x' + j.result.slice(2, 66)); return out > 0n ? out : null; } catch { return null; }
+}
+// V4 quote: the official Quoter first (true executable out), slot0 spot × (1 − fee) only as a fallback.
 export async function quoteV4(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<{ outRaw: bigint; zeroForOne: boolean } | null> {
   const a = tokenIn.toLowerCase(), b = tokenOut.toLowerCase();
   const token = a === USDC ? b : (b === USDC ? a : null); if (!token) return null;
   const cfg = V4_TOKENS[token]; if (!cfg) return null;
+  const zeroForOne = a === cfg.currency0; // tokenIn is currency0 → 0→1
+  const q = await quoteV4Exact(cfg, zeroForOne, amountInRaw);
+  if (q != null && q > 0n) return { outRaw: q, zeroForOne };
+  // Fallback (quoter reverted — some hooks block quoting): slot0 spot × (1 − pool fee), impact/hook NOT reflected.
   const j = await rpc('eth_call', [{ to: PM_V4, data: '0x1e2eaeaf' + cfg.stateSlot.slice(2) }, 'latest']); // PoolManager.extsload(stateSlot)
   if (!j || j.error || !j.result || j.result === '0x') return null;
   let sqrtP: bigint; try { sqrtP = BigInt(j.result) & ((1n << 160n) - 1n); } catch { return null; } // slot0 packs sqrtPriceX96 in low 160 bits
   if (sqrtP <= 0n) return null;
-  const zeroForOne = a === cfg.currency0; // tokenIn is currency0 → 0→1
   const p2 = sqrtP * sqrtP;
   let outRaw = zeroForOne ? (amountInRaw * p2) / Q192_V4 : (amountInRaw * Q192_V4) / p2;
   outRaw = (outRaw * BigInt(1_000_000 - cfg.fee)) / 1_000_000n;
