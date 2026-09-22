@@ -41,6 +41,40 @@ const IMPERSONATOR_ALLOW = new Set([
 
 const STATE_FILE = process.env.ONCHAIN_STATE || './onchain-state.json';
 const OUT_FILE = process.env.ONCHAIN_OUT || './onchain-tokens.json';
+
+// Uniswap V4 Arc subgraph (community, PaulieB14) — a COMPLETE, head-synced V4 pool index. Our getLogs
+// discovery has range caps and keys off RECENT swap activity, so it misses V4 pools (measured: 94 real
+// USDC-paired tokens we lacked — DUKE $263k, ARCMAN $203k…). We use the subgraph ONLY to DISCOVER pools
+// (poolId + token + orientation + creation block); every price/liquidity/volume number still comes from our
+// own on-chain reads, so a subgraph outage or a bogus USD figure can NEVER corrupt our data. Free Subgraph
+// Studio endpoint, one query/run, wrapped so a failure is non-fatal. Verified bit-accurate vs StateView.
+const SUBGRAPH_V4 = process.env.SUBGRAPH_V4 || 'https://api.studio.thegraph.com/query/111767/uniswap-v4---arc/version/latest';
+async function fetchSubgraphV4Cands() {
+  try {
+    const query = '{ pools(first:500, orderBy: totalValueLockedUSD, orderDirection: desc){ id token0{id symbol} token1{id symbol} totalValueLockedUSD createdAtBlockNumber hooks } }';
+    const r = await fetch(SUBGRAPH_V4, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query }), signal: AbortSignal.timeout(15000) });
+    const pools = (await r.json())?.data?.pools;
+    if (!Array.isArray(pools)) return [];
+    // Group USDC-paired pools by the non-USDC token; keep the HIGHEST-TVL pool (a decoy has low TVL). getLogs
+    // refines the pool choice later by swap count, so this is just a discovery seed.
+    const byToken = new Map();
+    for (const p of pools) {
+      const t0 = (p.token0?.id || '').toLowerCase(), t1 = (p.token1?.id || '').toLowerCase();
+      let token, sym, usdcIsC0;
+      if (t0 === USDC) { token = t1; sym = (p.token1?.symbol || '').toUpperCase(); usdcIsC0 = true; }
+      else if (t1 === USDC) { token = t0; sym = (p.token0?.symbol || '').toUpperCase(); usdcIsC0 = false; }
+      else continue;
+      if (!token || token === USDC) continue;
+      if (IMPERSONATOR.has(sym) && !IMPERSONATOR_ALLOW.has(token)) continue; // don't seed known fakes
+      const tvl = Number(p.totalValueLockedUSD) || 0;
+      const prev = byToken.get(token);
+      if (!prev || tvl > prev.tvl) byToken.set(token, { token, poolId: p.id, usdcIsC0,
+        created: p.createdAtBlockNumber ? parseInt(p.createdAtBlockNumber, 10) : null,
+        hooks: (p.hooks && !/^0x0+$/i.test(p.hooks)) ? p.hooks.toLowerCase() : null, tvl });
+    }
+    return [...byToken.values()];
+  } catch (e) { console.log('[disc] subgraph V4 fetch failed (non-fatal):', e.message); return []; }
+}
 const CH = 95000n;                       // getLogs range for the big-range RPCs
 const INITIAL_LOOKBACK = BigInt(process.env.ONCHAIN_LOOKBACK || 1_200_000); // first run: how far back to sweep
 const MAX_NEW_PER_RUN = Number(process.env.ONCHAIN_MAX_NEW || 3000); // V3 candidates to liquidity-check per run; the rest carry over in a backlog so a run never hangs on 19k checks
@@ -145,6 +179,22 @@ async function main() {
     }
   }
   console.log(`[disc] V4 active pools: ${v4active.size}, new USDC tokens: ${v4cand.length}`);
+
+  // Supplement V4 discovery with the subgraph's complete pool list — catches real USDC pools our
+  // activity-based getLogs scan missed. ADD-ONLY: only tokens we don't already know and haven't queued;
+  // they then flow through the SAME metadata + on-chain price/liquidity + impersonator + MIN_LIQ pipeline as
+  // every other token, so nothing here is trusted beyond "this poolId exists for this token".
+  {
+    const sgCands = await fetchSubgraphV4Cands();
+    const inCand = new Set(v4cand.map((c) => c.token));
+    let added = 0;
+    for (const c of sgCands) {
+      if (state.tokens[c.token] || inCand.has(c.token)) continue;
+      v4cand.push({ token: c.token, poolId: c.poolId, usdcIsC0: c.usdcIsC0, created: c.created, cnt: null, hooks: c.hooks });
+      inCand.add(c.token); added++;
+    }
+    console.log(`[disc] subgraph V4 supplement: +${added} new tokens (from ${sgCands.length} subgraph pools)`);
+  }
 
   // ── 3) Filter V3 candidates by REAL USDC liquidity (parallel eth_getBalance) ───────────────────────
   // Only MAX_NEW_PER_RUN are checked per run; the rest carry over in a backlog (so a run never hangs on
