@@ -154,6 +154,28 @@ async function poolActivity(token, pool) {
   return { volume24h: txns ? vol : null, txns24: txns || null, change24h, change1h, spark };
 }
 
+// Warp-curve tokens (WARP itself, un-migrated launches) have no Uniswap V3/V4 pool, so poolActivity can't
+// spark them (WARP's tiny V4 pool had 4 swaps/24h → empty). The Warp API DOES serve OHLC candles, so build
+// the sparkline + 1h/24h change + 24h volume from them. Returns null if the API has no usable history.
+async function warpActivity(addr) {
+  const c = await getJson(`${WARP}/tokens/${addr}/candles?interval=1h`).catch(() => null);
+  if (!Array.isArray(c) || c.length < 2) return null;
+  const rows = c.map((k) => ({ t: Number(k.time), close: Number(k.close), vol: Number(k.volume) || 0 }))
+    .filter((r) => isFinite(r.t) && isFinite(r.close) && r.close > 0)
+    .sort((a, b) => a.t - b.t);
+  if (rows.length < 2) return null;
+  const last = rows[rows.length - 1].close;
+  const nowT = rows[rows.length - 1].t;
+  const dayRows = rows.filter((r) => r.t >= nowT - 86400);
+  const first24 = (dayRows[0] || rows[0]).close;
+  const change24h = first24 > 0 ? ((last - first24) / first24) * 100 : null;
+  const prev1h = rows[rows.length - 2].close;
+  const change1h = prev1h > 0 ? ((last - prev1h) / prev1h) * 100 : null;
+  const volume24h = dayRows.reduce((s, r) => s + r.vol, 0) || null;
+  const tail = rows.slice(-24).map((r) => r.close); // last up-to-24 closes
+  return { volume24h, change24h, change1h, spark: tail.length >= 2 ? tail : null };
+}
+
 // Token metadata (icon + holder count) for tokens no aggregator covers. Icon = baked CoinGecko map;
 // holders from arc-scan REST (node can reach it; explorer.arc.io Cloudflare-blocks node fetch → 403).
 async function metaFor(addr) {
@@ -238,6 +260,23 @@ async function poolStats(token, pool) {
       price: num(w.price), liq: num(w.liquidity), mcap: num(w.mcap),
       volume24h: num(w.volume24h), change24h: num(w.change24h), createdAt: num(w.createdAt) }));
   }
+
+  // 2.5) Warp candle backfill — Warp-curve tokens with real liquidity but no sparkline (WARP itself, and any
+  // un-migrated Warp launch the indexer can't spark). Bounded to the top by liquidity so the bake stays fast.
+  const WARP_TOKEN = '0x384c60f98ecd4c26345499345c03d677e40f115e';
+  const warpFill = [...map.values()]
+    .filter((t) => (t.launchpad === 'Warp' || t.address === WARP_TOKEN) && (t.liq ?? 0) >= 5000 && (!t.spark || t.spark.length < 2))
+    .sort((a, b) => (b.liq ?? 0) - (a.liq ?? 0)).slice(0, 25);
+  console.log(`[snap] Warp candle backfill: ${warpFill.length} tokens`);
+  await Promise.all(warpFill.map(async (t) => {
+    const act = await warpActivity(t.address);
+    if (!act) return;
+    if (act.spark) t.spark = act.spark;
+    if (t.change24h == null && act.change24h != null) t.change24h = act.change24h;
+    if (t.change1h == null && act.change1h != null) t.change1h = act.change1h;
+    if (t.volume24h == null && act.volume24h != null) t.volume24h = act.volume24h;
+    if (!t.source) t.source = 'Warp'; // so the row shows a source badge
+  }));
 
   // 3) On-chain deep pools — the tokens no indexer covers get FULL activity data.
   console.log('[snap] on-chain deep pools…');
