@@ -417,7 +417,22 @@ export default function App() {
               </div>
             </section>
 
-            {/* ── Unreal Engine 5 · X1 City showpiece (our biggest marketing) ── */}
+            <div className="wrap"><section className="section home">
+              <Dashboard tab={dashTab} setTab={setDashTab}
+                data={{ liq: trending, new: launches, movers }} stats={dashStats}
+                onOpen={openToken} onAll={() => goScreener(dashTab === 'new' ? 'new' : 'all')} loading={loading} />
+
+              <div className="home-cta">
+                <div>
+                  <div className="kicker">The full board</div>
+                  <h2>Every token on Arc, ranked.</h2>
+                  <p>Sort {tokens.length || 500}+ tokens by liquidity or market cap, filter launchpads &amp; ecosystem, and dive into per-token trades, holders &amp; pools.</p>
+                </div>
+                <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <IconArrowRight className="arw" /></button>
+              </div>
+            </section></div>
+
+            {/* ── Unreal Engine 5 · X1 City showpiece — under the dashboard (our biggest marketing) ── */}
             <section className="ue5">
               <div className="ue5-bg"><img src="/hero-lava-3.jpg" alt="" /></div>
               <div className="wrap ue5-inner">
@@ -435,21 +450,6 @@ export default function App() {
                 </div>
               </div>
             </section>
-
-            <div className="wrap"><section className="section home">
-              <Dashboard tab={dashTab} setTab={setDashTab}
-                data={{ liq: trending, new: launches, movers }} stats={dashStats}
-                onOpen={openToken} onAll={() => goScreener(dashTab === 'new' ? 'new' : 'all')} loading={loading} />
-
-              <div className="home-cta">
-                <div>
-                  <div className="kicker">The full board</div>
-                  <h2>Every token on Arc, ranked.</h2>
-                  <p>Sort {tokens.length || 500}+ tokens by liquidity or market cap, filter launchpads &amp; ecosystem, and dive into per-token trades, holders &amp; pools.</p>
-                </div>
-                <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <IconArrowRight className="arw" /></button>
-              </div>
-            </section></div>
           </>
         )}
 
