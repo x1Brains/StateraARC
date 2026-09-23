@@ -13,6 +13,7 @@ const fmtUsd = (n) => {
   if (n >= 0.001) return '$' + n.toFixed(4);
   return '$' + n.toFixed(12).replace(/0+$/, '');
 };
+const fmtN = (n) => (n == null || !isFinite(n) ? '' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(Math.round(n)));
 
 export default async function handler(req, res) {
   const origin = `https://${req.headers.host}`;
@@ -34,22 +35,28 @@ export default async function handler(req, res) {
   const ch = t?.change24h;
   const chTxt = ch == null ? '' : ` (${ch >= 0 ? '+' : ''}${ch.toFixed(1)}% 24h)`;
   const title = t ? `$${sym}${price ? ` · ${price}` : ''}${chTxt} — StateraArc` : 'StateraArc — Arc token screener';
+  // Stats live in the DESCRIPTION now — the `summary` card is short (small square thumbnail + this text).
+  const stats = t ? [
+    t.mcap ? `MC ${fmtUsd(t.mcap)}` : '', t.liq ? `Liq ${fmtUsd(t.liq)}` : '',
+    t.volume24h ? `Vol ${fmtUsd(t.volume24h)}` : '', t.holders ? `${fmtN(t.holders)} holders` : '',
+  ].filter(Boolean).join(' · ') : '';
   const desc = t
-    ? `${t.name || sym} on Arc mainnet — live price, chart, liquidity, holders and real-time trades on StateraArc.`
+    ? `${stats ? stats + ' · ' : ''}${t.name || sym} on Arc mainnet — live chart, holders & trades on StateraArc.`
     : 'Live Arc-mainnet token screener — price, charts, liquidity, holders and trades.';
-  const img = addr ? `${origin}/api/og?token=${addr}&v=6` : `${origin}/api/og?v=6`; // v=N busts X/Discord's OG-image cache on a card redesign
+  // &sq=1 = the 600x600 square image X's `summary` card needs; v=N busts X/Discord's cached image on a redesign.
+  const img = addr ? `${origin}/api/og?token=${addr}&sq=1&v=7` : `${origin}/api/og?sq=1&v=7`;
   const pageUrl = `${origin}/token/${addr}`;
 
   const meta = [
     `<meta property="og:title" content="${esc(title)}"/>`,
     `<meta property="og:description" content="${esc(desc)}"/>`,
     `<meta property="og:image" content="${img}"/>`,
-    `<meta property="og:image:width" content="1200"/>`,
-    `<meta property="og:image:height" content="630"/>`,
+    `<meta property="og:image:width" content="600"/>`,
+    `<meta property="og:image:height" content="600"/>`,
     `<meta property="og:type" content="website"/>`,
     `<meta property="og:url" content="${pageUrl}"/>`,
     `<meta property="og:site_name" content="StateraArc"/>`,
-    `<meta name="twitter:card" content="summary_large_image"/>`,
+    `<meta name="twitter:card" content="summary"/>`,
     `<meta name="twitter:title" content="${esc(title)}"/>`,
     `<meta name="twitter:description" content="${esc(desc)}"/>`,
     `<meta name="twitter:image" content="${img}"/>`,

@@ -7,7 +7,7 @@ import WASM_B64 from '../lib/ogwasm.js';
 // Vercel's Node 24 (self-test came back blank there while identical code works locally); the WASM
 // build is the same bytecode everywhere. Both the font and the wasm are base64-embedded from lib/
 // (OUT of /api so they aren't compiled as functions) — self-fetch and fs-tracing both failed here.
-const OG_VER = 'v6-wasm';
+const OG_VER = 'v7-wasm';
 const FONT = Buffer.from(FONT_B64, 'base64');
 
 let wasmReady = null;
@@ -66,6 +66,7 @@ export default async function handler(req, res) {
     const origin = `https://${req.headers.host}`;
     const url = new URL(req.url, origin);
     const addr = (url.searchParams.get('token') || '').toLowerCase();
+    const square = url.searchParams.get('sq') === '1'; // 600x600 for X's compact `summary` card (short, not the tall banner)
     res.setHeader('x-og-ver', OG_VER);
 
     if (url.searchParams.get('debug')) {
@@ -102,7 +103,7 @@ export default async function handler(req, res) {
       <text x="${x}" y="508" font-family="Open Sans" font-size="23" fill="#8f8478" letter-spacing="2">${label}</text>
       <text x="${x}" y="564" font-family="Open Sans" font-size="46" fill="#ffffff">${value}</text>`;
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630">
+    const wideSvg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630">
       <defs>
         <radialGradient id="glow" cx="82%" cy="0%" r="70%">
           <stop offset="0%" stop-color="#ff7a1e" stop-opacity="0.28"/>
@@ -133,9 +134,27 @@ export default async function handler(req, res) {
       <text x="1136" y="602" text-anchor="end" font-family="Open Sans" font-size="26" fill="#6a635a">Screener · Swap · Portfolio</text>
     </svg>`;
 
-    const png = new Resvg(svg, {
+    // Square 600x600 for X's `summary` card — a small thumbnail (logo + $sym + price), short by design; the
+    // market-cap/liquidity/volume/holders live in the card's description text instead of on the image.
+    const sqSvg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="600" height="600">
+      <defs>
+        <radialGradient id="glow" cx="50%" cy="0%" r="85%"><stop offset="0%" stop-color="#ff7a1e" stop-opacity="0.30"/><stop offset="60%" stop-color="#ff7a1e" stop-opacity="0"/></radialGradient>
+        <clipPath id="lcs"><rect x="205" y="92" width="190" height="190" rx="40"/></clipPath>
+      </defs>
+      <rect width="600" height="600" fill="#0a0806"/>
+      <rect width="600" height="600" fill="url(#glow)"/>
+      <rect x="0" y="0" width="600" height="8" fill="#ff7a1e"/>
+      <text x="300" y="58" text-anchor="middle" font-family="Open Sans" font-size="23" fill="#ff7a1e" letter-spacing="5">STATERA · ARC</text>
+      ${logo ? `<rect x="205" y="92" width="190" height="190" rx="40" fill="#161310"/><image x="205" y="92" width="190" height="190" clip-path="url(#lcs)" preserveAspectRatio="xMidYMid slice" xlink:href="${logo}"/>` : ''}
+      <text x="300" y="382" text-anchor="middle" font-family="Open Sans" font-size="78" fill="#ffffff">$${sym}</text>
+      <text x="300" y="456" text-anchor="middle" font-family="Open Sans" font-size="62" fill="#ffffff">${priceInner(t?.price, 62)}</text>
+      ${chStr ? `<text x="300" y="516" text-anchor="middle" font-family="Open Sans" font-size="38" fill="${chColor}">${esc(chStr)}</text>` : ''}
+      <text x="300" y="568" text-anchor="middle" font-family="Open Sans" font-size="22" fill="#8f8478">Arc Mainnet · stateraarc.com</text>
+    </svg>`;
+
+    const png = new Resvg(square ? sqSvg : wideSvg, {
       font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false },
-      fitTo: { mode: 'width', value: 1200 },
+      fitTo: { mode: 'width', value: square ? 600 : 1200 },
     }).render().asPng();
 
     res.setHeader('content-type', 'image/png');
