@@ -45,7 +45,7 @@ export default async function handler(req, res) {
     `<meta property="og:description" content="${esc(desc)}"/>`,
     `<meta property="og:image" content="${img}"/>`,
     `<meta property="og:image:width" content="1200"/>`,
-    `<meta property="og:image:height" content="630"/>`,
+    `<meta property="og:image:height" content="480"/>`,
     `<meta property="og:type" content="website"/>`,
     `<meta property="og:url" content="${pageUrl}"/>`,
     `<meta property="og:site_name" content="StateraArc"/>`,

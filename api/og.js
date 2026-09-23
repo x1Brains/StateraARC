@@ -27,6 +27,23 @@ const fmtUsd = (n) => {
 };
 const fmtNum = (n) => (n == null || !isFinite(n) ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(Math.round(n)));
 const esc = (s) => String(s == null ? '' : s).replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c]));
+// Compact price as SVG inner-markup (goes inside a <text>). Tiny prices use a subscript zero-count drawn
+// with a normal digit via <tspan> (a font glyph we KNOW exists) — so $0.00005152 shows as $0.0[4]5152
+// instead of a wall of decimals, without risking a missing Unicode-subscript glyph rendering as tofu.
+// `fs` = the parent price font-size, so the tspan can reset cleanly after the smaller subscript digit.
+const priceInner = (n, fs) => {
+  if (n == null || !isFinite(n) || n <= 0) return '—';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+  if (n >= 1) return '$' + n.toFixed(2);
+  if (n >= 0.001) return '$' + n.toFixed(4);
+  const m = n.toFixed(12).match(/^0\.(0*)(\d+?)0*$/);
+  if (!m) return '$' + n.toPrecision(3);
+  const zeros = m[1].length, sig = m[2].slice(0, 4);
+  if (zeros < 4) return '$0.' + m[1] + sig;
+  const sub = Math.round(fs * 0.55), dy = Math.round(fs * 0.22);
+  return `$0.0<tspan font-size="${sub}" dy="${dy}">${zeros}</tspan><tspan font-size="${fs}" dy="${-dy}">${sig}</tspan>`;
+};
 
 async function logoDataUri(t, addr) {
   const tries = [t?.iconUrl, addr ? `https://api.tollylabs.com/token-image/${addr}.png` : null].filter(Boolean);
@@ -75,41 +92,42 @@ export default async function handler(req, res) {
     const chStr = ch == null ? '' : `${ch >= 0 ? '+' : '-'}${Math.abs(ch).toFixed(1)}% 24h`;
     const chColor = ch == null ? '#8f8478' : ch >= 0 ? '#4ecb71' : '#ff5a5a';
     const [logo] = await Promise.all([logoDataUri(t, addr), ensureWasm()]);
-    const symX = logo ? 244 : 64;
+    const symX = logo ? 188 : 64;
 
+    // Shorter card (480 vs 630) — the old one unfurled way too tall, especially on mobile.
     const stat = (x, label, value) => `
-      <text x="${x}" y="502" font-family="Open Sans" font-size="22" fill="#8f8478" letter-spacing="2">${label}</text>
-      <text x="${x}" y="552" font-family="Open Sans" font-size="42" fill="#ffffff">${value}</text>`;
+      <text x="${x}" y="356" font-family="Open Sans" font-size="20" fill="#8f8478" letter-spacing="2">${label}</text>
+      <text x="${x}" y="398" font-family="Open Sans" font-size="34" fill="#ffffff">${value}</text>`;
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630">
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="480">
       <defs>
         <radialGradient id="glow" cx="82%" cy="0%" r="70%">
           <stop offset="0%" stop-color="#ff7a1e" stop-opacity="0.28"/>
           <stop offset="60%" stop-color="#ff7a1e" stop-opacity="0"/>
         </radialGradient>
-        <clipPath id="lc"><rect x="64" y="150" width="150" height="150" rx="28"/></clipPath>
+        <clipPath id="lc"><rect x="64" y="86" width="104" height="104" rx="24"/></clipPath>
       </defs>
-      <rect width="1200" height="630" fill="#0a0806"/>
-      <rect width="1200" height="630" fill="url(#glow)"/>
+      <rect width="1200" height="480" fill="#0a0806"/>
+      <rect width="1200" height="480" fill="url(#glow)"/>
       <rect x="0" y="0" width="1200" height="6" fill="#ff7a1e"/>
 
-      <text x="64" y="98" font-family="Open Sans" font-size="30" fill="#ff7a1e" letter-spacing="6">STATERA · ARC</text>
-      <text x="1136" y="98" text-anchor="end" font-family="Open Sans" font-size="26" fill="#8f8478">Arc Mainnet · USDC</text>
+      <text x="64" y="54" font-family="Open Sans" font-size="26" fill="#ff7a1e" letter-spacing="6">STATERA · ARC</text>
+      <text x="1136" y="54" text-anchor="end" font-family="Open Sans" font-size="24" fill="#8f8478">Arc Mainnet · USDC</text>
 
-      ${logo ? `<rect x="64" y="150" width="150" height="150" rx="28" fill="#161310"/><image x="64" y="150" width="150" height="150" clip-path="url(#lc)" preserveAspectRatio="xMidYMid slice" xlink:href="${logo}"/>` : ''}
-      <text x="${symX}" y="238" font-family="Open Sans" font-size="88" fill="#ffffff">$${sym}</text>
-      <text x="${symX}" y="288" font-family="Open Sans" font-size="32" fill="#8f8478">${name}</text>
+      ${logo ? `<rect x="64" y="86" width="104" height="104" rx="24" fill="#161310"/><image x="64" y="86" width="104" height="104" clip-path="url(#lc)" preserveAspectRatio="xMidYMid slice" xlink:href="${logo}"/>` : ''}
+      <text x="${symX}" y="150" font-family="Open Sans" font-size="64" fill="#ffffff">$${sym}</text>
+      <text x="${symX}" y="190" font-family="Open Sans" font-size="26" fill="#8f8478">${name}</text>
 
-      <text x="64" y="418" font-family="Open Sans" font-size="96" fill="#ffffff">${esc(fmtUsd(t?.price))}</text>
-      ${chStr ? `<text x="1136" y="410" text-anchor="end" font-family="Open Sans" font-size="46" fill="${chColor}">${esc(chStr)}</text>` : ''}
+      <text x="64" y="286" font-family="Open Sans" font-size="68" fill="#ffffff">${priceInner(t?.price, 68)}</text>
+      ${chStr ? `<text x="1136" y="280" text-anchor="end" font-family="Open Sans" font-size="40" fill="${chColor}">${esc(chStr)}</text>` : ''}
 
       ${stat(64, 'MARKET CAP', esc(fmtUsd(t?.mcap)))}
       ${stat(360, 'LIQUIDITY', esc(fmtUsd(t?.liq)))}
       ${stat(656, 'VOL 24H', esc(fmtUsd(t?.volume24h)))}
       ${stat(952, 'HOLDERS', esc(fmtNum(t?.holders)))}
 
-      <text x="64" y="602" font-family="Open Sans" font-size="26" fill="#6a635a">stateraarc.com</text>
-      <text x="1136" y="602" text-anchor="end" font-family="Open Sans" font-size="26" fill="#6a635a">Screener · Swap · Portfolio</text>
+      <text x="64" y="452" font-family="Open Sans" font-size="22" fill="#6a635a">stateraarc.com</text>
+      <text x="1136" y="452" text-anchor="end" font-family="Open Sans" font-size="22" fill="#6a635a">Screener · Swap · Portfolio</text>
     </svg>`;
 
     const png = new Resvg(svg, {
