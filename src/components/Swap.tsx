@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { compact, usd, CHAIN, fetchPortfolioMainnet, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx } from '../lib/arc';
+import { compact, usd, CHAIN, fetchPortfolioMainnet, fetchHoldingsMainnet, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 import { IconSwapVertical, IconExternal } from './icons';
 import {
@@ -119,21 +119,41 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
 
   // Connected wallet's holdings (top tokens) + recent transactions — the side panel (X1-style).
   const [holdings, setHoldings] = useState<RadarHolding[] | null>(null);
-  const [pfTotal, setPfTotal] = useState<number | null>(null);
   const [acts, setActs] = useState<WalletTx[] | null>(null);
   useEffect(() => {
-    if (!wallet) { setHoldings(null); setActs(null); setPfTotal(null); return; }
+    if (!wallet) { setHoldings(null); setActs(null); return; }
     let alive = true;
     setHoldings((h) => h ?? null); setActs((a) => a ?? null);
     // Explorer lists the full bag in one call; RadarDEX /portfolio is only a fallback (it often
     // returned USDC alone and dropped the rest).
     fetchPortfolioMainnet(wallet)
       .then(async (pf) => (pf.holdings.length ? pf : await fetchRadarPortfolio(wallet).catch(() => pf)))
-      .then((pf) => { if (alive) { setHoldings(pf.holdings); setPfTotal(pf.total); } })
+      .then((pf) => { if (alive) setHoldings(pf.holdings); })
       .catch(() => { if (alive) setHoldings([]); });
+    // Phase 2: the fast explorer call misses some tokens (ARCX10, a V4-only token, was missing). Directly
+    // read balances of the CORE tradeable tokens (ARCX10, WARP, ARGUS, TOLLY, LONG, COOL…) via Multicall and
+    // price them from the screener list we already have — guaranteed to catch a held core token. Add any the
+    // explorer missed (never overwrite a real explorer row) and re-sort by value.
+    fetchHoldingsMainnet(wallet).then((core) => {
+      if (!alive || !core.length) return;
+      const byScreener = new Map(tokens.map((t) => [t.address.toLowerCase(), t]));
+      setHoldings((prev) => {
+        const byAddr = new Map((prev || []).map((h) => [h.address.toLowerCase(), h]));
+        for (const h of core) {
+          const k = h.address.toLowerCase();
+          if (byAddr.has(k)) continue; // explorer already has it
+          const t = byScreener.get(k); const price = t?.price ?? null;
+          byAddr.set(k, { address: k, symbol: h.symbol, name: h.name, decimals: h.decimals, icon: h.iconUrl ?? t?.iconUrl ?? null, price, amount: h.balance, usd: price != null ? h.balance * price : null });
+        }
+        return [...byAddr.values()].sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0) || b.amount - a.amount);
+      });
+    }).catch(() => { /* explorer result stands */ });
     fetchAddressTxs(wallet, 12).then((t) => { if (alive) setActs(t); }).catch(() => { if (alive) setActs([]); });
     return () => { alive = false; };
   }, [wallet, phaseTick]); // eslint-disable-line
+
+  // Total = sum of the listed holdings' USD, so it always matches what's shown (incl. the phase-2 core merge).
+  const pfTotal = holdings && holdings.some((h) => h.usd != null) ? holdings.reduce((s, h) => s + (h.usd ?? 0), 0) : null;
 
   const [quote, setQuote] = useState<Quote | null>(null);
   const [estimate, setEstimate] = useState<{ out: number } | null>(null);
