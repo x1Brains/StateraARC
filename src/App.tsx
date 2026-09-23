@@ -475,6 +475,8 @@ export default function App() {
 
             <div className="stats">
               <div className="stat"><div className="v">{tokens.length || '—'}</div><div className="l">Tokens Tracked</div></div>
+              <div className="stat"><div className="v">{dashStats.vol24 > 0 ? usd(dashStats.vol24) : '—'}</div><div className="l">24h Volume</div></div>
+              <div className="stat"><div className="v">{dashStats.newToday || '—'}</div><div className="l">New Today</div></div>
               <div className="stat"><div className="v">{launchpadCount || '—'}</div><div className="l">Launchpad Tokens</div></div>
               <div className="stat"><div className="v">{ecoCount || '—'}</div><div className="l">Ecosystem</div></div>
               <div className="stat"><div className="v r">LIVE</div><div className="l">Mainnet · 5042</div></div>
