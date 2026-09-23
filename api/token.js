@@ -37,7 +37,7 @@ export default async function handler(req, res) {
   const desc = t
     ? `${t.name || sym} on Arc mainnet — live price, chart, liquidity, holders and real-time trades on StateraArc.`
     : 'Live Arc-mainnet token screener — price, charts, liquidity, holders and trades.';
-  const img = addr ? `${origin}/api/og?token=${addr}` : `${origin}/api/og`;
+  const img = addr ? `${origin}/api/og?token=${addr}&v=6` : `${origin}/api/og?v=6`; // v=N busts X/Discord's OG-image cache on a card redesign
   const pageUrl = `${origin}/token/${addr}`;
 
   const meta = [
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
     `<meta property="og:description" content="${esc(desc)}"/>`,
     `<meta property="og:image" content="${img}"/>`,
     `<meta property="og:image:width" content="1200"/>`,
-    `<meta property="og:image:height" content="480"/>`,
+    `<meta property="og:image:height" content="630"/>`,
     `<meta property="og:type" content="website"/>`,
     `<meta property="og:url" content="${pageUrl}"/>`,
     `<meta property="og:site_name" content="StateraArc"/>`,

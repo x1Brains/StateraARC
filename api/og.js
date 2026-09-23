@@ -7,7 +7,7 @@ import WASM_B64 from '../lib/ogwasm.js';
 // Vercel's Node 24 (self-test came back blank there while identical code works locally); the WASM
 // build is the same bytecode everywhere. Both the font and the wasm are base64-embedded from lib/
 // (OUT of /api so they aren't compiled as functions) — self-fetch and fs-tracing both failed here.
-const OG_VER = 'v5-wasm';
+const OG_VER = 'v6-wasm';
 const FONT = Buffer.from(FONT_B64, 'base64');
 
 let wasmReady = null;
@@ -92,42 +92,45 @@ export default async function handler(req, res) {
     const chStr = ch == null ? '' : `${ch >= 0 ? '+' : '-'}${Math.abs(ch).toFixed(1)}% 24h`;
     const chColor = ch == null ? '#8f8478' : ch >= 0 ? '#4ecb71' : '#ff5a5a';
     const [logo] = await Promise.all([logoDataUri(t, addr), ensureWasm()]);
-    const symX = logo ? 188 : 64;
+    const symX = logo ? 234 : 64;
 
-    // Shorter card (480 vs 630) — the old one unfurled way too tall, especially on mobile.
+    // 1200x630 = Twitter/X's exact link-card ratio (1.91:1). ⛔ A SHORTER image gets center-cropped by X (it
+    // fills the card and trims the sides — "STATERA"->"TERA", "$0.0020"->".0020"). So this is the floor for an
+    // uncropped card; the layout is filled generously so it reads full, not empty. (Discord/Telegram DO honor a
+    // shorter aspect, but X does not — its card height is fixed.)
     const stat = (x, label, value) => `
-      <text x="${x}" y="356" font-family="Open Sans" font-size="20" fill="#8f8478" letter-spacing="2">${label}</text>
-      <text x="${x}" y="398" font-family="Open Sans" font-size="34" fill="#ffffff">${value}</text>`;
+      <text x="${x}" y="508" font-family="Open Sans" font-size="23" fill="#8f8478" letter-spacing="2">${label}</text>
+      <text x="${x}" y="564" font-family="Open Sans" font-size="46" fill="#ffffff">${value}</text>`;
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="480">
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630">
       <defs>
         <radialGradient id="glow" cx="82%" cy="0%" r="70%">
           <stop offset="0%" stop-color="#ff7a1e" stop-opacity="0.28"/>
           <stop offset="60%" stop-color="#ff7a1e" stop-opacity="0"/>
         </radialGradient>
-        <clipPath id="lc"><rect x="64" y="86" width="104" height="104" rx="24"/></clipPath>
+        <clipPath id="lc"><rect x="64" y="128" width="150" height="150" rx="28"/></clipPath>
       </defs>
-      <rect width="1200" height="480" fill="#0a0806"/>
-      <rect width="1200" height="480" fill="url(#glow)"/>
+      <rect width="1200" height="630" fill="#0a0806"/>
+      <rect width="1200" height="630" fill="url(#glow)"/>
       <rect x="0" y="0" width="1200" height="6" fill="#ff7a1e"/>
 
-      <text x="64" y="54" font-family="Open Sans" font-size="26" fill="#ff7a1e" letter-spacing="6">STATERA · ARC</text>
-      <text x="1136" y="54" text-anchor="end" font-family="Open Sans" font-size="24" fill="#8f8478">Arc Mainnet · USDC</text>
+      <text x="64" y="80" font-family="Open Sans" font-size="30" fill="#ff7a1e" letter-spacing="6">STATERA · ARC</text>
+      <text x="1136" y="80" text-anchor="end" font-family="Open Sans" font-size="26" fill="#8f8478">Arc Mainnet · USDC</text>
 
-      ${logo ? `<rect x="64" y="86" width="104" height="104" rx="24" fill="#161310"/><image x="64" y="86" width="104" height="104" clip-path="url(#lc)" preserveAspectRatio="xMidYMid slice" xlink:href="${logo}"/>` : ''}
-      <text x="${symX}" y="150" font-family="Open Sans" font-size="64" fill="#ffffff">$${sym}</text>
-      <text x="${symX}" y="190" font-family="Open Sans" font-size="26" fill="#8f8478">${name}</text>
+      ${logo ? `<rect x="64" y="128" width="150" height="150" rx="28" fill="#161310"/><image x="64" y="128" width="150" height="150" clip-path="url(#lc)" preserveAspectRatio="xMidYMid slice" xlink:href="${logo}"/>` : ''}
+      <text x="${symX}" y="216" font-family="Open Sans" font-size="88" fill="#ffffff">$${sym}</text>
+      <text x="${symX}" y="270" font-family="Open Sans" font-size="32" fill="#8f8478">${name}</text>
 
-      <text x="64" y="286" font-family="Open Sans" font-size="68" fill="#ffffff">${priceInner(t?.price, 68)}</text>
-      ${chStr ? `<text x="1136" y="280" text-anchor="end" font-family="Open Sans" font-size="40" fill="${chColor}">${esc(chStr)}</text>` : ''}
+      <text x="64" y="420" font-family="Open Sans" font-size="104" fill="#ffffff">${priceInner(t?.price, 104)}</text>
+      ${chStr ? `<text x="1136" y="408" text-anchor="end" font-family="Open Sans" font-size="52" fill="${chColor}">${esc(chStr)}</text>` : ''}
 
       ${stat(64, 'MARKET CAP', esc(fmtUsd(t?.mcap)))}
       ${stat(360, 'LIQUIDITY', esc(fmtUsd(t?.liq)))}
       ${stat(656, 'VOL 24H', esc(fmtUsd(t?.volume24h)))}
       ${stat(952, 'HOLDERS', esc(fmtNum(t?.holders)))}
 
-      <text x="64" y="452" font-family="Open Sans" font-size="22" fill="#6a635a">stateraarc.com</text>
-      <text x="1136" y="452" text-anchor="end" font-family="Open Sans" font-size="22" fill="#6a635a">Screener · Swap · Portfolio</text>
+      <text x="64" y="602" font-family="Open Sans" font-size="26" fill="#6a635a">stateraarc.com</text>
+      <text x="1136" y="602" text-anchor="end" font-family="Open Sans" font-size="26" fill="#6a635a">Screener · Swap · Portfolio</text>
     </svg>`;
 
     const png = new Resvg(svg, {
