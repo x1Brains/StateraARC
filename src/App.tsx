@@ -546,7 +546,7 @@ export default function App() {
                     <span className={`num${sort === 'liq' ? ' hot' : ''}`} data-l="Liquidity">{t.liq == null ? '—' : usd(t.liq)}</span>
                     <span className="num" data-l="Holders">{fmt(t.holders)}</span>
                     <span className="num age" data-l="Age">{ageStr(t.createdAt)}</span>
-                    <span className="num spark-cell" data-l="Last 24h"><Sparkline data={t.spark} /></span>
+                    <span className="num spark-cell" data-l="Last 24h"><Sparkline data={t.spark} price={t.price} change24h={t.change24h} /></span>
                     <span className="flags">
                       {(() => { const c = confScore(t); return c != null ? <span className={`badge conf ${c >= 70 ? 'good' : c >= 40 ? 'mid' : 'bad'}`} title="Confidence — liquidity depth, holders, stability">{c}</span> : null; })()}
                       {t.launchpad && <span className="badge b-lp">{t.launchpad}</span>}
