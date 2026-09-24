@@ -133,15 +133,21 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
           // leave the "reading the chain" bar up that whole time — retire it after ~18s regardless. Phase 2
           // still replaces the view with the complete bag whenever it lands.
           hideTimer = setTimeout(() => { if (alive) setEnriching(false); }, 18000);
+        } else {
+          // ⛔ An EMPTY wallet used to sit on a blank "Loading holdings…" for the whole cold scan (~60-90s) plus the
+          // curated fallback, and read as a broken site (owner, 09-24). The quick sources found nothing, so say so
+          // NOW and keep the scan bar up while the full on-chain read double-checks.
+          setLoading(false); setEnriching(true);
         }
 
         // PHASE 2 — the COMPLETE on-chain read (Transfer-log discovery + Multicall3 balanceOf + V3/V2/
         // Warp/V4 pricing across our RPCs). It's the full, correct bag; it replaces the fast view.
-        const oc = await fetchHoldingsOnchain(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }));
+        const oc = await fetchHoldingsOnchain(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[], ok: false }));
         if (!alive) return;
         let finalSet: { h: Holding[]; seeded: Record<string, number> };
         if (oc.holdings.length) { finalSet = apply(oc.holdings); }
         else if (fast.length) { finalSet = apply(fast); }
+        else if (oc.ok) { finalSet = { h: [], seeded: {} }; }   // the full scan ANSWERED: this wallet really holds nothing
         else {
           // last resort: curated on-chain balanceOf scan
           const scan = tokens.filter((t) => t.price != null || t.liq != null || t.isEcosystem || t.launchpad);
@@ -349,7 +355,9 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
               </div>
             </div>
           )}
-          {!rows.length && !nfts.length && <div className="msg">No token holdings found for this address on {mainnet ? 'Arc Mainnet' : CHAIN.name}.</div>}
+          {!rows.length && !nfts.length && (enriching
+            ? <div className="msg">No tokens found in the quick check. Doing a full on-chain scan to be sure — for a wallet the site hasn't seen before this can take up to a minute.</div>
+            : <div className="msg">This wallet doesn't hold any tokens on {mainnet ? 'Arc Mainnet' : CHAIN.name}.</div>)}
         </>
       )}
       {sendTok && wallet && <SendModal token={sendTok} wallet={wallet} onClose={() => setSendTok(null)} onSent={() => setTimeout(() => setRefreshTick((t) => t + 1), 4000)} />}

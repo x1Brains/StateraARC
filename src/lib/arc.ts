@@ -247,19 +247,21 @@ export interface RadarHolding { address: string; symbol: string; name: string; d
 // from the chain (Transfer-log discovery + Multicall3 balanceOf across our 3 Arc RPCs) — not one indexer.
 // explorer.arc.io is Cloudflare-walled and RadarDEX /portfolio only knows pooled tokens, so both dropped
 // the nanocaps/airdrops a wallet actually holds. This returns them, native USDC included, priced on-chain.
-export async function fetchHoldingsOnchain(addr: string): Promise<{ total: number | null; holdings: RadarHolding[] }> {
+// `ok` = the scan actually ANSWERED. An empty list with ok:true is a real "this wallet holds nothing"; with ok:false
+// the scan failed or timed out and the caller should try another source instead of declaring the wallet empty.
+export async function fetchHoldingsOnchain(addr: string): Promise<{ total: number | null; holdings: RadarHolding[]; ok: boolean }> {
   try {
     // Cap the wait so a cold scan can never hang the "loading" indicator indefinitely — the VPS finishes
     // and caches in the background regardless, so a re-load lands the full bag fast.
     const j = await fetch(`/api/holdings?addr=${addr.toLowerCase()}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(105000) }).then((r) => r.json());
-    if (!j || !Array.isArray(j.holdings)) return { total: null, holdings: [] };
+    if (!j || !Array.isArray(j.holdings)) return { total: null, holdings: [], ok: false };
     const holdings: RadarHolding[] = j.holdings.map((h: any) => ({
       address: (h.address || '').toLowerCase(), symbol: h.symbol || '?', name: h.name || h.symbol || '?',
       decimals: h.decimals ?? 18, icon: h.iconUrl ?? null, price: rnum(h.price),
       amount: Number(h.amount ?? 0), usd: rnum(h.usd),
     })).filter((h: RadarHolding) => h.address && h.amount > 0);
-    return { total: rnum(j.total), holdings };
-  } catch { return { total: null, holdings: [] }; }
+    return { total: rnum(j.total), holdings, ok: true };
+  } catch { return { total: null, holdings: [], ok: false }; }
 }
 // One-call wallet holdings with value + icons — makes the portfolio tracker instant (no on-chain scan).
 export async function fetchRadarPortfolio(addr: string): Promise<{ total: number | null; holdings: RadarHolding[] }> {
