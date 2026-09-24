@@ -4,11 +4,18 @@
  *
  * Runs on the VPS (which RadarDEX does NOT Cloudflare-block and which has solid RPC), bakes the COMPLETE
  * dataset into public/tokens-snapshot.json, and the browser just reads that one file — correct, complete
- * data every load, immune to the next third-party API block. Sources, merged by address:
- *   1. RadarDEX /tokens (500)  — price, liq, mcap, holders, 1h/24h change, 24h volume, sparkline, txns, icon, launchpad, socials, deploy time
- *   2. Warp /tokens            — adds Warp-only tokens + images, fills gaps
- *   3. On-chain deep V3 pools  — Argus/Tolly/Long/Architects/… that NO indexer covers: price+liq+mcap from
- *                                reserves, 24h volume + 24h change + sparkline from the pool's Swap events
+ * data every load, immune to the next third-party API block.
+ *
+ * ⛔⛔ ON-CHAIN IS THE SOURCE OF TRUTH (owner, 09-24: "we gotta read everything from on chain… the radar… is a
+ * backup"). Merge order, by address — an EARLIER source's value is never overwritten by a later one:
+ *   1. On-chain discovery (scripts/onchain-discover.mjs, V3+V4 pools straight from the chain) — price/liq/mcap/
+ *      24h volume/change/spark for every token with a real USDC pool
+ *   2. On-chain deep pools (the curated list below, incl. V2) — AUTHORITATIVE, overwrite 1 for their tokens
+ *   3. Circle & Arc core tokens
+ *   4. RadarDEX /tokens — BACKUP: only fills fields the chain left empty (holders, icons, socials, 5m/6h change,
+ *      launchpad name) and adds tokens with no on-chain USDC pool found
+ *   5. Warp /tokens — BACKUP, same rule (Warp bonding-curve tokens have no pool yet)
+ * Every row carries `priceFrom`: 'chain' | 'radar' | 'warp', so the site can tell the two apart.
  * Usage: node scripts/snapshot-mainnet.mjs [maxTokens]
  */
 import fs from 'fs';
@@ -20,6 +27,7 @@ const RADAR = process.env.RADAR_DIRECT || 'https://api.radardex.pro';
 const WARP = 'https://warp-arc-production.up.railway.app/api';
 const EXPLORER = 'https://explorer.arc.io/api/v2';
 const RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org', 'https://arc.gateway.tenderly.co'];
+const RPCS_BIG = ['https://arc.gateway.tenderly.co', 'https://rpc.blockdaemon.mainnet.arc.io']; // accept 95k-block getLogs
 const MAX = Number(process.argv[2] || 500);
 const NATIVE_USDC = '0x3600000000000000000000000000000000000000';
 const SWAP_V3 = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
@@ -96,6 +104,34 @@ const call = (to, data) => rpc('eth_call', [{ to, data }, 'latest']);
 const balOf = (token, who) => call(token, '0x70a08231000000000000000000000000' + who.slice(2).toLowerCase());
 const hexToInt = (h) => { try { return BigInt(h); } catch { return 0n; } };
 
+// getLogs over [from, to]: 95k-block ranges on the RPCs that allow them; a range that fails is re-read in 2.5k
+// chunks on the normal RPCs. Logs come back in block order.
+async function getLogsWide(filter, from, to) {
+  const out = [];
+  for (let f = from; f < to; f += 95000n) {
+    const t = f + 95000n > to ? to : f + 95000n;
+    let got = null;
+    for (let a = 0; a < 4 && !got; a++) {
+      try {
+        const r = await fetch(RPCS_BIG[a % RPCS_BIG.length], { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getLogs', params: [{ ...filter, fromBlock: '0x' + f.toString(16), toBlock: '0x' + t.toString(16) }] }) }).then((x) => x.json());
+        if (Array.isArray(r?.result)) got = r.result;
+      } catch { /* next */ }
+      if (!got) await sleep(300 * (a + 1));
+    }
+    if (!got) {
+      got = [];
+      for (let c = f; c < t; c += 2500n) {
+        const ct = c + 2500n > t ? t : c + 2500n;
+        const logs = await rpc('eth_getLogs', [{ ...filter, fromBlock: '0x' + c.toString(16), toBlock: '0x' + ct.toString(16) }]);
+        if (Array.isArray(logs)) got.push(...logs);
+      }
+    }
+    out.push(...got);
+  }
+  return out;
+}
+
 // 24h price series + volume for a deep V3 pool, straight from its Swap events.
 async function poolActivity(token, pool) {
   const t0 = await call(pool, '0x0dfe1681'); // token0()
@@ -106,16 +142,16 @@ async function poolActivity(token, pool) {
   // estimate block time over 20k blocks to size a 24h window
   const [hb, ob] = await Promise.all([rpc('eth_getBlockByNumber', [head, false]), rpc('eth_getBlockByNumber', ['0x' + (H - 20000n).toString(16), false])]);
   const bt = (hb?.timestamp && ob?.timestamp) ? Math.max(0.1, (Number(hexToInt(hb.timestamp)) - Number(hexToInt(ob.timestamp))) / 20000) : 0.5;
-  const blocks24h = Math.min(60000, Math.round(86400 / bt)); // cap the scan
-  const CH = 2500n;
+  // ⛔⛔ This was capped at 60,000 blocks — at ~0.46s/block that is ~7.7 HOURS, not 24h, so every deep pool's
+  // "24h" volume/change/spark was a third of a day (ARGUS $237K vs $727K real, 09-24). Now the full 24h
+  // (same 400k safety cap as onchain-discover.mjs), read in wide ranges.
+  const blocks24h = Math.min(400000, Math.round(86400 / bt));
   let vol = 0, txns = 0;
   const pts = []; // {b, price}
-  for (let from = H - BigInt(blocks24h); from < H; from += CH) {
-    const to = from + CH > H ? H : from + CH;
+  {
     // Scan BOTH Uniswap-V3 and V2-style Swap events (ARCAT and other pools are V2, which the V3-only
     // scan silently missed → "$0 volume / no trades" on real, liquid tokens).
-    const logs = await rpc('eth_getLogs', [{ address: pool, topics: [[SWAP_V3, SWAP_V2]], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }]);
-    if (!Array.isArray(logs)) continue;
+    const logs = await getLogsWide({ address: pool, topics: [[SWAP_V3, SWAP_V2]] }, H - BigInt(blocks24h), H);
     for (const l of logs) {
       try {
         const d = l.data.slice(2);
@@ -229,12 +265,35 @@ async function poolStats(token, pool) {
   const mk = (o) => ({ holders: null, iconUrl: null, launchpad: null, isOurs: false, isEcosystem: false,
     price: null, liq: null, mcap: null, fdv: null, volume24h: null, change5m: null, change1h: null, change6h: null,
     change24h: null, spark: null, txns24: null, source: null, createdAt: null, ...o, address: o.address.toLowerCase() });
+  const chainPriced = new Set();
   const set = (t) => { const k = t.address.toLowerCase(); const c = map.get(k);
     if (!c) { map.set(k, mk(t)); return; }
     for (const key of Object.keys(t)) { const v = t[key]; if (v == null) continue; if (c[key] == null) c[key] = v; }
+    // 'onchain' is only a placeholder launchpad; an indexer's real launchpad NAME is metadata, not market data
+    if (c.launchpad === 'onchain' && t.launchpad && t.launchpad !== 'onchain') c.launchpad = t.launchpad;
     c.isEcosystem = c.isEcosystem || t.isEcosystem; };
 
-  // 1) RadarDEX — the rich backbone (VPS reaches it fine).
+  // 1) ON-CHAIN discovery FIRST (V3 + V4, read straight from chain by scripts/onchain-discover.mjs) — every
+  // token with a real USDC pool. This is the primary source; nothing later overwrites what it set.
+  try {
+    const ocFile = process.env.ONCHAIN_OUT || '/root/arc-indexer/onchain-tokens.json';
+    if (fs.existsSync(ocFile)) {
+      const oc = JSON.parse(fs.readFileSync(ocFile, 'utf8'));
+      let added = 0;
+      for (const t of (oc.tokens || [])) {
+        const a = (t.address || '').toLowerCase(); if (!a) continue;
+        if (map.has(a)) { const row = map.get(a); if (row.price == null && t.price != null) row.price = t.price; if (row.liq == null && t.liq != null) row.liq = t.liq; if (row.mcap == null && t.mcap != null) row.mcap = t.mcap; if (row.volume24h == null && t.volume24h != null) row.volume24h = t.volume24h; if (row.change24h == null && t.change24h != null) row.change24h = t.change24h; if (!row.iconUrl && t.iconUrl) row.iconUrl = t.iconUrl; if (row.holders == null && t.holders != null) row.holders = t.holders; if (!row.poolId && t.poolId) { row.poolId = t.poolId; row.usdcIsC0 = !!t.usdcIsC0; } if (row.decimals == null && t.decimals != null) row.decimals = t.decimals; if (!row.pool && t.pool) row.pool = t.pool; if (t.hooked) row.hooked = true; continue; }
+        const row = mk({ address: a, name: t.name, symbol: t.symbol, price: t.price ?? null, liq: t.liq ?? null, mcap: t.mcap ?? null, launchpad: t.launchpad ?? null, source: t.source ?? 'onchain', iconUrl: t.iconUrl ?? null, holders: t.holders ?? null });
+        row.volume24h = t.volume24h ?? null; row.change24h = t.change24h ?? null; row.change1h = t.change1h ?? null; row.createdAt = t.createdAt ?? null; if (Array.isArray(t.spark)) row.spark = t.spark;
+        row.pool = t.pool ?? null; row.poolId = t.poolId ?? null; row.usdcIsC0 = !!t.usdcIsC0; row.decimals = t.decimals ?? 18; row.hooked = !!t.hooked;
+        set(row); chainPriced.add(a);
+        added++;
+      }
+      console.log(`[snap] on-chain discovery merged: +${added} new (of ${oc.tokens?.length || 0})`);
+    } else { console.log('[snap] no on-chain discovery file yet'); }
+  } catch (e) { console.log('[snap] on-chain merge skipped:', e.message); }
+
+  // 4) RadarDEX — BACKUP only: fills what the chain left empty, adds tokens with no on-chain pool.
   console.log('[snap] RadarDEX…');
   const rd = await getJson(`${RADAR}/tokens?limit=${MAX}`);
   const rlist = rd?.tokens || rd || [];
@@ -253,7 +312,7 @@ async function poolStats(token, pool) {
   }
   console.log(`[snap] RadarDEX ${rlist.length} tokens`);
 
-  // 2) Warp — adds Warp-only tokens + images.
+  // 5) Warp — BACKUP only, same rule.
   console.log('[snap] Warp…');
   const warp = await getJson(`${WARP}/tokens?sort=liquidity&limit=800`);
   for (const w of (Array.isArray(warp) ? warp : [])) {
@@ -281,7 +340,7 @@ async function poolStats(token, pool) {
     if (!t.source) t.source = 'Warp'; // so the row shows a source badge
   }));
 
-  // 3) On-chain deep pools — the tokens no indexer covers get FULL activity data.
+  // 2) On-chain deep pools — AUTHORITATIVE for their tokens (overwrite step 1).
   console.log('[snap] on-chain deep pools…');
   for (const [token, meta] of Object.entries(POOLS)) {
     const [stats, act, ex] = await Promise.all([poolStats(token, meta.pool), poolActivity(token, meta.pool), metaFor(token)]);
@@ -293,37 +352,17 @@ async function poolStats(token, pool) {
     // deep-pool on-chain values are authoritative — overwrite radar/warp for price/liq/mcap/vol/change/spark
     const row = map.get(token);
     if (ex) { if (ex.icon && !row.iconUrl) row.iconUrl = ex.icon; if (ex.holders != null) row.holders = ex.holders; }
+    if (stats && stats.price != null) chainPriced.add(token);
     if (stats) { if (stats.price != null) row.price = stats.price; if (stats.liq != null) row.liq = stats.liq; if (stats.mcap != null) row.mcap = stats.mcap; }
     if (act) { if (act.volume24h != null) row.volume24h = act.volume24h; if (act.change1h != null) row.change1h = act.change1h; if (act.change24h != null) row.change24h = act.change24h; if (act.spark) row.spark = act.spark; if (act.txns24 != null) row.txns24 = act.txns24; }
     console.log(`  ${meta.symbol}: price=${row.price} liq=${row.liq?.toFixed?.(0)} vol24=${row.volume24h?.toFixed?.(0)} chg24=${row.change24h?.toFixed?.(1)} holders=${row.holders} icon=${row.iconUrl ? 'yes' : 'no'} spark=${row.spark ? row.spark.length : 0}`);
   }
 
-  // 4) Circle & Arc core (USDC, cirBTC, WETH, EURC, USYC, ARC) — always present + flagged as ecosystem.
+  // 3) Circle & Arc core (USDC, cirBTC, WETH, EURC, USYC, ARC) — always present + flagged as ecosystem.
   for (const e of ECO) {
     set(mk({ address: e.address, name: e.name, symbol: e.symbol, iconUrl: e.iconUrl ?? null, price: e.price ?? null, decimals: e.decimals ?? null, isEcosystem: true }));
     const row = map.get(e.address.toLowerCase()); if (row) { row.isEcosystem = true; if (e.iconUrl && !row.iconUrl) row.iconUrl = e.iconUrl; }
   }
-
-  // 5) ON-CHAIN discovery (V3 + V4, read straight from chain by scripts/onchain-discover.mjs) — every
-  // token with a real USDC pool that no aggregator lists (launchpad coins like GLITCH). Merge the ones
-  // we don't already have; on-chain price/mcap is authoritative for a token only present here.
-  try {
-    const ocFile = process.env.ONCHAIN_OUT || '/root/arc-indexer/onchain-tokens.json';
-    if (fs.existsSync(ocFile)) {
-      const oc = JSON.parse(fs.readFileSync(ocFile, 'utf8'));
-      let added = 0;
-      for (const t of (oc.tokens || [])) {
-        const a = (t.address || '').toLowerCase(); if (!a) continue;
-        if (map.has(a)) { const row = map.get(a); if (row.price == null && t.price != null) row.price = t.price; if (row.liq == null && t.liq != null) row.liq = t.liq; if (row.mcap == null && t.mcap != null) row.mcap = t.mcap; if (row.volume24h == null && t.volume24h != null) row.volume24h = t.volume24h; if (row.change24h == null && t.change24h != null) row.change24h = t.change24h; if (!row.iconUrl && t.iconUrl) row.iconUrl = t.iconUrl; if (row.holders == null && t.holders != null) row.holders = t.holders; if (!row.poolId && t.poolId) { row.poolId = t.poolId; row.usdcIsC0 = !!t.usdcIsC0; } if (row.decimals == null && t.decimals != null) row.decimals = t.decimals; if (!row.pool && t.pool) row.pool = t.pool; if (t.hooked) row.hooked = true; continue; }
-        const row = mk({ address: a, name: t.name, symbol: t.symbol, price: t.price ?? null, liq: t.liq ?? null, mcap: t.mcap ?? null, launchpad: t.launchpad ?? null, source: t.source ?? 'onchain', iconUrl: t.iconUrl ?? null, holders: t.holders ?? null });
-        row.volume24h = t.volume24h ?? null; row.change24h = t.change24h ?? null; row.change1h = t.change1h ?? null; row.createdAt = t.createdAt ?? null; if (Array.isArray(t.spark)) row.spark = t.spark;
-        row.pool = t.pool ?? null; row.poolId = t.poolId ?? null; row.usdcIsC0 = !!t.usdcIsC0; row.decimals = t.decimals ?? 18; row.hooked = !!t.hooked;
-        set(row);
-        added++;
-      }
-      console.log(`[snap] on-chain discovery merged: +${added} new (of ${oc.tokens?.length || 0})`);
-    } else { console.log('[snap] no on-chain discovery file yet'); }
-  } catch (e) { console.log('[snap] on-chain merge skipped:', e.message); }
 
   // ⛔ Drop true-DUST from the whole snapshot universe: a pool with a KNOWN liquidity under $100 AND under 50
   // holders is noise (a dead/rug micro-launch like ARCPAD — $0.26 liq, 3 holders). The indexer's $100 floor
@@ -332,10 +371,13 @@ async function poolStats(token, pool) {
   // a direct address lookup still renders the token page from on-chain, so nothing becomes unviewable.
   const DUST_LIQ = 100, DUST_HOLDERS = 50;
   const all = [...map.values()];
+  const radarSet = new Set(rlist.map((t) => (t.address || '').toLowerCase()));
+  for (const t of all) t.priceFrom = t.price == null ? null : chainPriced.has(t.address) ? 'chain' : radarSet.has(t.address) ? 'radar' : 'warp';
   const tokens = all
     .filter((t) => t.isEcosystem || !(t.liq != null && t.liq < DUST_LIQ && (t.holders ?? 0) < DUST_HOLDERS))
     .sort((a, b) => (b.liq ?? -1) - (a.liq ?? -1));
   const file = path.join(__dirname, '..', 'public', 'tokens-snapshot.json');
   fs.writeFileSync(file, JSON.stringify({ generatedAt: new Date().toISOString(), count: tokens.length, tokens }));
+  console.log(`[snap] price source: chain ${tokens.filter((t) => t.priceFrom === 'chain').length} · radar ${tokens.filter((t) => t.priceFrom === 'radar').length} · warp ${tokens.filter((t) => t.priceFrom === 'warp').length}`);
   console.log(`[snap] wrote ${tokens.length} tokens (dropped ${all.length - tokens.length} sub-$100/sub-50-holder dust), ${(fs.statSync(file).size / 1024).toFixed(0)}KB — ${tokens.filter((t) => t.volume24h != null).length} with volume, ${tokens.filter((t) => t.spark).length} with sparkline`);
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });
