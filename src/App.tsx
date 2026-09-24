@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchPoolVolume24h, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
+import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -42,25 +42,6 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 const PER_PAGE_OPTS = [50, 100, 250, 500];
 const byLiq = (a: Token, b: Token) => (b.liq ?? -1) - (a.liq ?? -1);
-// The deepest Arc tokens (Argus/Tolly/Long/Architects…) trade only on Uniswap V3, which no indexer
-// (Warp/RadarDEX) tracks activity for — so their 24h volume column is blank. We compute it on-chain
-// from their pool's Swap events (bounded, cached 5 min) and fill it in without blocking the screener.
-const poolVolCache = new Map<string, { v: number; ts: number }>();
-function enrichPoolVolumes(list: Token[], apply: (addr: string, v: number) => void) {
-  const now = Date.now();
-  const targets = list
-    .filter((t) => t.volume24h == null && (t.liq ?? 0) > 1000)
-    .sort((a, b) => (b.liq ?? 0) - (a.liq ?? 0))
-    .slice(0, 14);
-  for (const t of targets) {
-    const c = poolVolCache.get(t.address);
-    if (c && now - c.ts < 5 * 60 * 1000) { apply(t.address, c.v); continue; }
-    fetchPoolVolume24h(t.address)
-      .then((v) => { if (v != null) { poolVolCache.set(t.address, { v, ts: Date.now() }); apply(t.address, v); } })
-      .catch(() => {});
-  }
-}
-
 // "updated Xm ago" from a snapshot timestamp (ms).
 function agoStr(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -171,9 +152,9 @@ export default function App() {
       if (ocTop.length) fetchOnchainScreenerPrices(ocTop).then((px) => {
         if (Object.keys(px).length) setTokens((prev) => prev.map((t) => { const p = px[t.address.toLowerCase()]; return p != null ? { ...t, price: p } : t; }));
       }).catch(() => {});
-      // Safety net: if the snapshot ever lacks volume for a deep pool, fill it on-chain (usually a no-op
-      // now that the snapshot bakes it).
-      enrichPoolVolumes(list, (addr, v) => setTokens((prev) => prev.map((x) => (x.address === addr ? { ...x, volume24h: v } : x))));
+      // ⛔ REMOVED (09-24): the old "safety net" sampled only the last ~90 min of swaps and multiplied by ~15.6 for any
+      // row whose volume was blank — cirBTC came out $1.98M vs $1.08M real 24h, so the dashboard total flipped
+      // $6.1M <-> $8.2M from reload to reload. The on-chain builder's full-24h volume is the only volume shown now.
     } catch (e: any) { if (!silent) setErr(e.message || 'failed to load'); }
     finally { if (!silent) setLoading(false); }
   }

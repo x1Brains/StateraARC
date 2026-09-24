@@ -356,7 +356,11 @@ async function main() {
           // (a near-empty decoy pool's broken sqrtP decoded ONE swap to $1e36). This is value-independent,
           // so it works for 8-dec cirBTC, whale trades, everything — unlike a fixed $ cap that clipped real trades.
           if (!isFinite(price) || price <= 0 || (x.price > 0 && (price < x.price / 20 || price > x.price * 20))) continue;
-          const wi = (pool.kind === 'v4' ? (pool.usdcIsC0 ? 1 : 0) : (pool.usdcIsC0 ? 0 : 1)); // token amount word
+          // Token amount word. V3 Swap AND V4 Swap both put amount0 in word 0 and amount1 in word 1, so the TOKEN is
+          // word 1 when USDC is currency0, else word 0 — for BOTH kinds. ⛔⛔ V3 had this inverted (09-24): it read the
+          // USDC amount as the token amount, so every V3 token's 24h volume was ~$0 at 18 decimals (ARK $0 vs $30.7K
+          // real), 5-8x too high at 6 decimals (EURC, WETH), and ~800x at 8 (cirBTC → over the $1B cap → blank).
+          const wi = pool.usdcIsC0 ? 1 : 0;
           let a = BigInt('0x' + d.slice(wi * 64, wi * 64 + 64)); if (a >= (1n << 255n)) a -= (1n << 256n);
           const usd = Math.abs(Number(a)) / 10 ** x.t.decimals * price;
           if (isFinite(usd) && usd >= 0) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
