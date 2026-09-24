@@ -419,44 +419,109 @@ const ARCSCAN_REST = 'https://api.arc-scan.org/v1';
 const NATIVE_USDC_LOG = '0xfffffffffffffffffffffffffffffffffffffffe';
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 export interface TokenPnl { invested: number; qtyBought: number; proceeds: number; qtySold: number; avgCost: number | null; realized: number; }
-export async function fetchWalletPnl(wallet: string, decimalsByToken: Record<string, number>, maxTxs = 160): Promise<Record<string, TokenPnl>> {
-  const w = wallet.toLowerCase();
-  // 1) the wallet's txs (skip approvals — no value legs), paginated via the arc-scan cursor.
+// ── P&L speed (09-24: owner — "the P and L takes forever to load") ───────────────────────────────
+// Measured on a real wallet: receipts one-per-request came back null/rate-limited 25 of 60 times, and each miss
+// then burned mrpc's 7s timeouts — that was the "forever". One BATCHED request to rpc.mainnet.arc.io returned 28/30
+// receipts in ~130ms. And a mined receipt never changes, so each tx's legs are cached (memory + localStorage):
+// after the first load only NEW txs are fetched. The tx list is cached too, so a reload reads one arc-scan page.
+type TxLegs = { u6o: number; u6i: number; uno: number; uni: number; tin: Record<string, string>; tout: Record<string, string> };
+const PNL_TX_KEY = 'statera-pnl-tx-v1', PNL_LIST_KEY = 'statera-pnl-list-v1';
+const lsGet = (k: string): any => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
+const lsSet = (k: string, v: any) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* full or blocked: memory cache still works */ } };
+const legCache: Map<string, TxLegs | 0> = new Map(Object.entries(lsGet(PNL_TX_KEY) || {}) as [string, TxLegs | 0][]);
+function saveLegCache() {
+  const e = [...legCache.entries()];
+  lsSet(PNL_TX_KEY, Object.fromEntries(e.slice(-3000)));   // newest 3000 txs across every wallet viewed
+}
+/** Only the legs that touch the wallet: USDC out/in (both faces, raw) and every other token in/out (raw). */
+function legsOf(rc: any, w: string): TxLegs | 0 {
+  let u6o = 0, u6i = 0, uno = 0, uni = 0, any = false;
+  const tin: Record<string, bigint> = {}, tout: Record<string, bigint> = {};
+  for (const l of rc.logs || []) {
+    const tp: string[] = l.topics || [];
+    if (!tp[0] || tp[0].toLowerCase() !== TRANSFER_TOPIC || tp.length < 3) continue;
+    const frm = ('0x' + tp[1].slice(-40)).toLowerCase(), to = ('0x' + tp[2].slice(-40)).toLowerCase();
+    if (frm !== w && to !== w) continue;
+    const a = l.address.toLowerCase();
+    let raw: bigint; try { raw = BigInt(l.data); } catch { continue; }
+    any = true;
+    if (a === NATIVE_USDC_ADDR) { const v = Number(raw) / 1e6; if (frm === w) u6o += v; if (to === w) u6i += v; }
+    else if (a === NATIVE_USDC_LOG) { const v = Number(raw) / 1e18; if (frm === w) uno += v; if (to === w) uni += v; }
+    else { if (to === w) tin[a] = (tin[a] || 0n) + raw; if (frm === w) tout[a] = (tout[a] || 0n) + raw; }
+  }
+  if (!any) return 0;
+  const str = (o: Record<string, bigint>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.toString()]));
+  return { u6o, u6i, uno, uni, tin: str(tin), tout: str(tout) };
+}
+/** Receipts in JSON-RPC batches; anything a batch misses falls back to mrpc one by one (which rotates nodes). */
+async function receiptsBatched(hashes: string[]): Promise<Record<string, any>> {
+  const out: Record<string, any> = {};
+  const chunks: string[][] = [];
+  for (let i = 0; i < hashes.length; i += 25) chunks.push(hashes.slice(i, i + 25));
+  await runLimited(chunks.map((c) => async () => {
+    try {
+      const r = await fetch(MAINNET_RPCS[0], { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(c.map((h, k) => ({ jsonrpc: '2.0', id: k, method: 'eth_getTransactionReceipt', params: [h] }))),
+        signal: AbortSignal.timeout(12000) });
+      const j = await r.json();
+      if (Array.isArray(j)) for (const x of j) if (x && x.result && typeof x.id === 'number' && c[x.id]) out[c[x.id]] = x.result;
+    } catch { /* the per-hash fallback below covers it */ }
+  }), 3);
+  const missing = hashes.filter((h) => !out[h]);
+  await runLimited(missing.map((h) => async () => { const rc = await mrpc('eth_getTransactionReceipt', [h]); if (rc) out[h] = rc; }), 4);
+  return out;
+}
+const listMem: Map<string, { at: number; hashes: string[] }> = new Map();
+/** The wallet's non-approval tx hashes, newest first. A cached list means only arc-scan page 0 is read. */
+async function walletTxHashes(w: string, maxTxs: number): Promise<string[]> {
+  const mem = listMem.get(w);
+  if (mem && Date.now() - mem.at < 60000) return mem.hashes;   // phase-1 -> phase-2 re-run: don't re-page
+  const cached: string[] = (lsGet(PNL_LIST_KEY) || {})[w] || [];
   const hashes: string[] = [];
-  let cursor = '';
+  let cursor = '', joined = false;
   for (let p = 0; p < 3 && hashes.length < maxTxs; p++) {
     let j: any;
     try { j = await (await fetch(`${ARCSCAN_REST}/address/${w}/txs?limit=100${cursor ? `&cursor=${cursor}` : ''}`, { headers: { accept: 'application/json' } })).json(); }
     catch { break; }
-    for (const t of j.items || []) { if ((t.method?.name || '') !== 'approve') hashes.push(t.hash); }
-    if (!j.page?.has_more) break;
+    for (const t of j.items || []) {
+      if (cached.length && t.hash === cached[0]) { joined = true; break; }    // reached what we already have
+      if ((t.method?.name || '') !== 'approve') hashes.push(t.hash);
+    }
+    if (joined || !j.page?.has_more) break;
     cursor = j.page?.next || ''; if (!cursor) break;
   }
-  // 2) receipts → per-token buy/sell aggregates (bounded concurrency to respect RPC limits).
+  const all = (joined ? [...hashes, ...cached] : hashes.length ? hashes : cached).slice(0, maxTxs);
+  listMem.set(w, { at: Date.now(), hashes: all });
+  const store = lsGet(PNL_LIST_KEY) || {}; store[w] = all; lsSet(PNL_LIST_KEY, store);
+  return all;
+}
+
+export async function fetchWalletPnl(wallet: string, decimalsByToken: Record<string, number>, maxTxs = 160): Promise<Record<string, TokenPnl>> {
+  const w = wallet.toLowerCase();
+  // 1) the wallet's txs (approvals skipped — no value legs)
+  const hashes = await walletTxHashes(w, maxTxs);
+  // 2) receipts for txs not seen before (batched), reduced to the legs that touch this wallet, cached for good
+  const need = hashes.filter((h) => !legCache.has(`${w}:${h}`));
+  if (need.length) {
+    const rcs = await receiptsBatched(need);
+    for (const h of need) if (rcs[h]) legCache.set(`${w}:${h}`, legsOf(rcs[h], w));   // a missing receipt is retried next load
+    saveLegCache();
+  }
+  // 3) per-token buy/sell aggregates — decimals applied here, so a token learned later still counts
   const agg: Record<string, { cost: number; qb: number; proc: number; qs: number }> = {};
-  await runLimited(hashes.map((h) => async () => {
-    const rc = await mrpc('eth_getTransactionReceipt', [h]);
-    if (!rc || !rc.logs) return;
-    let u6o = 0, u6i = 0, uno = 0, uni = 0;
+  for (const h of hashes) {
+    const L = legCache.get(`${w}:${h}`);
+    if (!L) continue;
     const tin: Record<string, number> = {}, tout: Record<string, number> = {};
-    for (const l of rc.logs) {
-      const tp: string[] = l.topics || [];
-      if (!tp[0] || tp[0].toLowerCase() !== TRANSFER_TOPIC || tp.length < 3) continue;
-      const frm = ('0x' + tp[1].slice(-40)).toLowerCase(), to = ('0x' + tp[2].slice(-40)).toLowerCase();
-      if (frm !== w && to !== w) continue;
-      const a = l.address.toLowerCase();
-      let raw: bigint; try { raw = BigInt(l.data); } catch { continue; }
-      if (a === NATIVE_USDC_ADDR) { const v = Number(raw) / 1e6; if (frm === w) u6o += v; if (to === w) u6i += v; }
-      else if (a === NATIVE_USDC_LOG) { const v = Number(raw) / 1e18; if (frm === w) uno += v; if (to === w) uni += v; }
-      else { const d = decimalsByToken[a]; if (d == null) continue; const v = Number(raw) / 10 ** d; if (to === w) tin[a] = (tin[a] || 0) + v; if (frm === w) tout[a] = (tout[a] || 0) + v; }
-    }
-    const uo = u6o > 0 ? u6o : uno, ui = u6i > 0 ? u6i : uni; // 0x3600 leg preferred, else native — never both
+    for (const [a, raw] of Object.entries(L.tin)) { const d = decimalsByToken[a]; if (d != null) tin[a] = Number(BigInt(raw)) / 10 ** d; }
+    for (const [a, raw] of Object.entries(L.tout)) { const d = decimalsByToken[a]; if (d != null) tout[a] = Number(BigInt(raw)) / 10 ** d; }
+    const uo = L.u6o > 0 ? L.u6o : L.uno, ui = L.u6i > 0 ? L.u6i : L.uni; // 0x3600 leg preferred, else native — never both
     for (const a of new Set([...Object.keys(tin), ...Object.keys(tout)])) {
       const g = agg[a] || (agg[a] = { cost: 0, qb: 0, proc: 0, qs: 0 });
       if ((tin[a] || 0) > 0 && uo > 0) { g.cost += uo; g.qb += tin[a]; }
       else if ((tout[a] || 0) > 0 && ui > 0) { g.proc += ui; g.qs += tout[a]; }
     }
-  }), 5);
+  }
   const out: Record<string, TokenPnl> = {};
   for (const [a, g] of Object.entries(agg)) {
     const avgCost = g.qb > 0 ? g.cost / g.qb : null;
