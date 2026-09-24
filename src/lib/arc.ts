@@ -83,6 +83,7 @@ export interface Token {
   usdcIsC0?: boolean;        // on-chain: USDC is currency0/token0 in that pool
   decimals?: number;         // on-chain: token decimals (for live re-pricing)
   hooked?: boolean;          // on-chain: V4 pool has a hook (may charge a swap tax)
+  priceFrom?: 'chain' | 'radar' | 'warp' | null; // where the snapshot's price came from — 'chain' rows are never overwritten by an indexer
   txns24?: number | null;    // 24h transaction count
   spark?: number[] | null;   // sparkline price series (recent → last)
 }
@@ -1109,12 +1110,14 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
 // V3 pools no indexer covers. The browser reads this instead of hammering live (Cloudflare-blockable)
 // APIs, so the screener is complete + correct every load. Falls back to the live merge if it's missing.
 export async function fetchScreenerTokens(): Promise<{ tokens: Token[]; asOf: number | null }> {
-  try {
-    const url = (import.meta.env.VITE_SNAPSHOT_URL as string) || '/tokens-snapshot.json';
+  // /api/snapshot = the VPS's latest on-chain build (no deploy needed to refresh it); the static file baked into
+  // the deploy is the fallback. A list under 200 tokens is a degraded build — try the next source.
+  const urls = [(import.meta.env.VITE_SNAPSHOT_URL as string) || '/api/snapshot', '/tokens-snapshot.json'];
+  for (const url of urls) try {
     const r = await fetch(url, { cache: 'default' });
     if (r.ok) {
       const snap = await r.json();
-      if (snap && Array.isArray(snap.tokens) && snap.tokens.length) {
+      if (snap && Array.isArray(snap.tokens) && snap.tokens.length >= (url === urls[urls.length - 1] ? 1 : 200)) {
         const tokens = snap.tokens.map((t: any): Token => ({
           address: t.address, name: t.name, symbol: t.symbol,
           holders: t.holders ?? null, totalSupply: null, type: 'ERC-20',
@@ -1125,12 +1128,13 @@ export async function fetchScreenerTokens(): Promise<{ tokens: Token[]; asOf: nu
           txns24: rnum(t.txns24), spark: Array.isArray(t.spark) ? t.spark.filter((n: any) => typeof n === 'number' && isFinite(n)) : null,
           createdAt: rnum(t.createdAt), source: t.source ?? null,
           pool: t.pool ?? null, poolId: t.poolId ?? null, usdcIsC0: !!t.usdcIsC0, decimals: t.decimals ?? 18, hooked: !!t.hooked,
+          priceFrom: t.priceFrom ?? null,
         }));
         const asOf = snap.generatedAt ? Date.parse(snap.generatedAt) : null;
         return { tokens, asOf: Number.isFinite(asOf) ? asOf : null };
       }
     }
-  } catch { /* fall through to the live merge */ }
+  } catch { /* next source */ }
   return { tokens: await fetchMainnetTokens(), asOf: null };
 }
 

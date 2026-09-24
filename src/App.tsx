@@ -191,7 +191,11 @@ export default function App() {
       setTokens((prev) => prev.map((t) => {
         const a = t.address.toLowerCase();
         const l = m.get(a);
-        let n = l ? { ...t, price: l.price ?? t.price, change24h: l.change24h ?? t.change24h, change1h: l.change1h ?? t.change1h, volume24h: l.volume24h ?? t.volume24h, liq: l.liq ?? t.liq, mcap: l.mcap ?? t.mcap } : t;
+        // ⛔ ON-CHAIN IS PRIMARY (owner, 09-24): RadarDEX is a backup. For a row the snapshot priced from the chain
+        // it may only fill a field that is still empty; it overwrites only rows that came from an indexer anyway.
+        const chain = t.priceFrom === 'chain';
+        const pick = <K extends keyof Token>(k: K) => (chain ? (t[k] ?? (l as any)?.[k]) : ((l as any)?.[k] ?? t[k]));
+        let n = l ? { ...t, price: pick('price'), change24h: pick('change24h'), change1h: pick('change1h'), volume24h: pick('volume24h'), liq: pick('liq'), mcap: pick('mcap') } : t;
         if (deep[a] != null) n = { ...n, price: deep[a] }; // deep-pool live price wins (correct slot0)
         return n;
       }));
@@ -283,9 +287,10 @@ export default function App() {
     .sort((a, b) => (b.change24h ?? 0) - (a.change24h ?? 0)).slice(0, 8), [tokens, canonical, tickerCount]); // eslint-disable-line
   const dashStats = useMemo(() => ({
     count: tokens.length,
-    vol24: tokens.reduce((s, t) => s + (t.volume24h ?? 0), 0),
+    // One token per ticker: copycats of a real coin (a fake "ARGUS" claimed $2.99M, 09-24) are not market volume.
+    vol24: tokens.filter((t) => !isDup(t)).reduce((s, t) => s + (t.volume24h ?? 0), 0),
     newToday: tokens.filter((t) => t.createdAt != null && Date.now() - t.createdAt < 86400000).length,
-  }), [tokens]);
+  }), [tokens, canonical, tickerCount]); // eslint-disable-line
 
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const openToken = (addr: string) => { setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
