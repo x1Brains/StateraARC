@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchHoldings, fetchHoldingsMainnet, fetchHoldingsOnchain, fetchPortfolioMainnet, fetchRadarPortfolio, fetchNftHoldings, fetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type RadarHolding, type NftHolding, type TokenPnl } from '../lib/arc';
+import { fetchHoldings, fetchHoldingsMainnet, fetchHoldingsOnchain, fetchPortfolioMainnet, fetchRadarPortfolio, fetchNftHoldings, fetchWalletPnl, prefetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type RadarHolding, type NftHolding, type TokenPnl } from '../lib/arc';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
 import { SendModal, type SendToken } from './SendModal';
@@ -112,6 +112,8 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
       if (alive && Object.keys(add).length) setLivePx((prev) => ({ ...prev, ...add }));
       if (alive && Object.keys(addMc).length) setLiveMcap((prev) => ({ ...prev, ...addMc }));
     };
+    // P&L's slow half (tx list + receipts) needs only the address: start it NOW, alongside the holdings load.
+    if (mainnet) prefetchWalletPnl(addr).catch(() => {});
     (async () => {
       try {
         if (!mainnet) { const h = await fetchHoldings(addr); if (alive) { setHoldings(h); setLoading(false); } return; }
@@ -265,9 +267,9 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
           </div>
 
           {spamCount > 0 && (
-            <div className="msg" style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div className="pf-hidden">
               <span>{spamCount} {spamCount === 1 ? 'token' : 'tokens'} {showSpam ? 'shown' : 'hidden'} — counterfeit, sub-$1 &amp; unpriced dust.</span>
-              <button className="btn ghost" style={{ padding: '4px 10px' }} onClick={() => setShowSpam((s) => !s)}>{showSpam ? 'Hide' : 'Show'}</button>
+              <button className="btn ghost" onClick={() => setShowSpam((s) => !s)}>{showSpam ? 'Hide' : 'Show'}</button>
             </div>
           )}
 

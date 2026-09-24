@@ -496,17 +496,36 @@ async function walletTxHashes(w: string, maxTxs: number): Promise<string[]> {
   return all;
 }
 
+/**
+ * The slow half of P&L (tx list + receipts) needs nothing but the address, so the Portfolio starts it the moment a
+ * wallet is opened, in PARALLEL with the holdings load, instead of after it (09-24: P&L was the long pole, ~3.5s,
+ * and it only began once holdings landed). fetchWalletPnl awaits the same promise, so nothing is fetched twice.
+ */
+const pnlWarm: Map<string, Promise<string[]>> = new Map();
+export function prefetchWalletPnl(wallet: string, maxTxs = 160): Promise<string[]> {
+  const w = wallet.toLowerCase();
+  let p = pnlWarm.get(w);
+  if (!p) {
+    p = (async () => {
+      const hashes = await walletTxHashes(w, maxTxs);
+      const need = hashes.filter((h) => !legCache.has(`${w}:${h}`));
+      if (need.length) {
+        const rcs = await receiptsBatched(need);
+        for (const h of need) if (rcs[h]) legCache.set(`${w}:${h}`, legsOf(rcs[h], w));   // a missing receipt is retried next load
+        saveLegCache();
+      }
+      return hashes;
+    })();
+    pnlWarm.set(w, p);
+    p.finally(() => setTimeout(() => pnlWarm.delete(w), 60000));   // a refresh a minute later picks up new trades
+  }
+  return p;
+}
+
 export async function fetchWalletPnl(wallet: string, decimalsByToken: Record<string, number>, maxTxs = 160): Promise<Record<string, TokenPnl>> {
   const w = wallet.toLowerCase();
-  // 1) the wallet's txs (approvals skipped — no value legs)
-  const hashes = await walletTxHashes(w, maxTxs);
-  // 2) receipts for txs not seen before (batched), reduced to the legs that touch this wallet, cached for good
-  const need = hashes.filter((h) => !legCache.has(`${w}:${h}`));
-  if (need.length) {
-    const rcs = await receiptsBatched(need);
-    for (const h of need) if (rcs[h]) legCache.set(`${w}:${h}`, legsOf(rcs[h], w));   // a missing receipt is retried next load
-    saveLegCache();
-  }
+  // 1+2) tx list and receipts — usually already in flight or done (prefetchWalletPnl)
+  const hashes = await prefetchWalletPnl(w, maxTxs);
   // 3) per-token buy/sell aggregates — decimals applied here, so a token learned later still counts
   const agg: Record<string, { cost: number; qb: number; proc: number; qs: number }> = {};
   for (const h of hashes) {
