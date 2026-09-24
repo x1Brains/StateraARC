@@ -35,6 +35,16 @@ jobs:
 
       - name: Commit if the snapshot changed
         run: |
+          # ⛔ GUARD (09-24): from GitHub's IPs RadarDEX and the VPS-only on-chain indexer are unreachable, so this job
+          # builds a GUTTED list (43 tokens vs ~1,750) — and on 09-24 02:46 it went live, showing $645K "24h volume".
+          # The VPS builds the real snapshot every 30 min; this backup may only publish if it is at least half as big.
+          NEW=$(node -e "console.log(require('./public/tokens-snapshot.json').tokens.length)")
+          OLD=$(git show HEAD:public/tokens-snapshot.json | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).tokens.length))")
+          echo "snapshot tokens: new $NEW vs current $OLD"
+          if [ "$NEW" -lt $(( OLD / 2 )) ]; then
+            echo "Refusing to publish: $NEW tokens is under half of the current $OLD (a degraded build, not a real change)."
+            exit 0
+          fi
           git config user.name "statera-snapshot-bot"
           git config user.email "bot@stateraarc.com"
           git add public/tokens-snapshot.json
