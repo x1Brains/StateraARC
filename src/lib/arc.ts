@@ -198,6 +198,9 @@ async function radarGet(path: string): Promise<any> {
       const text = await r.text();
       if (r.ok && text && text.trimStart()[0] !== '<') return JSON.parse(text);
       lastErr = new Error(`radar ${r.status}`);
+      // A JSON 4xx ("token not found" for a coin RadarDEX doesn't index) is an ANSWER, not a glitch: retrying it
+      // 3x with sleeps cost ~1.5-2s on every such token page for the same null (09-24). Only HTML/5xx retry.
+      if (r.status >= 400 && r.status < 500 && text && text.trimStart()[0] !== '<') break;
     } catch (e) { lastErr = e; }
     await sleep(250 * (i + 1));
   }
@@ -453,24 +456,31 @@ function legsOf(rc: any, w: string): TxLegs | 0 {
   const str = (o: Record<string, bigint>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.toString()]));
   return { u6o, u6i, uno, uni, tin: str(tin), tout: str(tout) };
 }
-/** Receipts in JSON-RPC batches; anything a batch misses falls back to mrpc one by one (which rotates nodes). */
-async function receiptsBatched(hashes: string[]): Promise<Record<string, any>> {
+/**
+ * One method over many hashes in JSON-RPC BATCHES of 25; anything a batch misses falls back to mrpc one by one
+ * (which rotates nodes). Same answers as calling mrpc per hash — just a handful of requests instead of dozens,
+ * which is what kept tripping the public RPCs' rate limits (09-24).
+ */
+async function mrpcBatchByHash(method: string, hashes: string[]): Promise<Record<string, any>> {
   const out: Record<string, any> = {};
   const chunks: string[][] = [];
   for (let i = 0; i < hashes.length; i += 25) chunks.push(hashes.slice(i, i + 25));
   await runLimited(chunks.map((c) => async () => {
     try {
       const r = await fetch(MAINNET_RPCS[0], { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(c.map((h, k) => ({ jsonrpc: '2.0', id: k, method: 'eth_getTransactionReceipt', params: [h] }))),
+        body: JSON.stringify(c.map((h, k) => ({ jsonrpc: '2.0', id: k, method, params: [h] }))),
         signal: AbortSignal.timeout(12000) });
       const j = await r.json();
       if (Array.isArray(j)) for (const x of j) if (x && x.result && typeof x.id === 'number' && c[x.id]) out[c[x.id]] = x.result;
     } catch { /* the per-hash fallback below covers it */ }
   }), 3);
   const missing = hashes.filter((h) => !out[h]);
-  await runLimited(missing.map((h) => async () => { const rc = await mrpc('eth_getTransactionReceipt', [h]); if (rc) out[h] = rc; }), 4);
+  // The batch covers the first ~30 (the node's burst allowance); the rest go one by one, SPREAD over every node
+  // (start = k % n) so each node's allowance is used, 8 at a time like the old per-hash path.
+  await runLimited(missing.map((h, k) => async () => { const rc = await mrpc(method, [h], 4, k % MAINNET_RPCS.length).catch(() => null); if (rc) out[h] = rc; }), 8);
   return out;
 }
+const receiptsBatched = (hashes: string[]) => mrpcBatchByHash('eth_getTransactionReceipt', hashes);
 const listMem: Map<string, { at: number; hashes: string[] }> = new Map();
 /** The wallet's non-approval tx hashes, newest first. A cached list means only arc-scan page 0 is read. */
 async function walletTxHashes(w: string, maxTxs: number): Promise<string[]> {
@@ -816,9 +826,11 @@ const MAINNET_RPCS = [
 ].filter((v, i, a) => v && a.indexOf(v) === i);
 // Lowest common getLogs block-range across our RPCs (arc.io caps at 10k) — chunk to stay under it.
 export const MRPC_LOG_RANGE = 9000;
-async function mrpc(method: string, params: any[], tries = 4): Promise<any> {
+// `start` picks which node to try first (default 0 = unchanged behaviour). Bulk lookups spread across the nodes
+// with it, because each public RPC only allows ~30 calls per burst — batched or not (measured 09-24).
+async function mrpc(method: string, params: any[], tries = 4, start = 0): Promise<any> {
   for (let i = 0; i < tries; i++) {
-    const url = MAINNET_RPCS[i % MAINNET_RPCS.length];
+    const url = MAINNET_RPCS[(start + i) % MAINNET_RPCS.length];
     try {
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), 7000);
@@ -828,7 +840,7 @@ async function mrpc(method: string, params: any[], tries = 4): Promise<any> {
       const j = await r.json();
       if (j.error) { await sleep(120 * (i + 1)); continue; } // method/range error on this node → try the next
       // A node that pruned a receipt returns null — don't accept it as the answer, try another node.
-      if (j.result == null && method === 'eth_getTransactionReceipt' && i < tries - 1) { await sleep(120 * (i + 1)); continue; }
+      if (j.result == null && (method === 'eth_getTransactionReceipt' || method === 'eth_getTransactionByHash') && i < tries - 1) { await sleep(120 * (i + 1)); continue; }
       return j.result;
     } catch { await sleep(150 * (i + 1)); }
   }
@@ -1159,8 +1171,15 @@ const v4HexToU8 = (h: string) => { h = h.replace(/^0x/, ''); const a = new Uint8
 const v4StateSlot = (poolId: string) => '0x' + Array.from(keccak_256(v4HexToU8(poolId.replace(/^0x/, '').padStart(64, '0') + (6).toString(16).padStart(64, '0')))).map((b) => b.toString(16).padStart(2, '0')).join('');
 export interface V4Pool { poolId: string; usdcIsC0: boolean; }
 const v4PoolCache = new Map<string, V4Pool | null>();
-export async function findV4Pool(token: string): Promise<V4Pool | null> {
+const v4Inflight: Map<string, Promise<V4Pool | null>> = new Map();
+export function findV4Pool(token: string): Promise<V4Pool | null> {
   const t = token.toLowerCase();
+  if (v4PoolCache.has(t)) return Promise.resolve(v4PoolCache.get(t)!);
+  let p = v4Inflight.get(t);
+  if (!p) { p = findV4PoolUncached(t).finally(() => v4Inflight.delete(t)); v4Inflight.set(t, p); }
+  return p;
+}
+async function findV4PoolUncached(t: string): Promise<V4Pool | null> {
   if (v4PoolCache.has(t)) return v4PoolCache.get(t)!;
   const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
   const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return null; // don't cache a transient failure
@@ -1302,9 +1321,18 @@ export function primePool(token: string, seed: { pool?: string | null; poolId?: 
   if (seed.pool) poolDiscovery.set(t, seed.pool.toLowerCase());
 }
 // Find a token's deepest USDC pool (V3 any fee tier, or V2). Curated deep pools win; result cached.
-export async function findTokenPool(token: string): Promise<string | null> {
+// ⚡ In-flight dedupe (09-24): a token page fires 5 functions at once and each called this — 5 identical
+// discoveries hammering the same rate-limited RPCs. Concurrent callers now share ONE lookup.
+const poolDiscInflight: Map<string, Promise<string | null>> = new Map();
+export function findTokenPool(token: string): Promise<string | null> {
   const t = token.toLowerCase();
-  if (MAINNET_POOL[t]) return MAINNET_POOL[t];
+  if (MAINNET_POOL[t]) return Promise.resolve(MAINNET_POOL[t]);
+  if (poolDiscovery.has(t)) return Promise.resolve(poolDiscovery.get(t)!);
+  let p = poolDiscInflight.get(t);
+  if (!p) { p = findTokenPoolUncached(t).finally(() => poolDiscInflight.delete(t)); poolDiscInflight.set(t, p); }
+  return p;
+}
+async function findTokenPoolUncached(t: string): Promise<string | null> {
   if (poolDiscovery.has(t)) return poolDiscovery.get(t)!;
   const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
   // USDC on Arc is the NATIVE gas token (0x3600). balanceOf() on it reads only ERC-20 dust — the real
@@ -1316,12 +1344,9 @@ export async function findTokenPool(token: string): Promise<string | null> {
     ...[100, 500, 3000, 10000].map((fee) => mCall(V3_FACTORY, '0x1698ee82' + pad(t) + pad(NATIVE_USDC_ADDR) + fee.toString(16).padStart(64, '0')).catch(() => null)),
     mCall(V2_FACTORY, '0xe6a43905' + pad(t) + pad(NATIVE_USDC_ADDR)).catch(() => null),
   ]);
-  for (const r of candidates) {
-    const p = r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null;
-    if (!p || p === ZERO_ADDR) continue;
-    const usdc = await usdcOf(p);
-    if (usdc > bestUsdc) { bestUsdc = usdc; best = p; }
-  }
+  const pools = candidates.map((r) => (r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null));
+  const depths = await Promise.all(pools.map((p) => (!p || p === ZERO_ADDR ? Promise.resolve(-Infinity) : usdcOf(p))));   // in parallel
+  pools.forEach((p, i) => { if (p && p !== ZERO_ADDR && depths[i] > bestUsdc) { bestUsdc = depths[i]; best = p; } });   // same order, same tie-break
   poolDiscovery.set(t, best);
   return best;
 }
@@ -1556,8 +1581,8 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
   const sampleTx = uniqTx.slice(-MAKER_TX_CAP);
   let makers24: number | null = null;
   try {
-    const origins = await runLimited(sampleTx.map((h) => async () => { const tr = await mrpc('eth_getTransactionByHash', [h]).catch(() => null); return tr?.from ? tr.from.toLowerCase() : null; }), 8);
-    const set = new Set(origins.filter(Boolean) as string[]);
+    const txs = await mrpcBatchByHash('eth_getTransactionByHash', sampleTx);
+    const set = new Set(sampleTx.map((h) => (txs[h]?.from ? String(txs[h].from).toLowerCase() : null)).filter(Boolean) as string[]);
     if (set.size) makers24 = set.size;
   } catch { /* leave null on failure */ }
   const v = { change24h, volume24h, buys24, sells24, txns24, makers24 };
@@ -1640,8 +1665,8 @@ async function resolveMakers(trades: RadarSwap[]): Promise<RadarSwap[]> {
   const uniq = [...new Set(trades.map((t) => t.tx).filter(Boolean))];
   if (!uniq.length) return trades;
   try {
-    const origins = await runLimited(uniq.map((h) => async () => { const tr = await mrpc('eth_getTransactionByHash', [h]).catch(() => null); return [h, tr?.from ? tr.from.toLowerCase() : null] as const; }), 8);
-    const map = new Map(origins);
+    const txs = await mrpcBatchByHash('eth_getTransactionByHash', uniq);
+    const map = new Map(uniq.map((h) => [h, txs[h]?.from ? String(txs[h].from).toLowerCase() : null] as const));
     for (const t of trades) { const o = map.get(t.tx); if (o) t.trader = o; }
   } catch { /* keep the router address rather than fail the whole table */ }
   return trades;
@@ -1660,12 +1685,25 @@ export async function fetchPoolTrades(token: string, decimals = 18, want = 40): 
   const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
   const dexp = 10 ** (decimals - 6);
   const out: RadarSwap[] = [];
-  const CH = 2500n;
-  // Walk backward from head in chunks until we have enough trades (or run out of budget).
-  for (let hi = head; hi > head - 80000n && out.length < want; hi -= CH) {
-    const lo = hi - CH < 0n ? 0n : hi - CH;
-    const logs = await mrpc('eth_getLogs', [{ address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]], fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) }]);
-    if (!Array.isArray(logs)) continue;
+  // Same window as before (the last 80k blocks, newest first, stop once there are enough trades), but read in
+  // WIDE ranges on the RPCs that allow them: ~2 calls instead of up to 32 one-after-another (WARP took 13s, 09-24).
+  // A wide range that fails is re-read the old way, in 2.5k chunks.
+  const spec = { address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]] };
+  const windowLogs = async (lo: bigint, hi: bigint): Promise<any[]> => {
+    const big = await getLogsBig({ ...spec, fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) }).catch(() => null);
+    if (Array.isArray(big)) return big;
+    const acc: any[] = [];
+    for (let h = hi; h > lo; h -= 2500n) {
+      const l2 = h - 2500n < lo ? lo : h - 2500n;
+      const r = await mrpc('eth_getLogs', [{ ...spec, fromBlock: '0x' + l2.toString(16), toBlock: '0x' + h.toString(16) }]);
+      if (Array.isArray(r)) acc.push(...r);
+    }
+    return acc;
+  };
+  const floor = head - 80000n < 0n ? 0n : head - 80000n;
+  for (const [lo, hi] of [[head - 20000n < floor ? floor : head - 20000n, head], [floor, head - 20001n]] as [bigint, bigint][]) {
+    if (out.length >= want || hi <= lo) break;
+    const logs = await windowLogs(lo, hi);
     for (const l of logs) {
       const topic = (l.topics?.[0] || '').toLowerCase();
       const dec = decodeSwap(l.data, topic, usdcIsToken0);
