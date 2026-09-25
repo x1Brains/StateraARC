@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX } from './icons';
 import { useNames, displayName } from '../lib/names';
@@ -20,7 +20,7 @@ interface Detail {
   reservedCheck: string | null;
 }
 
-export function PremainDetail({ address, seed, onBack, onTrade }: { address: string; seed?: Token; onBack: () => void; onTrade?: (t: { address: string; symbol: string; name?: string; price?: number | null }) => void }) {
+export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: { address: string; seed?: Token; ready?: boolean; onBack: () => void; onTrade?: (t: { address: string; symbol: string; name?: string; price?: number | null }) => void }) {
   const [d, setD] = useState<Detail | null>(null);
   const [warp, setWarp] = useState<WarpToken | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -50,6 +50,11 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // DEX-style detail: RadarDEX token stats (buys/sells/burned/change) + rich holders (with pool/dev
   // flags + accurate %), plus recent on-chain transfers (mainnet RPC).
   useEffect(() => {
+    // ⛔ 09-25: on a DIRECT load (every visitor arriving from a shared link) this ran before the token list had loaded,
+    // so `seed` — which carries the token's real pool — was undefined and every read fell back to pool DISCOVERY. For EURC
+    // that picked the pool with the most USDC, which has no swaps: empty 24h stats after 13.9s, 5m/6h change never shown.
+    // Wait for the list (`ready`, well under a second) so every visitor gets the snapshot's pool.
+    if (!ready) return;
     let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null); setDayStats(null); setBurn(null); setDec(null);
     // Prime the pool cache from the snapshot so every panel skips the slow ~900k-block pool-discovery scan.
     if (seed && (seed.pool || seed.poolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0 });
@@ -66,7 +71,10 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       rdP.then((detail) => { if (alive) setRd(detail); });
       fetchOnchainPoolStats(address, dec).then((s) => { if (alive) setOcPool(s); }).catch(() => {});
       fetchAllOnchainPools(address, dec).then((ps) => { if (alive) setOcPools(ps); }).catch(() => {});
-      fetchOnchainDayStats(address, dec).then((s) => { if (alive) setDayStats(s); }).catch(() => {});
+      fetchOnchainDayStats(address, dec).then((s) => {
+        if (!alive) return; setDayStats(s);
+        fetchOnchainMakers24(address).then((m) => { if (alive && m != null) setDayStats((d) => (d ? { ...d, makers24: m } : d)); }).catch(() => {}); // fills in after
+      }).catch(() => {});
       fetchTokenBurn(address, dec).then((b) => { if (alive) setBurn(b); }).catch(() => {});
       fetchRadarHolders(address, dec, 100).then(async (h) => {
         if (h.holders && h.holders.length) { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } return; }
@@ -76,14 +84,21 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       }).catch(() => { if (alive) setHolders([]); });
       // Trades: the pool's own on-chain Swap events first; RadarDEX's indexed swaps only if the chain read is empty.
       fetchPoolTrades(address, dec, 40).catch(() => [] as RadarSwap[]).then(async (oc) => {
-        if (oc && oc.length) { if (alive) setSwaps(oc); return; }
+        if (oc && oc.length) {
+          if (!alive) return;
+          // Rows first, maker blank ("…") — the swap's own sender is the ROUTER, and showing it even briefly invites a
+          // wrong copy — then the real wallets (tx.origin) fill in.
+          setSwaps(oc.map((x) => ({ ...x, trader: '' })));
+          resolveMakers(oc.map((x) => ({ ...x }))).then((r) => { if (alive) setSwaps(r); }).catch(() => {});
+          return;
+        }
         const r = await fetchRadarSwaps(address, dec, 50).catch(() => [] as RadarSwap[]);
         if (alive) setSwaps(r);
       });
     })();
     fetchTokenTransfers(address, 18, 40).then((t) => { if (alive) setTxs(t); }).catch(() => { if (alive) setTxs([]); });
     return () => { alive = false; };
-  }, [address]);
+  }, [address, ready]); // eslint-disable-line
 
   useEffect(() => {
     let alive = true;
@@ -526,7 +541,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                       <span className={`num mono tr-usd ${s.side}`}>{s.usd != null ? usd(s.usd) : '—'}</span>
                       <span className="num mono">{compact(s.amount)}</span>
                       <span className="num mono tr-px">{s.price != null ? tprice(s.price) : '—'}</span>
-                      <a className="tr-mk mono" href={`https://explorer.arc.io/address/${s.trader}`} target="_blank" rel="noreferrer" title={s.trader}>{displayName(s.trader, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a>
+                      {s.trader ? <a className="tr-mk mono" href={`https://explorer.arc.io/address/${s.trader}`} target="_blank" rel="noreferrer" title={s.trader}>{displayName(s.trader, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a> : <span className="tr-mk mono">…</span>}
                       <a className="tr-tx num tx" href={`https://explorer.arc.io/tx/${s.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
                     </div>
                   ))}

@@ -1534,6 +1534,20 @@ async function scanPoolSwaps(token: string, decimals: number, spanCap: number): 
 // 24h change % + 24h USD volume computed straight from a token's own pool swaps (V3/V2/V4) — for coins no
 // indexer covers (GLITCH etc.), so the header's 24H and VOL 24H fill instead of showing "—". Bounded: it
 // scans only THIS pool's swaps (poolId/address-filtered), not the whole chain. Cached 60s.
+const dayTxList = new Map<string, string[]>();   // token -> the 24h scan's unique tx hashes (for the maker count)
+// Real MAKERS = distinct tx.origin, NOT the swap event's `sender` topic — that is the ROUTER (one address for every
+// launchpad/V4 trade), which collapsed the count to 1. Resolve origins for the most-recent txs (capped, so a hot token
+// doesn't fire thousands of calls); when capped this is an honest floor. Call after fetchOnchainDayStats.
+export async function fetchOnchainMakers24(token: string): Promise<number | null> {
+  const uniqTx = dayTxList.get(token.toLowerCase());
+  if (!uniqTx || !uniqTx.length) return null;
+  const sampleTx = uniqTx.slice(-140);
+  try {
+    const txs = await mrpcBatchByHash('eth_getTransactionByHash', sampleTx);
+    const set = new Set(sampleTx.map((h) => (txs[h]?.from ? String(txs[h].from).toLowerCase() : null)).filter(Boolean) as string[]);
+    return set.size || null;
+  } catch { return null; }
+}
 export interface DayStats { change24h: number | null; change6h: number | null; change1h: number | null; change5m: number | null; volume24h: number | null; buys24: number | null; sells24: number | null; txns24: number | null; makers24: number | null }
 const dayStatsCache = new Map<string, { at: number; v: DayStats }>();
 export async function fetchOnchainDayStats(token: string, decimals = 18): Promise<DayStats> {
@@ -1555,6 +1569,18 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
   for (let f = head - BigInt(blocks24); f < head; f += CH) ranges.push([f, f + CH > head ? head : f + CH]);
   const spec = pool ? { address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]] as any } : { address: PM_V4, topics: [V4_SWAP_TOPIC, v4!.poolId] as any };
   const results = await runLimited(ranges.map(([f, to], i) => () => getLogsBig({ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }, i)), 8);
+  // ⛔ 09-25: on a token page this scan runs next to five other chain reads, and the public RPCs refuse bursts past ~30
+  // calls — a refused range came back null and counted as "no swaps", and that EMPTY answer was cached for 60s, so
+  // EURC's 5m/6h change never appeared (while the same scan alone took 1s). Refused ranges are retried after a pause;
+  // an answer with a hole in it is returned but never cached.
+  let partial = false;
+  for (let i = 0; i < results.length; i++) {
+    if (Array.isArray(results[i])) continue;
+    await sleep(400 + i * 150);
+    const [f, to] = ranges[i];
+    results[i] = await getLogsBig({ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }, i + 1, 5);
+    if (!Array.isArray(results[i])) partial = true;
+  }
   // Each swap carries its side + tx hash so the panel can show the TRUE 24h buy/sell/txn split (not a
   // last-40-trades sample, which on a fast pump read "0 sells" over a 5-minute window).
   const pts: { ts: number; price: number; usd: number; side: 'buy' | 'sell'; tx: string }[] = [];
@@ -1583,7 +1609,7 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
       }
     }
   }
-  if (!pts.length) { dayStatsCache.set(t, { at: Date.now(), v: empty }); return empty; }
+  if (!pts.length) { if (!partial) dayStatsCache.set(t, { at: Date.now(), v: empty }); return empty; }
   pts.sort((a, b) => a.ts - b.ts);
   const volume24h = pts.reduce((s, p) => s + (isFinite(p.usd) ? p.usd : 0), 0);
   const first = pts[0].price, last = pts[pts.length - 1].price;
@@ -1602,19 +1628,13 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
   const sells24 = pts.filter((p) => p.side === 'sell').length;
   const uniqTx = [...new Set(pts.map((p) => p.tx).filter(Boolean))];
   const txns24 = uniqTx.length;
-  // Real MAKERS = distinct tx.origin, NOT the swap event's `sender` topic — that is the ROUTER (one address
-  // for every launchpad/V4 trade), which collapsed the count to 1. Resolve origins for the most-recent txs
-  // (capped, so a hot token doesn't fire thousands of calls); when capped this is an honest floor.
-  const MAKER_TX_CAP = 140;
-  const sampleTx = uniqTx.slice(-MAKER_TX_CAP);
-  let makers24: number | null = null;
-  try {
-    const txs = await mrpcBatchByHash('eth_getTransactionByHash', sampleTx);
-    const set = new Set(sampleTx.map((h) => (txs[h]?.from ? String(txs[h].from).toLowerCase() : null)).filter(Boolean) as string[]);
-    if (set.size) makers24 = set.size;
-  } catch { /* leave null on failure */ }
-  const v: DayStats = { change24h, change6h, change1h, change5m, volume24h, buys24, sells24, txns24, makers24 };
-  dayStatsCache.set(t, { at: Date.now(), v });
+  // ⛔ 09-25: the maker count (up to 140 tx lookups against RPCs that allow ~30 per burst) used to run INSIDE this
+  // function, so the 24h volume, the 5m/1h/6h change and the buy/sell split all waited for it — 5m change took 4.6-10s
+  // on the live site and EURC's never showed within 22s. Those numbers now return as soon as the swap scan is done;
+  // makers are resolved separately (fetchOnchainMakers24) from the same tx list and fill in on their own.
+  dayTxList.set(t, uniqTx);
+  const v: DayStats = { change24h, change6h, change1h, change5m, volume24h, buys24, sells24, txns24, makers24: null };
+  if (!partial) dayStatsCache.set(t, { at: Date.now(), v });
   return v;
 }
 // On-chain burn: tokens sent to the null/dead addresses, as an amount + % of total supply. Works for any
@@ -1689,7 +1709,7 @@ export async function fetchPoolVolume24h(token: string): Promise<number | null> 
 // The swap event's on-chain sender/recipient is the ROUTER (one address for every launchpad/V4 trade), so
 // the Maker column read the same address on every row and Makers collapsed to 1. The TRUE maker is the
 // transaction's origin — resolve it for the (bounded, <= `want`) trade list and overwrite trader.
-async function resolveMakers(trades: RadarSwap[]): Promise<RadarSwap[]> {
+export async function resolveMakers(trades: RadarSwap[]): Promise<RadarSwap[]> {
   const uniq = [...new Set(trades.map((t) => t.tx).filter(Boolean))];
   if (!uniq.length) return trades;
   try {
@@ -1728,8 +1748,12 @@ export async function fetchPoolTrades(token: string, decimals = 18, want = 40): 
     }
     return acc;
   };
+  // Recent first (20k, then 80k blocks); a QUIET token keeps going back in 95k steps (to ~900k blocks ≈ 5 days) until it
+  // has `want` trades — before 09-25 anything older than ~10h left the table empty.
   const floor = head - 80000n < 0n ? 0n : head - 80000n;
-  for (const [lo, hi] of [[head - 20000n < floor ? floor : head - 20000n, head], [floor, head - 20001n]] as [bigint, bigint][]) {
+  const windows: [bigint, bigint][] = [[head - 20000n < floor ? floor : head - 20000n, head], [floor, head - 20001n]];
+  for (let hi = floor - 1n; hi > head - 900000n && hi > 0n; hi -= 95000n) windows.push([hi - 95000n < 0n ? 0n : hi - 95000n, hi]);
+  for (const [lo, hi] of windows) {
     if (out.length >= want || hi <= lo) break;
     const logs = await windowLogs(lo, hi);
     for (const l of logs) {
@@ -1754,7 +1778,9 @@ export async function fetchPoolTrades(token: string, decimals = 18, want = 40): 
     }
   }
   out.sort((a, b) => b.time - a.time);
-  return resolveMakers(out.slice(0, want).filter((s) => s.tx));
+  // Rows come back NOW; the caller resolves the real maker (tx.origin) afterwards with resolveMakers — 40 tx lookups
+  // held the whole table back for up to 8.5s (09-25).
+  return out.slice(0, want).filter((s) => s.tx);
 }
 // V4 buy/sell trades from the singleton's Swap events (poolId-filtered). Layout (verified on GLITCH):
 // w0=amount0, w1=amount1, w2=sqrtPriceX96, w3=liquidity, w4=tick, w5=fee. ⛔ V4 amounts are the CALLER's
@@ -1771,7 +1797,7 @@ async function fetchV4Trades(v4: V4Pool, decimals: number, want: number): Promis
   const tokIdx = v4.usdcIsC0 ? 1 : 0; // token is the non-USDC currency
   const out: RadarSwap[] = [];
   const CH = BigInt(BIG_LOG_RANGE);
-  for (let hi = head; hi > head - 300000n && out.length < want; hi -= CH) {
+  for (let hi = head; hi > head - 900000n && out.length < want; hi -= CH) { // to ~5 days back for a quiet token (was 300k ≈ 1.5d)
     const lo = hi - CH < 0n ? 0n : hi - CH;
     const logs = await getLogsBig({ address: PM_V4, topics: [V4_SWAP_TOPIC, v4.poolId], fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) });
     if (!Array.isArray(logs)) continue;
@@ -1794,7 +1820,7 @@ async function fetchV4Trades(v4: V4Pool, decimals: number, want: number): Promis
     }
   }
   out.sort((a, b) => b.time - a.time);
-  return resolveMakers(out.slice(0, want).filter((s) => s.tx));
+  return out.slice(0, want).filter((s) => s.tx); // makers resolved by the caller (resolveMakers), see fetchPoolTrades
 }
 
 // On-chain token logo, read straight from the token address (no third-party dependency). Arc

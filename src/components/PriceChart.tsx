@@ -42,6 +42,12 @@ const priceFmt = (p: number) => (!isFinite(p) || Math.abs(p) < 1e-15 ? '$0' : tp
 
 export function PriceChart({ address, symbol, decimals, priceScale = 1, change24h }: { address: string; symbol?: string; decimals?: number; priceScale?: number; change24h?: number | null }) {
   const [tf, setTf] = useState('5m');
+  // A quiet token (last trade > 24h ago) showed an empty 5m chart reading "No trades yet on this pool" — wrong, the pool HAS
+  // traded, just not today; 1H/ALL had its history (owner 09-25: "charts are broken now on some"). Until the user picks a
+  // timeframe, an empty default view switches to ALL once, and says why.
+  const userPicked = useRef(false);
+  const [autoWide, setAutoWide] = useState(false);
+  useEffect(() => { userPicked.current = false; setAutoWide(false); setTf('5m'); }, [address]);
   const [type, setType] = useState<ChartType>('candles');
   const [log, setLog] = useState(false);
   const [candles, setCandles] = useState<Candle[] | null>(null);
@@ -85,6 +91,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       if (!c.length) c = await warpP;
       // Show only this timeframe's window.
       c = inWindow(c);
+      if (alive && !c.length && !userPicked.current && tf !== 'all') { setAutoWide(true); setTf('all'); return; } // quiet token → full history
       if (alive) { setCandles(c); setLoading(false); }
     })();
     return () => { alive = false; };
@@ -149,7 +156,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
           {chg != null && <span className={`chart-chg ${chg >= 0 ? 'up' : 'down'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(1)}% <span className="chart-chg-l">24h</span></span>}
         </div>
         <div className="chart-tfs">
-          {TFS.map((t) => <button key={t.k} className={tf === t.k ? 'on' : ''} onClick={() => setTf(t.k)}>{t.l}</button>)}
+          {TFS.map((t) => <button key={t.k} className={tf === t.k ? 'on' : ''} onClick={() => { userPicked.current = true; setAutoWide(false); setTf(t.k); }}>{t.l}</button>)}
         </div>
       </div>
       <div className="chart-tools">
@@ -166,10 +173,11 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
         <div className="chart-box" ref={boxRef} />
         {(loading || empty) && (
           <div className="chart-overlay">
-            {loading ? <div className="spinner" /> : <span>No trades yet on this pool — the chart fills in as it trades.</span>}
+            {loading ? <div className="spinner" /> : <span>{tf === 'all' ? 'No trades found on this pool in its recent on-chain history.' : 'No trades in this timeframe — try a wider one (1H · 1D · ALL).'}</span>}
           </div>
         )}
       </div>
+      {autoWide && tf === 'all' && candles && candles.length > 0 && <div className="chart-note">No trades in the last 24h — showing full history.</div>}
       <div className="chart-src">Chart: on-chain pool swaps (Warp candles if none) · Arc mainnet (5042) · unofficial · DYOR</div>
     </div>
   );

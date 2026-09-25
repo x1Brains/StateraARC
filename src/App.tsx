@@ -457,6 +457,7 @@ export default function App() {
           <PremainDetail
             address={selected}
             seed={tokens.find((t) => t.address.toLowerCase() === (selected || "").toLowerCase())}
+            ready={tokens.length > 0 || !!err}
             onBack={() => setSelected(null)}
             onTrade={(t) => tradeToken(t)}
           />

@@ -1557,3 +1557,4 @@ footer .wrap { padding: 16px 20px; }
   .td-trade .td-trade-sym { display: none; } /* "TRADE →" on phones — the name is right beside it */
   .td-head { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: start; }
 }
+.chart-note { font: 600 11px var(--mono); color: var(--gray-2); text-align: center; margin-top: 4px; }
