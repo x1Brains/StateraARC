@@ -83,6 +83,9 @@ const MIN_USDC = Number(process.env.ONCHAIN_MIN_USDC || 60); // a V3 pool must h
 const MIN_LIQ = Number(process.env.ONCHAIN_MIN_LIQ || 100);  // only OUTPUT tokens whose total pool value clears this — cuts nanocap noise + keeps the indexer lean/fast
 // First block with code at the V4 PoolManager (binary search on eth_getCode, 09-25). The registry backfills from here.
 const V4_START = BigInt(process.env.V4_START || 1948056);
+// First block with code at the V3 factory (binary search, 09-25). The indexer's first sweep only looked back 1.2M blocks, so
+// every V3 USDC pool created before that was never discovered — Builders (0xa37c…, 564 holders, $21K pool) was one.
+const V3_START = BigInt(process.env.V3_START || 1948019);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const pad = (a) => a.toLowerCase().replace('0x', '').padStart(64, '0');
@@ -200,6 +203,38 @@ async function main() {
     if (!state.tokens[token]) v3cand.push({ token, pool, usdcIsToken0: t0 === USDC, created: parseInt(l.blockNumber, 16) });
   }
   console.log(`[disc] V3 new USDC pools: ${v3cand.length}`);
+
+  // ── 1b) ONE-TIME: every V3 USDC pool from the factory's deploy up to where the first sweep began ────────────────
+  // Queued into the same backlog the liquidity check drains (MAX_NEW_PER_RUN per run), so a run never hangs on it.
+  // Marked done only when every range answered — a failed range means the whole backfill runs again next time.
+  if (!state.v3histDone) {
+    const histTo = BigInt(state.v3histTo || (state.cursor ? Math.max(0, head - Number(INITIAL_LOOKBACK)) : head));
+    // First run: the whole range. Later runs: only the ranges that failed, each split in half (a range that fails
+    // again is usually one with more logs than the RPC returns per call — same fix as the V4 registry's gaps).
+    const ranges = state.v3histGaps ? state.v3histGaps.map(([f, t]) => [BigInt(f), BigInt(t)]) : [];
+    if (!state.v3histGaps) for (let f = V3_START; f < histTo; f += CH) ranges.push([f, f + CH > histTo ? histTo : f + CH]);
+    const res = await runLimited(ranges.map(([f, t]) => () => rpc('eth_getLogs', [{ address: V3_FACTORY, topics: [T_V3_CREATE], fromBlock: '0x' + f.toString(16), toBlock: '0x' + t.toString(16) }], true)), 8);
+    const gaps = [];
+    res.forEach((r, i) => { if (Array.isArray(r)) return; const [f, t] = ranges[i];
+      if (t - f > 2000n) { const m = f + (t - f) / 2n; gaps.push([f.toString(), m.toString()], [m.toString(), t.toString()]); } else gaps.push([f.toString(), t.toString()]); });
+    let failed = 0, queued = 0;
+    const inQueue = new Set([...(state.v3backlog || []), ...v3cand].map((c) => c.pool));
+    for (const r of res) {
+      if (!Array.isArray(r)) { failed++; continue; }
+      for (const l of r) {
+        const t0 = ('0x' + l.topics[1].slice(26)).toLowerCase(), t1 = ('0x' + l.topics[2].slice(26)).toLowerCase();
+        if (t0 !== USDC && t1 !== USDC) continue;
+        const token = t0 === USDC ? t1 : t0, pool = ('0x' + l.data.slice(-40)).toLowerCase();
+        if (state.tokens[token] || inQueue.has(pool)) continue;
+        inQueue.add(pool); queued++;
+        (state.v3backlog || (state.v3backlog = [])).push({ token, pool, usdcIsToken0: t0 === USDC, created: parseInt(l.blockNumber, 16) });
+      }
+    }
+    state.v3histTo = histTo.toString();
+    state.v3histGaps = gaps;
+    if (!gaps.length) { state.v3histDone = true; delete state.v3histGaps; }
+    console.log(`[disc] V3 history sweep ${V3_START}..${histTo}: ${ranges.length} ranges, queued ${queued} USDC pools${failed ? `, ${failed} ranges FAILED — retried (halved) next run` : ' — done'}`);
+  }
 
   // ── 2) ACTIVE V4 pools from recent Swap events (activity = the real-vs-decoy signal) ──────────────
   // Recent swaps are dense (~7k logs / 2k blocks), so scan a SHORT window in SMALL chunks. Then resolve
