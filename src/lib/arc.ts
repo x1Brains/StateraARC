@@ -973,7 +973,8 @@ export async function fetchDeepPoolPrices(): Promise<Record<string, number>> {
   const balOf = (token: string, who: string) => mCall(token, '0x70a08231000000000000000000000000' + who.slice(2).toLowerCase());
   await runLimited(Object.entries(MAINNET_POOL).map(([token, pool]) => async () => {
     const [slot0, t0] = await Promise.all([mCall(pool, '0x3850c7bd'), mCall(pool, '0x0dfe1681')]); // slot0(), token0()
-    const usdcIsT0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase() : false;
+    if (!t0) return; // ⛔ unknown orientation = no price (a guessed `false` inverted ARC BAT to $6.97e27, 09-25)
+    const usdcIsT0 = ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
     let price: number | null = null;
     if (slot0 && slot0 !== '0x' && slot0.length >= 66) {
       try { const sqrtP = BigInt('0x' + slot0.slice(2, 66)); if (sqrtP > 0n) { const r = (Number(sqrtP) / 2 ** 96) ** 2; if (isFinite(r) && r > 0) price = (usdcIsT0 ? 1 / r : r) * 1e12; } } catch { /* skip */ }
@@ -1435,7 +1436,7 @@ export async function fetchOnchainPoolStats(token: string, decimals = 18): Promi
   // Prefer the V3 slot0 mid-price (accurate on concentrated pools); fall back to the reserve ratio (V2).
   let price: number | null = null;
   const s0 = await mCall(pool, '0x3850c7bd').catch(() => null); // slot0()
-  if (s0 && s0.length >= 66) { try { const t0 = await mCall(pool, '0x0dfe1681').catch(() => null); const usdcIsToken0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR : false; const sqrtP = BigInt(s0.slice(0, 66)); if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const p = (usdcIsToken0 ? 1 / ratio : ratio) * 10 ** (decimals - 6); if (isFinite(p) && p > 0) price = p; } } catch { /* */ } }
+  if (s0 && s0.length >= 66) { try { const t0 = await mCall(pool, '0x0dfe1681').catch(() => null); if (!t0) throw new Error('token0 unknown'); /* no orientation = no price, never a guess */ const usdcIsToken0 = ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR; const sqrtP = BigInt(s0.slice(0, 66)); if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const p = (usdcIsToken0 ? 1 / ratio : ratio) * 10 ** (decimals - 6); if (isFinite(p) && p > 0) price = p; } } catch { /* */ } }
   if (price == null && reserveQuote != null && reserveBase) price = reserveQuote / reserveBase;
   const v = { tvl: reserveQuote, reserveQuote, reserveBase, pool, price };
   poolStatsCache.set(ck, { at: Date.now(), v });
@@ -1468,9 +1469,9 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
     let usdc: number | null = null, tokRes: number | null = null;
     try { if (natB) usdc = Number(BigInt(natB)) / 1e18; } catch { /* */ }
     try { if (tokB) tokRes = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
-    const usdcIsToken0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR : false;
+    const usdcIsToken0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR : null; // null = unknown → no V3 price
     let price: number | null = null;
-    if (f.version === 'V3') {
+    if (f.version === 'V3' && usdcIsToken0 != null) {
       const slot0 = await mCall(f.pool, '0x3850c7bd').catch(() => null); // slot0(): sqrtPriceX96 in word 0
       if (slot0 && slot0.length >= 66) { try { const sqrtP = BigInt(slot0.slice(0, 66)); if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp; } } catch { /* */ } }
     } else if (usdc != null && tokRes) { price = usdc / tokRes; }
@@ -1614,7 +1615,11 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
   // last-40-trades sample, which on a fast pump read "0 sells" over a 5-minute window).
   const pts: { ts: number; price: number; usd: number; side: 'buy' | 'sell'; tx: string }[] = [];
   let usdcIsToken0 = false;
-  if (pool) { const t0 = await mCall(pool, '0x0dfe1681').catch(() => null); usdcIsToken0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR : false; }
+  if (pool) {
+    const t0 = await mCall(pool, '0x0dfe1681').catch(() => null);
+    if (!t0) return empty; // unknown orientation would invert every price and flip buys/sells — answer nothing (not cached)
+    usdcIsToken0 = ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR;
+  }
   for (const logs of results) {
     if (!Array.isArray(logs)) continue;
     for (const l of logs) {

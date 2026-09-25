@@ -241,9 +241,12 @@ async function poolStats(token, pool) {
     call(pool, '0x3850c7bd'), call(pool, '0x0dfe1681'), // slot0(), token0()
   ]);
   if (!uHex || uHex === '0x') return null;
+  // ⛔⛔ 09-25: a FAILED token0() read defaulted to "USDC is not token0", which inverts a V3 price — ARC BAT (a healthy $17.9K
+  // pool, real price $0.0001436) went out at $6.97e27 with a $1e36 "liquidity". No orientation, no price — never a guess.
+  if (!t0 || t0 === '0x') return null;
   const usdc = Number(hexToInt(uHex)) / 1e6;
   const supply = supHex && supHex !== '0x' ? Number(hexToInt(supHex)) / 1e18 : null;
-  const usdcIsT0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC : false;
+  const usdcIsT0 = ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC;
   let price = null;
   // Uniswap V3: price = slot0 sqrtPriceX96. ⛔ The reserve ratio (balance/balance) is NOT the price for
   // concentrated liquidity — it gave CRCL $36 when the real market price is $84 (matches the chart).
@@ -266,6 +269,7 @@ async function poolStats(token, pool) {
     price: null, liq: null, mcap: null, fdv: null, volume24h: null, change5m: null, change1h: null, change6h: null,
     change24h: null, spark: null, txns24: null, source: null, createdAt: null, ...o, address: o.address.toLowerCase() });
   const chainPriced = new Set();
+  const ocPriceOf = new Map(); // token -> the on-chain indexer's price (cross-check for the hand-picked deep pools)
   const set = (t) => { const k = t.address.toLowerCase(); const c = map.get(k);
     if (!c) { map.set(k, mk(t)); return; }
     for (const key of Object.keys(t)) { const v = t[key]; if (v == null) continue; if (c[key] == null) c[key] = v; }
@@ -282,6 +286,7 @@ async function poolStats(token, pool) {
       let added = 0;
       for (const t of (oc.tokens || [])) {
         const a = (t.address || '').toLowerCase(); if (!a) continue;
+        if (t.price != null) ocPriceOf.set(a, t.price);
         if (map.has(a)) { const row = map.get(a); if (row.price == null && t.price != null) row.price = t.price; if (row.liq == null && t.liq != null) row.liq = t.liq; if (row.mcap == null && t.mcap != null) row.mcap = t.mcap; if (row.volume24h == null && t.volume24h != null) row.volume24h = t.volume24h; if (row.change24h == null && t.change24h != null) row.change24h = t.change24h; if (!row.iconUrl && t.iconUrl) row.iconUrl = t.iconUrl; if (row.holders == null && t.holders != null) row.holders = t.holders; if (!row.poolId && t.poolId) { row.poolId = t.poolId; row.usdcIsC0 = !!t.usdcIsC0; } if (row.decimals == null && t.decimals != null) row.decimals = t.decimals; if (!row.pool && t.pool) row.pool = t.pool; if (t.hooked) row.hooked = true; if (row.v4fee == null && t.v4fee != null) { row.v4fee = t.v4fee; row.v4tick = t.v4tick; row.hooks = t.hooks; } continue; }
         const row = mk({ address: a, name: t.name, symbol: t.symbol, price: t.price ?? null, liq: t.liq ?? null, mcap: t.mcap ?? null, launchpad: t.launchpad ?? null, source: t.source ?? 'onchain', iconUrl: t.iconUrl ?? null, holders: t.holders ?? null });
         row.volume24h = t.volume24h ?? null; row.change24h = t.change24h ?? null; row.change1h = t.change1h ?? null; row.createdAt = t.createdAt ?? null; if (Array.isArray(t.spark)) row.spark = t.spark;
@@ -353,6 +358,13 @@ async function poolStats(token, pool) {
     // deep-pool on-chain values are authoritative — overwrite radar/warp for price/liq/mcap/vol/change/spark
     const row = map.get(token);
     if (ex) { if (ex.icon && !row.iconUrl) row.iconUrl = ex.icon; if (ex.holders != null) row.holders = ex.holders; }
+    // A hand-picked pool is authoritative only while it AGREES with the indexer's own read of the same token (within 20x)
+    // and actually holds USDC — a dead or mis-read pool must never overwrite a good price.
+    const ocPrice = ocPriceOf.get(token);
+    if (stats && (stats.price == null || !isFinite(stats.price) || stats.price <= 0 || (ocPrice && (stats.price / ocPrice > 20 || ocPrice / stats.price > 20)))) {
+      console.log(`  ${meta.symbol}: deep pool REJECTED (price ${stats?.price} vs indexer ${ocPrice}) — keeping the indexer's values`);
+      continue;
+    }
     if (stats && stats.price != null) chainPriced.add(token);
     if (stats) { if (stats.price != null) row.price = stats.price; if (stats.liq != null) row.liq = stats.liq; if (stats.mcap != null) row.mcap = stats.mcap; }
     // ⛔ The row's pool must be the pool its PRICE came from. The indexer may have tagged these tokens with a V4
@@ -374,6 +386,26 @@ async function poolStats(token, pool) {
   // only covers indexer-sourced tokens; RadarDEX-sourced dust bypassed it, so half the snapshot (≈1100/2263)
   // was sub-$100. Ecosystem tokens are always kept; unknown-liq (liq=null) tokens are kept (not proven dust);
   // a direct address lookup still renders the token page from on-chain, so nothing becomes unviewable.
+  // ═══ HARD RULES (09-25) — same as the site's sanitizeToken (src/lib/arc.ts): no impossible number leaves this builder. ═══
+  const PINNED = new Set([...ECO.map((e) => e.address), ...Object.keys(POOLS)].map((a) => a.toLowerCase()));
+  const CIRCLE_NAME = /circle|usdc|eurc|usyc|cirbtc/i;
+  let scrubbed = 0;
+  for (const t of map.values()) {
+    const pinned = PINNED.has(t.address) || t.isEcosystem; const before = JSON.stringify([t.price, t.liq, t.mcap, t.volume24h]);
+    const fin = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
+    t.price = fin(t.price); t.liq = fin(t.liq); t.mcap = fin(t.mcap); t.volume24h = fin(t.volume24h);
+    if (t.price != null && (t.price <= 0 || t.price >= 1e6)) { t.price = t.liq = t.mcap = t.volume24h = null; t.spark = null; t.bad = 'price'; }
+    if (!pinned) {
+      if (t.mcap != null && t.mcap > 5e8) { t.mcap = null; t.bad = t.bad || 'mcap'; }
+      if (t.liq != null && t.liq > 5e7) { t.liq = null; t.bad = t.bad || 'liq'; }
+      if (t.volume24h != null && t.volume24h > 5e7) { t.volume24h = null; t.bad = t.bad || 'vol'; }
+      if (t.volume24h != null && t.liq > 0 && t.volume24h > t.liq * 20) t.volume24h = null; // wash
+      if (CIRCLE_NAME.test(`${t.name} ${t.symbol}`)) t.bad = t.bad || 'impersonator';
+    }
+    if (Array.isArray(t.spark) && t.spark.some((x) => !isFinite(x) || x <= 0 || x >= 1e6)) t.spark = null;
+    if (JSON.stringify([t.price, t.liq, t.mcap, t.volume24h]) !== before || t.bad) scrubbed++;
+  }
+  console.log(`[snap] hard rules: ${scrubbed} rows scrubbed/flagged`);
   const DUST_LIQ = 100, DUST_HOLDERS = 50;
   const all = [...map.values()];
   const radarSet = new Set(rlist.map((t) => (t.address || '').toLowerCase()));
