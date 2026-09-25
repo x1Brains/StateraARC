@@ -326,20 +326,29 @@ async function main() {
     return { addr, t, price };
   }).filter((x) => x.price != null && isFinite(x.price) && x.price > 0 && x.price < 1e6);
 
+  // ⛔ 09-25: V3 pools were valued by their USDC side ONLY — cirBTC's main pool holds $6.06M USDC AND 64.5 cirBTC ($5.44M),
+  // so the screener said $6.2M where the chain (and the token page) say $11.6M. Liquidity = BOTH sides now. The token
+  // side counts for at most 3x the pool's USDC: real two-sided pools run ~0.9-2x (cirBTC 0.9, CRCL 1.3, ARCADE ~2), while
+  // a pile of tokens valued at spot next to a few $K of USDC is not liquidity (FIAT: $2.4K USDC read as $247K at 100x).
+  // Same cap on the token page's pools card (arc.ts fetchAllOnchainPools), so both pages agree.
+  const V3_TOKEN_SIDE_MAX = 3;
+  const v3Side = (tokUsd, usdc) => (isFinite(tokUsd) && tokUsd > 0 ? Math.min(tokUsd, usdc * V3_TOKEN_SIDE_MAX) : 0);
   const liqs = await runLimited(rows.map((x) => async () => {
     if (x.t.kind === 'v3') {
       // A V3-primary token can ALSO have a V4 pool (ARGUS = $744K V3 + ~$355K V4). Read BOTH: the V3 pool's
       // native USDC AND the token side the V4 singleton holds (priced), so the aggregate is the TRUE total
       // locked across the token's pools, not just its biggest one. (V4-primary tokens already count this via
       // their own balanceOf(PM) read below.) balanceOf(PM_V4)==0 for a V3-only token, so this adds nothing.
-      const [b, vb] = await Promise.all([
+      const [b, vb, pb] = await Promise.all([
         rpc('eth_getBalance', [x.t.pool, 'latest']),
         call(x.addr, '0x70a08231' + pad(PM_V4)).catch(() => null),
+        call(x.addr, '0x70a08231' + pad(x.t.pool)).catch(() => null), // the V3 pool's TOKEN side
       ]);
-      if (b == null || vb == null) return null; // a FAILED read is not $0 (see below)
+      if (b == null || vb == null || pb == null) return null; // a FAILED read is not $0 (see below)
       const v3usdc = Number(BigInt(b)) / 1e18;
+      const v3tok = pb !== '0x' ? Number(BigInt(pb)) / 10 ** x.t.decimals : 0;
       const v4tok = vb !== '0x' ? Number(BigInt(vb)) / 10 ** x.t.decimals : 0;
-      return v3usdc + v4tok * x.price;
+      return v3usdc + v3Side(v3tok * x.price, v3usdc) + v4tok * x.price;
     }
     const b = await call(x.addr, '0x70a08231' + pad(PM_V4)); if (b == null) return null;
     const tok = b !== '0x' ? Number(BigInt(b)) / 10 ** x.t.decimals : 0; return tok * x.price; // V4: token side value (all its V4 pools)
@@ -392,10 +401,11 @@ async function main() {
     for (const r of cand) {
       const p = r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null;
       if (!p || p === ZERO || seen.has(p)) continue; seen.add(p);
-      const [bal, t0] = await Promise.all([rpc('eth_getBalance', [p, 'latest']).catch(() => null), call(p, '0x0dfe1681').catch(() => null)]);
+      const [bal, t0, tb] = await Promise.all([rpc('eth_getBalance', [p, 'latest']).catch(() => null), call(p, '0x0dfe1681').catch(() => null), call(x.addr, '0x70a08231' + pad(p)).catch(() => null)]);
       const usdc = bal ? Number(BigInt(bal)) / 1e18 : 0;
       if (usdc < MIN_USDC) continue; // only real pools
-      extraUsdc += usdc; // aggregate liquidity across the token's other USDC pools
+      const tok = tb && tb !== '0x' ? Number(BigInt(tb)) / 10 ** x.t.decimals : 0;
+      extraUsdc += usdc + v3Side(tok * x.price, usdc); // aggregate liquidity (both sides) across the token's other USDC pools
       pools.push({ kind: 'v3', address: p, usdcIsC0: t0 ? ('0x' + t0.slice(-40)).toLowerCase() === USDC : false, primary: false });
     }
     return { pools, extraUsdc };

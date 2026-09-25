@@ -1451,7 +1451,9 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
     // cap the token-side value at a sane multiple of it so one bad leg can't blow up the pool's liquidity.
     if (price != null && (!isFinite(price) || price <= 0 || price > 1e9)) price = null;
     const tokenSide = (tokRes != null && price != null) ? tokRes * price : 0;
-    const liquidityUsdc = usdc != null ? usdc + (usdc > 0 ? Math.min(tokenSide, usdc * 100) : (tokenSide < 1e7 ? tokenSide : 0)) : null;
+    // Token side counts for at most 3x the pool's USDC — same cap as the indexer (onchain-discover.mjs), so the screener
+    // and this card agree. (Was 100x here; a few $K of USDC next to a pile of tokens at spot is not $250K of liquidity.)
+    const liquidityUsdc = usdc != null ? usdc + (usdc > 0 ? Math.min(tokenSide, usdc * 3) : (tokenSide < 1e7 ? tokenSide : 0)) : null;
     return { pool: f.pool, version: f.version, feeTier: f.feeTier, quote: 'USDC', liquidityUsdc, price, tokenReserve: tokRes, usdcReserve: usdc };
   }));
   const pools = out.filter((p) => p.liquidityUsdc != null && p.liquidityUsdc > 1).sort((a, b) => (b.liquidityUsdc || 0) - (a.liquidityUsdc || 0));

@@ -808,7 +808,6 @@ a .i, button .i { pointer-events: none; }
 .swap-info { display: flex; justify-content: space-between; padding: 12px 4px; color: var(--gray-2); font-size: 13px; }
 .swap-cta { width: 100%; margin-top: 8px; }
 .swap-cta:disabled { opacity: .85; cursor: default; }
-.swap-note { color: var(--gray-3); font-size: 11px; line-height: 1.5; margin-top: 12px; }
 .swap-box + .swap-box { margin-top: 0; }
 .swap-bal { font-size: 11.5px; color: var(--gray-2); font-family: var(--mono); display: inline-flex; align-items: center; gap: 8px; }
 .swap-max { background: rgba(255,122,30,.12); border: 1px solid var(--red-dim); color: var(--red-hi); border-radius: 5px; padding: 1px 7px; font: 700 10px var(--disp); letter-spacing: .5px; cursor: pointer; }
@@ -1391,3 +1390,155 @@ footer .flink:hover { text-decoration: underline; }
 .asof.live { color: #4ecb71; display: inline-flex; align-items: center; gap: 5px; }
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ecb71; box-shadow: 0 0 0 0 rgba(78,203,113,.6); animation: livePulse 1.8s infinite; }
 @keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(78,203,113,.55); } 70% { box-shadow: 0 0 0 6px rgba(78,203,113,0); } 100% { box-shadow: 0 0 0 0 rgba(78,203,113,0); } }
+
+/* ═════════ COMPACT PASS (owner 09-25: "all the windows are really big… make them a lot shorter, cleaner, on mobile AND
+   desktop"). Appended last so it wins over the older rules above; nothing here changes data, only spacing/size. ═════════ */
+.section { padding: 18px 0; }
+.section-head { margin-bottom: 12px; }
+.panel { border-radius: 12px; }
+.side-card { padding: 12px 14px; }
+.side-card h3 { font-size: 11px; margin: 0 0 8px; }
+.ir { padding: 5px 0; font-size: 12.5px; }
+.ir-v { font-size: 11.5px; }
+.td-head { margin-bottom: 8px; }
+.td-stats { gap: 6px; margin-bottom: 8px; }
+.td-stats .stat { padding: 7px 10px; }
+.chg-bar { gap: 6px; margin-top: 8px; }
+.chg-cell { padding: 5px 4px; gap: 1px; border-radius: 8px; }
+.chart-card { padding: 10px 10px 6px; margin-bottom: 8px; }
+.chart-head { margin-bottom: 6px; }
+.chart-box { height: 300px; }
+.chart-src { margin-top: 4px; }
+.td-dash { gap: 10px; margin-top: 10px; }
+.td-col { gap: 10px; }
+.ta-grid { gap: 6px; }
+.ta-cell { padding: 5px 4px; border-radius: 8px; }
+.ta-v { font-size: 13.5px; }
+.ta-l { font-size: 8px; }
+.bs-legend { margin-bottom: 8px; }
+.ph-head { margin-bottom: 8px; }
+.ph-sigs { gap: 5px; }
+.ph-note { margin-top: 6px; }
+.pl-card { margin-top: 0; }
+/* calculator: one line — amount · = · USD */
+.calc { flex-direction: row; align-items: center; gap: 8px; }
+.calc-row { flex: 1; min-width: 0; padding: 6px 10px; border-radius: 8px; }
+.calc-in, .calc-out .calc-val { font-size: 15px; }
+/* links: one compact row of chips instead of a card-in-a-card */
+.tlinks { margin-top: 8px; padding: 0; background: none; border: 0; box-shadow: none; }
+.tlinks h3 { display: none; }
+.tlink-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.tlink { padding: 5px 10px; border-radius: 8px; }
+.tlink b { font-size: 11.5px; margin: 0; }
+.tlink span { display: none; }
+.tlink-dexes { padding-top: 6px; font-size: 11.5px; gap: 4px 8px; }
+.td-tabs button { padding: 9px 14px; }
+.td-tabbody { max-height: 360px; padding: 8px 12px; }
+.td-disc { font-size: 10.5px; }
+/* home */
+.hero, .hero .wrap, .hero-copy { min-height: 520px; }
+.hero-copy { padding: 32px 0; }
+.hero p.lede { margin: 16px 0 22px; font-size: 15px; }
+.hero-trust { margin-top: 18px; padding-top: 14px; }
+.dash { margin-bottom: 18px; }
+.dash-head { padding: 14px 16px 8px; }
+.dash-row { padding: 7px 12px; }
+.home-cta { padding: 16px 20px; }
+.home-cta h2 { font-size: 20px; }
+.home-cta p { margin-top: 4px; font-size: 12.5px; }
+footer { margin-top: 20px; }
+footer .wrap { padding: 16px 20px; }
+/* portfolio: the generic mobile .trow grid (later in this file) was overriding the portfolio row → names cut to "L.." */
+.trow.pf-row { padding-top: 8px; padding-bottom: 8px; }
+.pf-detail { padding: 10px 14px; }
+
+@media (max-width: 820px) {
+  .hero, .hero .wrap, .hero-copy { min-height: 0; }
+  .hero-copy { padding: 22px 0 20px; }
+  .hero h1 { font-size: clamp(28px, 8vw, 38px); }
+  .hero p.lede { font-size: 13px; line-height: 1.5; margin: 10px 0 14px; }
+  .hero-cta { gap: 8px; flex-wrap: nowrap; }
+  .hero-cta .btn { flex: 1; justify-content: center; padding: 10px 8px; font-size: 11px; }
+  .hero-search { margin-top: 10px; }
+  .hero-trust { margin-top: 12px; padding-top: 10px; gap: 14px; }
+  .hero-trust .ht b { font-size: 17px; }
+  .ue5-inner { padding: 26px 16px !important; }
+  .nav .wrap { padding: 6px 0; row-gap: 4px; }
+}
+@media (max-width: 640px) {
+  .section { padding: 12px 0; }
+  .section-head { margin-bottom: 8px; }
+  .section-head h2 { font-size: 17px; }
+  .section-head p { font-size: 11.5px; }
+  .stats { gap: 6px; margin-bottom: 10px; }
+  .stat { padding: 7px 6px; }
+  .stat .v { font-size: 15px; }
+  /* header: wallet button stays on the logo row instead of wrapping to its own line */
+  .nav-logo { height: 38px; }
+  .nav .wrap { gap: 6px; }
+  .nav-x { width: 26px; height: 26px; }
+  .net-live { padding: 4px 8px; font-size: 8.5px; }
+  .nav-links button { padding: 5px 8px; }
+  /* hero search: input + button on ONE line */
+  .hero-search { flex-direction: row !important; }
+  .hero-search .hs-in { padding: 10px 12px; font-size: 13px; }
+  .hero-search .hs-go { padding: 0 12px !important; font-size: 12px; }
+  .dash-head { padding: 10px 12px 6px; }
+  .dash-head h3 { font-size: 16px; }
+  .dash-row { padding: 6px 10px; }
+  .home-cta { padding: 12px 14px; gap: 10px; }
+  /* token page */
+  .td-head { gap: 10px; }
+  .td-head .tlogo, .td-head .tmono { width: 38px; height: 38px; }
+  .td-stats .stat { padding: 6px 4px; }
+  .chart-box { height: 230px; }
+  .chart-tools { margin-bottom: 4px; }
+  .side-card { padding: 10px 12px; }
+  .ir { flex-direction: row !important; align-items: flex-start; gap: 10px; padding: 4px 0; font-size: 12px; }
+  .ir-v { font-size: 11px; }
+  .ta-grid { grid-template-columns: repeat(4, 1fr) !important; gap: 5px; }
+  .ta-grid-5 { grid-template-columns: repeat(5, 1fr) !important; }
+  .ta-v { font-size: 12.5px; }
+  .ta-l { font-size: 7.5px; letter-spacing: .5px; }
+  .td-tabbody { max-height: 300px; padding: 6px 10px; }
+  /* screener: TWO lines per token (was three + a txns sub-line, ~135px → ~70px) */
+  .trow.tok.sc {
+    grid-template-columns: 30px minmax(0, 1.25fr) 56px minmax(0, .9fr) minmax(0, .75fr);
+    grid-template-areas: "logo name spk price chg" "logo mc liq vol hld";
+    gap: 3px 8px; padding: 8px 10px;
+  }
+  .trow.tok.sc [data-l="Last 24h"] { grid-area: spk; }
+  .trow.tok.sc .spark-cell { justify-content: center; }
+  .trow.tok.sc .sub { display: none; }
+  .trow.tok.sc [data-l]::before { font-size: 7.5px; line-height: 1.2; }
+  .trow.tok.sc .tlogo, .trow.tok.sc .tmono { width: 28px; height: 28px; }
+  /* portfolio rows: logo · name · value · P&L (balance + price hidden) */
+  .trow.pf-row { grid-template-columns: 30px minmax(0, 1fr) auto auto; gap: 8px; }
+  .pf-hidden { padding: 4px 6px 4px 10px; font-size: 11.5px; }
+  /* swap */
+  .swap-section-head p { display: none; }
+  footer .wrap { padding: 12px 16px; gap: 8px; }
+}
+.td-disc { margin-top: 12px; padding-top: 10px; }
+@media (max-width: 640px) {
+  /* screener: give the price room — sub-cent prices were cut to "$0.00031…" */
+  .trow.tok.sc { grid-template-columns: 28px minmax(0, 1.2fr) 44px minmax(0, 1.05fr) minmax(0, .7fr); }
+  .trow.tok.sc [data-l="Price"] { font-size: 11px; overflow: visible; text-overflow: clip; }
+  .trow.tok.sc .spark-cell svg { max-width: 44px; }
+  .home-cta p { display: none; }
+  .home-cta h2 { font-size: 16px; }
+  /* token header: smaller Trade button, address chip on one line */
+  .td-trade { padding: 8px 12px; font-size: 11px; }
+  .td-head .addr { white-space: nowrap; font-size: 10.5px; padding: 3px 8px; }
+  .td-name { font-size: 20px; }
+}
+@media (max-width: 640px) {
+  /* line 1: token · holders · price · 24h — line 2: mcap · liquidity · vol · sparkline (every value gets a real column) */
+  .trow.tok.sc {
+    grid-template-columns: 28px minmax(0, 1.15fr) minmax(0, .85fr) minmax(0, 1fr) minmax(0, .75fr);
+    grid-template-areas: "logo name hld price chg" "logo mc liq vol spk";
+  }
+  .trow.tok.sc [data-l="Holders"] { text-align: left; }
+  .trow.tok.sc .spark-cell { justify-content: flex-end; }
+  .trow.tok.sc .spark-cell svg { max-width: 100%; }
+}

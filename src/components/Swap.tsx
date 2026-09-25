@@ -683,7 +683,6 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               {hash && <> · <a href={`${(warpMode ? activeScan() : CHAIN.scan)}/tx/${hash}`} target="_blank" rel="noreferrer">View tx <IconExternal className="i" /></a></>}
             </div>
           )}
-          <div className="swap-note">Best-fill routing across live Arc DEX liquidity. Paying with USDC or EURC, you just sign once — no gas, no approval tx (EIP-2612 permit). Other tokens: one approval the first time, then single-tx trades. Min-out enforced, dry-run simulated before you sign. Not financial advice — DYOR.</div>
         </div>
 
         <aside className="swap-side">

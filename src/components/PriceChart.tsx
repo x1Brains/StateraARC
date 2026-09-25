@@ -94,7 +94,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   useEffect(() => {
     if (!boxRef.current) return;
     const chart = createChart(boxRef.current, {
-      width: boxRef.current.clientWidth, height: 340,
+      width: boxRef.current.clientWidth, height: boxRef.current.clientHeight || 300, // height from CSS (.chart-box: 300 desktop / 230 phone)
       layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#8f8478', fontFamily: 'JetBrains Mono, monospace' },
       grid: { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } },
       rightPriceScale: { borderColor: 'rgba(255,255,255,.08)', scaleMargins: { top: 0.12, bottom: 0.08 } },
@@ -103,7 +103,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       localization: { priceFormatter: priceFmt },
     });
     chartRef.current = chart;
-    const ro = new ResizeObserver(() => { if (boxRef.current) chart.applyOptions({ width: boxRef.current.clientWidth }); });
+    const ro = new ResizeObserver(() => { if (boxRef.current) chart.applyOptions({ width: boxRef.current.clientWidth, height: boxRef.current.clientHeight || 300 }); });
     ro.observe(boxRef.current);
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; seriesRef.current = null; seriesTypeRef.current = null; };
   }, []);

@@ -375,24 +375,6 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
             </div>
           )}
 
-          {/* Calculator — convert a token amount to USD at the live price. */}
-          {px != null && (
-            <div className="panel side-card">
-              <h3>Calculator</h3>
-              <div className="calc">
-                <div className="calc-row">
-                  <input className="calc-in" inputMode="decimal" placeholder="0.00" value={calcAmt}
-                    onChange={(e) => setCalcAmt(e.target.value.replace(/[^0-9.]/g, ''))} />
-                  <span className="calc-unit">{sym}</span>
-                </div>
-                <div className="calc-eq">=</div>
-                <div className="calc-row calc-out">
-                  <span className="calc-val">{calcAmt && isFinite(+calcAmt) ? usd(+calcAmt * px) : '$0.00'}</span>
-                  <span className="calc-unit">USD</span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="td-col">
@@ -475,6 +457,24 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
                   {rd.lpTokenId && <span className="lq-r">LP #{rd.lpTokenId}</span>}
                 </div>
               )}
+            </div>
+          )}
+          {/* Calculator — convert a token amount to USD at the live price. */}
+          {px != null && (
+            <div className="panel side-card">
+              <h3>Calculator</h3>
+              <div className="calc">
+                <div className="calc-row">
+                  <input className="calc-in" inputMode="decimal" placeholder="0.00" value={calcAmt}
+                    onChange={(e) => setCalcAmt(e.target.value.replace(/[^0-9.]/g, ''))} />
+                  <span className="calc-unit">{sym}</span>
+                </div>
+                <div className="calc-eq">=</div>
+                <div className="calc-row calc-out">
+                  <span className="calc-val">{calcAmt && isFinite(+calcAmt) ? usd(+calcAmt * px) : '$0.00'}</span>
+                  <span className="calc-unit">USD</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
