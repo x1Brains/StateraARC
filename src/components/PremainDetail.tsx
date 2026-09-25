@@ -178,6 +178,14 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // reads the whole 24h window and its makers = distinct tx.origin (real wallets), not a router. RadarDEX
   // is next, and the last-40-trades sample is the final fallback while the 24h scan is still loading. A
   // legit 0 (e.g. a buy-only/honeypot token with 0 sells) is a real value, so only null falls through.
+  // ⛔ Browser tab title follows the token on screen. The server writes the title only on a full page load (api/token.js),
+  // so moving to another token inside the app left the OLD token's name + price in the tab (owner 09-25: copied the
+  // wrong token because of it). Set it here, live, and whenever the price/24h change updates.
+  useEffect(() => {
+    const chgS = chg != null ? ` (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% 24h)` : '';
+    document.title = `$${sym}${px != null ? ` · ${tprice(px)}${chgS}` : ''} — StateraArc`;
+  }, [sym, px, chg]);
+
   const pickNum = (...v: (number | null | undefined)[]) => { const f = v.find((x) => x != null && isFinite(x as number)); return f == null ? null : (f as number); };
   const ocBuys = swaps ? swaps.filter((s) => s.side === 'buy').length : null;
   const ocSells = swaps ? swaps.filter((s) => s.side === 'sell').length : null;

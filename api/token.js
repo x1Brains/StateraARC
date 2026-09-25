@@ -13,7 +13,8 @@ const fmtUsd = (n) => {
   if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
   if (n >= 1) return '$' + n.toFixed(2);
   if (n >= 0.001) return '$' + n.toFixed(4);
-  return '$' + n.toFixed(12).replace(/0+$/, '');
+  const z = Math.max(0, -Math.floor(Math.log10(n)) - 1); // leading zeros after the point → keep 4 significant digits
+  return '$' + n.toFixed(Math.min(z + 4, 18)).replace(/0+$/, '');
 };
 const fmtN = (n) => (n == null || !isFinite(n) ? '' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(Math.round(n)));
 

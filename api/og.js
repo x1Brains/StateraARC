@@ -8,7 +8,7 @@ import { liveToken } from '../lib/livetoken.js';
 // Vercel's Node 24 (self-test came back blank there while identical code works locally); the WASM
 // build is the same bytecode everywhere. Both the font and the wasm are base64-embedded from lib/
 // (OUT of /api so they aren't compiled as functions) — self-fetch and fs-tracing both failed here.
-const OG_VER = 'v8-live';
+const OG_VER = 'v9-logos';
 const FONT = Buffer.from(FONT_B64, 'base64');
 
 let wasmReady = null;
@@ -46,14 +46,23 @@ const priceInner = (n, fs) => {
   return `$0.0<tspan font-size="${sub}" dy="${dy}">${zeros}</tspan><tspan font-size="${fs}" dy="${-dy}">${sig}</tspan>`;
 };
 
+// Logo for the card. ⛔ 09-25 (owner: "some token cards … don't show"): fetching the token's own logo live failed for
+// most tokens — ipfs:// urls were fetched as-is (never works), WebP renders BLANK in resvg (every faze.fun coin), big IPFS
+// PNGs took 5s+ (GLITCH 829KB). Now the VPS logo cache comes first: scripts/logo-cache.mjs pre-converts each listed
+// token's logo to a 192px PNG, served by holdings-svc at /holdings/logo/<addr> (a local file, milliseconds; a miss
+// kicks a background fetch so the next card has it). The old sources stay as the fallback, ipfs resolved via a gateway.
+const toHttp = (u) => { const cid = String(u || '').match(/^ipfs:\/\/(?:ipfs\/)?(.+)$/i)?.[1]; return cid ? `https://gateway.pinata.cloud/ipfs/${cid}` : u; };
 async function logoDataUri(t, addr) {
-  const tries = [t?.iconUrl, addr ? `https://api.tollylabs.com/token-image/${addr}.png` : null].filter(Boolean);
-  for (const u of tries) {
+  const UP = process.env.HOLDINGS_UPSTREAM, KEY = process.env.HOLDINGS_KEY;
+  const tries = [];
+  if (UP && KEY && addr) tries.push({ u: `${UP.replace(/\/+$/, '')}/holdings/logo/${addr}`, h: { 'x-relay-key': KEY } });
+  for (const u of [t?.iconUrl ? toHttp(t.iconUrl) : null, addr ? `https://api.tollylabs.com/token-image/${addr}.png` : null]) if (u && /^https?:/i.test(u)) tries.push({ u, h: {} });
+  for (const { u, h } of tries) {
     try {
-      const r = await fetch(u, { signal: AbortSignal.timeout(2500) });
+      const r = await fetch(u, { headers: h, signal: AbortSignal.timeout(2500) });
       if (!r.ok) continue;
       const ct = (r.headers.get('content-type') || '').toLowerCase();
-      if (ct.includes('svg') || ct.includes('html')) continue; // resvg <image> needs raster
+      if (ct.includes('svg') || ct.includes('html') || ct.includes('webp') || ct.includes('json')) continue; // resvg <image> draws png/jpeg only
       const b = Buffer.from(await r.arrayBuffer());
       if (b.length < 64) continue;
       return `data:${ct.startsWith('image/') ? ct.split(';')[0] : 'image/png'};base64,${b.toString('base64')}`;

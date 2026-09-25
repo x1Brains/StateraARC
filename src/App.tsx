@@ -311,6 +311,13 @@ export default function App() {
     window.addEventListener('popstate', apply);
     return () => { window.removeEventListener('popstate', apply); };
   }, []);
+  // Tab title for every non-token page (a token page sets its own, live — PremainDetail). Without this, leaving a token
+  // page kept that token's name + price in the browser tab.
+  useEffect(() => {
+    if (page === 'screener' && selected) return;
+    const T: Record<Page, string> = { home: 'StateraArc — Arc token screener', screener: 'Screener — StateraArc', portfolio: 'Portfolio — StateraArc', swap: 'Swap — StateraArc', token: '$STR — StateraArc' };
+    document.title = T[page] || T.home;
+  }, [page, selected]);
   const navReady = useRef(false);
   useEffect(() => {
     const path = pathFor(page, selected);
