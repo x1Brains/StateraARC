@@ -1036,6 +1036,35 @@ const ECOSYSTEM_TOKENS: { address: string; name: string; symbol: string; price: 
 // Ecosystem is decided by ADDRESS, never symbol — a fake "USDC" lookalike must NOT be tagged ECO.
 const ECOSYSTEM_ADDRS = new Set<string>([NATIVE_USDC_ADDR.toLowerCase(), ...ECOSYSTEM_TOKENS.map((e) => e.address.toLowerCase())]);
 
+// ═════════ HARD RULES — every token passes these before ANY number reaches the page (owner 09-25, while promoting the site:
+// "we can't have this happen ever again"). The full-history sweep pulled in junk/fake pools: ARC BAT's emptied V3 pool read
+// $6.97e27/token, V4 tokens valued by tokens parked in the PoolManager showed $78T (BTCBR), $2.8T (CETH), $213M ("Blockchain
+// USD", 99 holders), and a fake "CRCL" (25,745 airdropped holders) outranked the real one. The snapshot builder applies the
+// same rules; this is the last line, so a bad build can never reach the screen. ═════════
+// Real tokens pinned BY ADDRESS: for their ticker they are always the canonical one, however many holders a copycat airdrops.
+export const PINNED = new Set<string>([NATIVE_USDC_ADDR, ...ECOSYSTEM_TOKENS.map((e) => e.address), ...MAINNET_CORE.map((t) => t.address)].map((a) => a.toLowerCase()));
+const CIRCLE_NAME = /circle|usdc|eurc|usyc|cirbtc/i; // only Circle's own assets may use these words
+const PRICE_MAX = 1e6, LIQ_MAX = 5e7, MCAP_MAX = 5e8;
+/** Scrub impossible numbers and flag fakes. Flagged rows (`bad`) are hidden from the screener, dashboard and totals. */
+export function sanitizeToken<T extends Token>(t: T): T & { bad?: string } {
+  const pinned = PINNED.has(t.address.toLowerCase()) || t.isEcosystem;
+  const r: T & { bad?: string } = { ...t };
+  const num = (v: any) => (typeof v === 'number' && isFinite(v) ? v : null);
+  r.price = num(r.price); r.liq = num(r.liq); r.mcap = num(r.mcap);
+  if (r.volume24h != null) r.volume24h = num(r.volume24h);
+  if (r.price != null && (r.price <= 0 || r.price >= PRICE_MAX)) { r.price = null; r.liq = null; r.mcap = null; r.volume24h = null; r.bad = 'price'; }
+  if (!pinned) {
+    if (r.mcap != null && r.mcap > MCAP_MAX) { r.mcap = null; r.bad = r.bad || 'mcap'; }
+    if (r.liq != null && r.liq > LIQ_MAX) { r.liq = null; r.bad = r.bad || 'liq'; }
+    if (r.volume24h != null && r.volume24h > 5e7) { r.volume24h = null; r.bad = r.bad || 'vol'; }
+    // Wash trading: 60-110x its own liquidity in a day from 4-5 wallets (ONBOARD, BLINKR, fake "SP500 xStock"…) is not volume.
+    if (r.volume24h != null && r.liq != null && r.liq > 0 && r.volume24h > r.liq * 20) r.volume24h = null;
+    if (CIRCLE_NAME.test(`${r.name} ${r.symbol}`)) r.bad = r.bad || 'impersonator';
+  }
+  if (r.spark && r.spark.some((x) => !isFinite(x) || x <= 0 || x >= PRICE_MAX)) r.spark = null;
+  return r;
+}
+
 // The FULL mainnet token universe for the screener + home cards. Merges every source we have so the
 // screener shows pages of tokens with price/liquidity/holders — like before:
 //   1. USDC + Animus ecosystem suite   2. every Warp token (~390, full price/liq/mcap/holders)
@@ -1135,11 +1164,11 @@ export async function fetchScreenerTokens(): Promise<{ tokens: Token[]; asOf: nu
           priceFrom: t.priceFrom ?? null,
         }));
         const asOf = snap.generatedAt ? Date.parse(snap.generatedAt) : null;
-        return { tokens, asOf: Number.isFinite(asOf) ? asOf : null };
+        return { tokens: tokens.map(sanitizeToken), asOf: Number.isFinite(asOf) ? asOf : null };
       }
     }
   } catch { /* next source */ }
-  return { tokens: await fetchMainnetTokens(), asOf: null };
+  return { tokens: (await fetchMainnetTokens()).map(sanitizeToken), asOf: null };
 }
 
 // Top holders of a mainnet token (arc-scan indexer). share is a fraction (0.0512 = 5.12%).

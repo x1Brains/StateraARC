@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, shareStamp, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
+import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, shareStamp, sanitizeToken, PINNED, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -150,7 +150,7 @@ export default function App() {
       // between indexer bakes. RadarDEX rows get their own live overlay below.
       const ocTop = list.filter((t) => (t.source === 'V3' || t.source === 'V4') && (t.pool || t.poolId)).sort((a, b) => (b.liq ?? 0) - (a.liq ?? 0)).slice(0, 60);
       if (ocTop.length) fetchOnchainScreenerPrices(ocTop).then((px) => {
-        if (Object.keys(px).length) setTokens((prev) => prev.map((t) => { const p = px[t.address.toLowerCase()]; return p != null ? { ...t, price: p } : t; }));
+        if (Object.keys(px).length) setTokens((prev) => prev.map((t) => { const p = px[t.address.toLowerCase()]; return p != null ? sanitizeToken({ ...t, price: p }) : t; }));
       }).catch(() => {});
       // ⛔ REMOVED (09-24): the old "safety net" sampled only the last ~90 min of swaps and multiplied by ~15.6 for any
       // row whose volume was blank — cirBTC came out $1.98M vs $1.08M real 24h, so the dashboard total flipped
@@ -178,7 +178,7 @@ export default function App() {
         const pick = <K extends keyof Token>(k: K) => (chain ? (t[k] ?? (l as any)?.[k]) : ((l as any)?.[k] ?? t[k]));
         let n = l ? { ...t, price: pick('price'), change24h: pick('change24h'), change1h: pick('change1h'), volume24h: pick('volume24h'), liq: pick('liq'), mcap: pick('mcap') } : t;
         if (deep[a] != null) n = { ...n, price: deep[a] }; // deep-pool live price wins (correct slot0)
-        return n;
+        return sanitizeToken(n);
       }));
       setAsOf(Date.now());
     } catch { /* keep snapshot values */ }
@@ -198,13 +198,16 @@ export default function App() {
       // Ecosystem/core tokens (native USDC, Animus…) are always the real one for their ticker. Otherwise
       // HOLDERS decide (an impersonator has ~0 holders; the real token has thousands) — ranking by liquidity
       // let a fake with a wash-traded pool win. Liquidity is only the tiebreak when holders are equal/unknown.
-      const score = (t.isEcosystem ? 1e18 : 0) + (t.holders ?? 0) * 1e9 + (t.liq ?? 0);
+      // Pinned real tokens (by ADDRESS) always own their ticker — a fake "CRCL" airdropped to 25,745 wallets outranked the real one.
+      const score = (t.isEcosystem || PINNED.has(t.address.toLowerCase()) ? 1e18 : 0) + (t.holders ?? 0) * 1e9 + (t.liq ?? 0);
       const cur = best.get(s);
       if (!cur || score > cur.score) best.set(s, { addr: t.address.toLowerCase(), score });
     }
     return { canonical: new Set([...best.values()].map((v) => v.addr)), tickerCount: count };
   }, [tokens]);
-  const isDup = (t: Token) => (tickerCount.get((t.symbol || '').toUpperCase()) ?? 0) > 1 && !canonical.has(t.address.toLowerCase());
+  // A duplicate ticker OR a row that failed the hard rules (sanitizeToken: impossible numbers, Circle impersonator) is hidden
+  // from the default screener, the dashboard and every total. Search still finds it, with the bad numbers blanked.
+  const isDup = (t: Token) => !!(t as any).bad || ((tickerCount.get((t.symbol || '').toUpperCase()) ?? 0) > 1 && !canonical.has(t.address.toLowerCase()));
   const dupCount = useMemo(() => tokens.filter(isDup).length, [tokens, canonical, tickerCount]); // eslint-disable-line
 
   const rows = useMemo(() => {
@@ -269,7 +272,9 @@ export default function App() {
   const dashStats = useMemo(() => ({
     count: tokens.length,
     // One token per ticker: copycats of a real coin (a fake "ARGUS" claimed $2.99M, 09-24) are not market volume.
-    vol24: tokens.filter((t) => !isDup(t)).reduce((s, t) => s + (t.volume24h ?? 0), 0),
+    // Only tokens that pass the screener's own quality bar (not a dup/fake, 50+ holders or a core asset) — 4-holder bot
+    // tokens washing $700K/day each had pushed the total to $27M (09-25).
+    vol24: tokens.filter((t) => quality(t)).reduce((s, t) => s + (t.volume24h ?? 0), 0),
     newToday: tokens.filter((t) => t.createdAt != null && Date.now() - t.createdAt < 86400000).length,
   }), [tokens, canonical, tickerCount]); // eslint-disable-line
 
