@@ -1542,3 +1542,18 @@ footer .wrap { padding: 16px 20px; }
   .trow.tok.sc .spark-cell { justify-content: flex-end; }
   .trow.tok.sc .spark-cell svg { max-width: 100%; }
 }
+/* token share row: address · Copy link · Post on X — same chip style as the address */
+.td-share { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.td-share .addr { margin-top: 0; }
+.td-sh { font-family: var(--disp); font-weight: 700; font-size: 11px; letter-spacing: .3px; color: var(--chrome, #d8d8d8); }
+.td-sh .i { width: 12px; height: 12px; }
+@media (max-width: 640px) { .td-share { gap: 5px; } .td-sh { font-size: 10.5px; padding: 3px 8px; } }
+@media (max-width: 640px) {
+  /* token header: the name column gets the room; the Hooked badge + symbol line stay on one tidy line */
+  .td-head .td-id { flex: 1; min-width: 0; }
+  .td-head .td-sym { font-size: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .td-head .td-sym .wl-note, .td-head .td-name .wl-note { margin-left: 0 !important; font-size: 8px; padding: 1px 5px; letter-spacing: .3px; }
+  .td-trade { white-space: nowrap; }
+  .td-trade .td-trade-sym { display: none; } /* "TRADE →" on phones — the name is right beside it */
+  .td-head { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: start; }
+}

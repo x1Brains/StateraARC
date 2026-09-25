@@ -1856,6 +1856,10 @@ export async function fetchTokenDecimals(token: string): Promise<number | null> 
   if (d != null) decCacheOC.set(k, d);
   return d;
 }
+// ⛔ X caches a link's card against the EXACT url in the post (for days; nothing server-side can refresh it). Every
+// token link we hand out carries ?v=<this> — a new url each minute, so X crawls the LIVE card. The router ignores it.
+export const shareStamp = () => Math.floor(Date.now() / 60000).toString(36);
+export const tokenShareUrl = (address: string) => `${window.location.origin}/token/${address.toLowerCase()}?v=${shareStamp()}`;
 export const isAddress = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
 
 // ── wallet (EIP-1193 injected, e.g. MetaMask) ──

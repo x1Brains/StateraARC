@@ -3,9 +3,9 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
-import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown } from './icons';
+import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX } from './icons';
 import { useNames, displayName } from '../lib/names';
 
 // Pre-public (chain 5042) token detail. Source: arc-scan.org REST /tokens/{a} (UNOFFICIAL indexer,
@@ -120,6 +120,14 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
     return () => { alive = false; };
   }, [address]); // eslint-disable-line
 
+  // Share: a freshly stamped url per click (see tokenShareUrl) so X/Discord/Telegram crawl the card at the LIVE price.
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyLink = () => { navigator.clipboard?.writeText(tokenShareUrl(address)).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1400); }).catch(() => {}); };
+  const postToX = () => {
+    const chgS = chg != null ? ` (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% 24h)` : '';
+    const text = `$${sym}${px != null ? ` · ${tprice(px)}${chgS}` : ''} on Arc — live chart, pools & trades on StateraArc`;
+    window.open(`https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(tokenShareUrl(address))}`, '_blank', 'noopener,noreferrer');
+  };
   const copy = () => { navigator.clipboard?.writeText(address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {}); };
   const fmtNum = (n: number | null) => (n == null ? '—' : n.toLocaleString());
 
@@ -296,11 +304,15 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
             {d?.reservedName && <span className="wl-note" style={{ marginLeft: 8 }}>Reserved-name</span>}
           </div>
           <div className="td-sym">{sym} · {d?.standard?.toUpperCase() || 'ERC-20'}{seed?.hooked && <span className="wl-note" style={{ marginLeft: 8 }} title="This token trades on a Uniswap V4 pool with a hook, which can charge a swap tax (buy/sell fee). Verify before trading.">Hooked · may tax</span>}</div>
-          <button className="addr" onClick={copy} title="copy address"><span className="addr-hex">{address.slice(0, 10)}…{address.slice(-8)}</span>{copied ? <><IconCheck className="i" /> Copied</> : <IconCopy className="i" />}</button>
+          <div className="td-share">
+            <button className="addr" onClick={copy} title="copy address"><span className="addr-hex">{address.slice(0, 10)}…{address.slice(-8)}</span>{copied ? <><IconCheck className="i" /> Copied</> : <IconCopy className="i" />}</button>
+            <button className="addr td-sh" onClick={copyLink} title="Copy a share link — unfurls into a live-price card on X, Telegram and Discord">{linkCopied ? <><IconCheck className="i" /> Link copied</> : <>Copy link</>}</button>
+            <button className="addr td-sh" onClick={postToX} title="Post this token on X with its live card"><IconX className="i" /> Post</button>
+          </div>
         </div>
         {onTrade && (
           <button className="btn solid td-trade" onClick={() => onTrade({ address, symbol: sym, name, price: px })}>
-            Trade {sym} <IconArrowRight className="arw" />
+            Trade<span className="td-trade-sym"> {sym}</span> <IconArrowRight className="arw" />
           </button>
         )}
       </div>

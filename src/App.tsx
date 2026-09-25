@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
+import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, shareStamp, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -313,10 +313,17 @@ export default function App() {
   }, []);
   const navReady = useRef(false);
   useEffect(() => {
-    const want = pathFor(page, selected);
+    const path = pathFor(page, selected);
     const cur = window.location.pathname.replace(/\/+$/, '') || '/';
-    if (cur === want) { navReady.current = true; return; }
-    if (navReady.current) window.history.pushState(null, '', want);
+    // ⛔ X caches a link's card against the EXACT url in the post, for days, and nothing server-side can refresh it
+    // (owner 09-25: an ARGUS link unfurled at a days-old $0.0170; the emoji site learned the same — "a URL is burned by
+    // its first crawl"). So a token page's address bar carries a fresh ?v= stamp: a url copied from the browser is one
+    // X has never seen, and it crawls the live card. The router reads only the path; og:url stays the clean path.
+    const isTok = path.startsWith('/token/');
+    const hasStamp = /[?&]v=/.test(window.location.search);
+    if (cur === path && (!isTok || hasStamp)) { navReady.current = true; return; }
+    const want = isTok ? `${path}?v=${shareStamp()}` : path;
+    if (navReady.current && cur !== path) window.history.pushState(null, '', want);
     else { window.history.replaceState(null, '', want); navReady.current = true; }
   }, [page, selected]);
 
