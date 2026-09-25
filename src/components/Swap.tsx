@@ -4,7 +4,7 @@ import { TokenLogo } from './TokenLogo';
 import { IconSwapVertical, IconExternal } from './icons';
 import {
   NATIVE_USDC, SWAP_CFG, swapReady, bestQuote, decimalsOf, symbolOf, balanceOf, allowance,
-  buildApproveTx, buildSwapTx, simulate, minOut, toRaw, fromRaw, feeCandidates, MAX_UINT256,
+  buildApproveTx, buildSwapTx, simulate, minOut, toRawStr, rawToStr, fromRaw, feeCandidates, MAX_UINT256,
   permitInfo, buildPermitTypedData, buildSwapWithPermitTx, type Quote, type TxReq,
   setSwapMainnet, activeScan, MAINNET_CHAIN_ID, quoteCurveBuy, buildCurveBuyTx,
   quoteCurveSell, buildCurveSellTx, quoteV3, buildV3SwapTx, v3PoolFor, V3_ROUTER,
@@ -236,7 +236,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       const seq = ++qSeq.current;
       setQuoting(true);
       const id = setTimeout(async () => {
-        const amountInRaw = toRaw(n, decIn);
+        const amountInRaw = toRawStr(amt, decIn);
         // Every venue the token trades on, quoted together — the best fill wins (a token can have WarpV2 AND V3 AND
         // V4 pools; the first one that answered used to win even when another paid more).
         const [q, r3, r4] = await Promise.all([
@@ -262,7 +262,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
         }
         // Curve SELL: a non-graduated curve token → USDC, quoted live from the curve (6-dec out).
         if (curveSellable && wallet && decIn != null) {
-          const usdc6 = await quoteCurveSell(warpMeta!.curve!, toRaw(n, decIn), wallet);
+          const usdc6 = await quoteCurveSell(warpMeta!.curve!, toRawStr(amt, decIn), wallet);
           if (seq !== qSeq.current) return;
           if (usdc6) { setQuoting(false); setCurveSellOut(usdc6); return; }
         }
@@ -281,7 +281,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     const seq = ++qSeq.current;
     setQuoting(true);
     const id = setTimeout(async () => {
-      const amountInRaw = toRaw(n, decIn);
+      const amountInRaw = toRawStr(amt, decIn);
       const q = await bestQuote(from.address, to.address, amountInRaw);
       if (seq !== qSeq.current) return;
       setQuoting(false);
@@ -321,6 +321,12 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   const toBalRaw = to ? bal[to.address.toLowerCase()] : undefined;
   const fromBal = fromBalRaw != null && decIn != null ? fromRaw(fromBalRaw, decIn) : null;
   const toBal = toBalRaw != null && decOut != null ? fromRaw(toBalRaw, decOut) : null;
+  // MAX = the exact on-chain balance (no float rounding). Paying with USDC keeps 0.05 back: USDC is also the gas token.
+  const setMax = () => {
+    if (fromBalRaw == null || decIn == null) return;
+    const reserve = fromA.toLowerCase() === usdcK ? 50_000n : 0n; // 0.05 USDC at 6 dec
+    setAmt(rawToStr(fromBalRaw > reserve ? fromBalRaw - reserve : 0n, decIn));
+  };
   const fmtBal = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: n < 1 ? 6 : 4 });
   const timeAgo = (ms: number) => {
     if (!ms) return '';
@@ -393,7 +399,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setMsg('Switch your wallet to Arc mainnet…');
       if (!(await ensureChain(MAINNET_CHAIN_ID))) { setPhase('error'); setMsg('Please switch your wallet to Arc mainnet (chain 5042) to trade.'); return; }
       setMsg(null);
-      const amountInRaw = toRaw(parseFloat(amt), decIn);
+      const amountInRaw = toRawStr(amt, decIn);
       const bal = await balanceOf(from.address, wallet);
       if (bal < amountInRaw) { setPhase('error'); setMsg(`Insufficient ${from.symbol} balance.`); return; }
       if ((await allowance(from.address, wallet, warpMeta.curve)) < amountInRaw) {
@@ -420,7 +426,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setMsg('Switch your wallet to Arc mainnet…');
       if (!(await ensureChain(MAINNET_CHAIN_ID))) { setPhase('error'); setMsg('Please switch your wallet to Arc mainnet (chain 5042) to trade.'); return; }
       setMsg(null);
-      const amountInRaw = toRaw(parseFloat(amt), decIn);
+      const amountInRaw = toRawStr(amt, decIn);
       const bal = await balanceOf(from.address, wallet);
       if (bal < amountInRaw) { setPhase('error'); setMsg(`Insufficient ${from.symbol} balance.`); return; }
       if ((await allowance(from.address, wallet, V3_ROUTER)) < amountInRaw) {
@@ -450,7 +456,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setMsg('Switch your wallet to Arc mainnet…');
       if (!(await ensureChain(MAINNET_CHAIN_ID))) { setPhase('error'); setMsg('Please switch your wallet to Arc mainnet (chain 5042) to trade.'); return; }
       setMsg(null);
-      const amountInRaw = toRaw(parseFloat(amt), decIn);
+      const amountInRaw = toRawStr(amt, decIn);
       const bal = await balanceOf(from.address, wallet);
       if (bal < amountInRaw) { setPhase('error'); setMsg(`Insufficient ${from.symbol} balance.`); return; }
       // Permit2 two-step: (1) ERC-20 approve token→Permit2, (2) Permit2 approve token→Universal Router.
@@ -571,7 +577,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               <span className="swap-l">You pay</span>
               {wallet && fromBal != null && (
                 <span className="swap-bal">Balance: {fmtBal(fromBal)} {from?.symbol}
-                  {fromBal > 0 && <button type="button" className="swap-max" onClick={() => setAmt(String(fromBal))}>MAX</button>}
+                  {fromBal > 0 && <button type="button" className="swap-max" onClick={setMax}>MAX</button>}
                 </span>
               )}
             </div>

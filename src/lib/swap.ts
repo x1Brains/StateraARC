@@ -723,6 +723,19 @@ export const toRaw = (human: number, decimals: number): bigint => {
   const frac = (f + '0'.repeat(decimals)).slice(0, decimals);
   return BigInt((i || '0') + frac);
 };
+// Exact string → raw (no float): what the user typed / what MAX filled in. 105000.123456789012345678 @18 stays exact,
+// where toRaw(parseFloat(…)) rounds a big 18-dec amount — MAX then asked for more than the balance (09-25).
+export const toRawStr = (amt: string, decimals: number): bigint => {
+  const a = (amt || '').replace(/,/g, '').trim();
+  if (!/^\d*\.?\d*$/.test(a) || !a || a === '.') return 0n;
+  const [i, f = ''] = a.split('.');
+  return BigInt(i || '0') * 10n ** BigInt(decimals) + BigInt((f + '0'.repeat(decimals)).slice(0, decimals) || '0');
+};
+export const rawToStr = (raw: bigint, decimals: number): string => {
+  const s = raw.toString().padStart(decimals + 1, '0');
+  const i = s.slice(0, s.length - decimals), f = s.slice(s.length - decimals).replace(/0+$/, '');
+  return f ? `${i}.${f}` : i;
+};
 export const fromRaw = (raw: bigint, decimals: number): number => {
   const s = raw.toString().padStart(decimals + 1, '0');
   return Number(s.slice(0, -decimals) + '.' + s.slice(-decimals));
