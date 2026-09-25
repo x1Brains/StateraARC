@@ -83,6 +83,9 @@ export interface Token {
   usdcIsC0?: boolean;        // on-chain: USDC is currency0/token0 in that pool
   decimals?: number;         // on-chain: token decimals (for live re-pricing)
   hooked?: boolean;          // on-chain: V4 pool has a hook (may charge a swap tax)
+  v4fee?: number | null;     // on-chain: V4 PoolKey fee (with v4tick + hooks the swap can route the pool)
+  v4tick?: number | null;    // on-chain: V4 PoolKey tickSpacing
+  hooks?: string | null;     // on-chain: V4 PoolKey hooks address
   priceFrom?: 'chain' | 'radar' | 'warp' | null; // where the snapshot's price came from — 'chain' rows are never overwritten by an indexer
   txns24?: number | null;    // 24h transaction count
   spark?: number[] | null;   // sparkline price series (recent → last)
@@ -1128,6 +1131,7 @@ export async function fetchScreenerTokens(): Promise<{ tokens: Token[]; asOf: nu
           txns24: rnum(t.txns24), spark: Array.isArray(t.spark) ? t.spark.filter((n: any) => typeof n === 'number' && isFinite(n)) : null,
           createdAt: rnum(t.createdAt), source: t.source ?? null,
           pool: t.pool ?? null, poolId: t.poolId ?? null, usdcIsC0: !!t.usdcIsC0, decimals: t.decimals ?? 18, hooked: !!t.hooked,
+          v4fee: t.v4fee ?? null, v4tick: t.v4tick ?? null, hooks: t.hooks ?? null,
           priceFrom: t.priceFrom ?? null,
         }));
         const asOf = snap.generatedAt ? Date.parse(snap.generatedAt) : null;
@@ -1319,11 +1323,17 @@ const poolDiscovery = new Map<string, string | null>();
 // Prime the pool caches from the screener snapshot (which already knows each on-chain token's pool), so
 // the token page's price/chart/reserves/trades/vol DON'T each run the slow ~900k-block discovery scan.
 // A V4-only token also gets its V3 discovery short-circuited to null so findTokenPool returns instantly.
+// ⛔ 09-25: a V4-tagged row used to short-circuit V3 discovery to null, so cirBTC's page charted/traded/counted its thin
+// V4 side pool ($71K 24h) and never saw its real market, a $6M V3 pool ($5.8M 24h). V3 discovery now still runs
+// (5 cheap calls) and wins only with real money in it — see V3_OVER_V4_MIN in findTokenPoolUncached.
 export function primePool(token: string, seed: { pool?: string | null; poolId?: string | null; usdcIsC0?: boolean }): void {
   const t = token.toLowerCase();
-  if (seed.poolId) { v4PoolCache.set(t, { poolId: seed.poolId, usdcIsC0: !!seed.usdcIsC0 }); if (!seed.pool) poolDiscovery.set(t, null); }
+  if (seed.poolId) v4PoolCache.set(t, { poolId: seed.poolId, usdcIsC0: !!seed.usdcIsC0 });
   if (seed.pool) poolDiscovery.set(t, seed.pool.toLowerCase());
 }
+// A token that also has a real V4 pool only uses a V3 pool holding at least this much USDC — a leftover dust V3
+// pair must not steal the chart/trades from the V4 pool where the token actually trades.
+const V3_OVER_V4_MIN = 1000;
 // Find a token's deepest USDC pool (V3 any fee tier, or V2). Curated deep pools win; result cached.
 // ⚡ In-flight dedupe (09-24): a token page fires 5 functions at once and each called this — 5 identical
 // discoveries hammering the same rate-limited RPCs. Concurrent callers now share ONE lookup.
@@ -1351,6 +1361,7 @@ async function findTokenPoolUncached(t: string): Promise<string | null> {
   const pools = candidates.map((r) => (r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null));
   const depths = await Promise.all(pools.map((p) => (!p || p === ZERO_ADDR ? Promise.resolve(-Infinity) : usdcOf(p))));   // in parallel
   pools.forEach((p, i) => { if (p && p !== ZERO_ADDR && depths[i] > bestUsdc) { bestUsdc = depths[i]; best = p; } });   // same order, same tie-break
+  if (best && v4PoolCache.get(t) && bestUsdc < V3_OVER_V4_MIN) best = null; // the V4 pool is the real market
   poolDiscovery.set(t, best);
   return best;
 }
@@ -1521,11 +1532,12 @@ async function scanPoolSwaps(token: string, decimals: number, spanCap: number): 
 // 24h change % + 24h USD volume computed straight from a token's own pool swaps (V3/V2/V4) — for coins no
 // indexer covers (GLITCH etc.), so the header's 24H and VOL 24H fill instead of showing "—". Bounded: it
 // scans only THIS pool's swaps (poolId/address-filtered), not the whole chain. Cached 60s.
-const dayStatsCache = new Map<string, { at: number; v: { change24h: number | null; volume24h: number | null; buys24: number | null; sells24: number | null; txns24: number | null; makers24: number | null } }>();
-export async function fetchOnchainDayStats(token: string, decimals = 18): Promise<{ change24h: number | null; volume24h: number | null; buys24: number | null; sells24: number | null; txns24: number | null; makers24: number | null }> {
+export interface DayStats { change24h: number | null; change6h: number | null; change1h: number | null; change5m: number | null; volume24h: number | null; buys24: number | null; sells24: number | null; txns24: number | null; makers24: number | null }
+const dayStatsCache = new Map<string, { at: number; v: DayStats }>();
+export async function fetchOnchainDayStats(token: string, decimals = 18): Promise<DayStats> {
   const t = token.toLowerCase();
   const hit = dayStatsCache.get(t); if (hit && Date.now() - hit.at < 60000) return hit.v;
-  const empty = { change24h: null, volume24h: null, buys24: null, sells24: null, txns24: null, makers24: null };
+  const empty: DayStats = { change24h: null, change6h: null, change1h: null, change5m: null, volume24h: null, buys24: null, sells24: null, txns24: null, makers24: null };
   const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return empty;
   const head = BigInt(headHex);
   const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
@@ -1574,6 +1586,16 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
   const volume24h = pts.reduce((s, p) => s + (isFinite(p.usd) ? p.usd : 0), 0);
   const first = pts[0].price, last = pts[pts.length - 1].price;
   const change24h = first > 0 ? ((last - first) / first) * 100 : null;
+  // 5m / 1h / 6h change from the same swap series: the last price at or before (now - window) vs the latest.
+  // No swap before the window (a coin younger than it) = the first swap inside it; nothing in it at all = null.
+  const chgSince = (sec: number): number | null => {
+    const cut = headTs - sec;
+    let ref: number | null = null;
+    for (const p of pts) { if (p.ts <= cut) ref = p.price; else { if (ref == null) ref = p.price; break; } }
+    if (ref == null || !(ref > 0) || pts[pts.length - 1].ts < cut - 86400) return null;
+    return ((last - ref) / ref) * 100;
+  };
+  const change6h = chgSince(21600), change1h = chgSince(3600), change5m = chgSince(300);
   const buys24 = pts.filter((p) => p.side === 'buy').length;
   const sells24 = pts.filter((p) => p.side === 'sell').length;
   const uniqTx = [...new Set(pts.map((p) => p.tx).filter(Boolean))];
@@ -1589,7 +1611,7 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
     const set = new Set(sampleTx.map((h) => (txs[h]?.from ? String(txs[h].from).toLowerCase() : null)).filter(Boolean) as string[]);
     if (set.size) makers24 = set.size;
   } catch { /* leave null on failure */ }
-  const v = { change24h, volume24h, buys24, sells24, txns24, makers24 };
+  const v: DayStats = { change24h, change6h, change1h, change5m, volume24h, buys24, sells24, txns24, makers24 };
   dayStatsCache.set(t, { at: Date.now(), v });
   return v;
 }
@@ -1821,6 +1843,16 @@ export async function fetchTokenTransfers(address: string, decimals = 18, want =
     }
   }
   return out.slice(0, want);
+}
+/** decimals() read from the token contract, or null (never a guessed 18 — a wrong guess mis-scales every price). */
+const decCacheOC = new Map<string, number | null>();
+export async function fetchTokenDecimals(token: string): Promise<number | null> {
+  const k = token.toLowerCase();
+  if (decCacheOC.has(k)) return decCacheOC.get(k)!;
+  const r = await mCall(k, '0x313ce567').catch(() => null);
+  let d: number | null = null; try { if (r && r !== '0x') { const n = Number(BigInt(r)); if (n >= 0 && n <= 36) d = n; } } catch { /* */ }
+  if (d != null) decCacheOC.set(k, d);
+  return d;
 }
 export const isAddress = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
 

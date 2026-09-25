@@ -15,7 +15,8 @@
 //
 // Proven end-to-end 2026-09-14: approve 0x2911…, swap 0x3857… (0.02 USDC → 103.66 NRLIF,
 // received == quoted). See swap-proof in the repo notes.
-import { NET, RPCS, CHAIN, req } from './arc';
+import { NET, RPCS, CHAIN, req, findV4Pool } from './arc';
+import { keccak_256 } from '@noble/hashes/sha3';
 
 export const NATIVE_USDC = '0x3600000000000000000000000000000000000000';
 const USDC = NATIVE_USDC.toLowerCase();
@@ -90,18 +91,31 @@ export const feeCandidates = (base?: number): number[] => {
 };
 
 // ── low-level rpc (same failover list as arc.ts) ──
+// ⛔ Mainnet used to be ONE node, ONE try: a rate-limited read (the public Arc RPCs refuse bursts past ~30 calls, and
+// a page load fires more) came back as an error and the wallet's balance showed "0 USDC" while it held 3.41 (09-25).
+// Now: rotate across three receipt-reliable nodes with backoff. A revert (execution error with data) is a real
+// answer and is returned at once — only transport/rate-limit failures move on to the next node.
+const MAINNET_RPCS = [MAINNET_RPC, 'https://arc.drpc.org', 'https://arc.gateway.tenderly.co'].filter((v, i, a) => a.indexOf(v) === i);
+const isRevert = (e: any) => e && (e.data != null || /revert|execution/i.test(e.message || ''));
 async function rpc(method: string, params: any[]): Promise<any> {
-  for (const url of (ACTIVE_MAINNET ? [MAINNET_RPC] : RPCS)) {
+  const urls = ACTIVE_MAINNET || NET === 'mainnet' ? MAINNET_RPCS : RPCS;
+  let last: any = { error: { message: 'all RPCs unreachable' } };
+  for (let i = 0; i < urls.length * 2; i++) {
+    const url = urls[i % urls.length];
     try {
       const r = await fetch(url, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(8000),
       });
+      if (r.status === 429 || r.status >= 500) { await new Promise((res) => setTimeout(res, 200 * (i + 1))); continue; }
       const j = await r.json();
-      return j.error ? { error: j.error } : j;
+      if (!j.error) return j;
+      last = { error: j.error };
+      if (isRevert(j.error)) return last;
     } catch { /* next endpoint */ }
+    await new Promise((res) => setTimeout(res, 150 * (i + 1)));
   }
-  return { error: { message: 'all RPCs unreachable' } };
+  return last;
 }
 const ethCall = async (to: string, data: string): Promise<string | null> => {
   const j = await rpc('eth_call', [{ to, data }, 'latest']);
@@ -139,9 +153,11 @@ export async function symbolOf(token: string): Promise<string | null> {
     return hexToStr(r.slice(130, 130 + len * 2)) || null;
   } catch { return null; }
 }
+// Throws when the chain can't be read — a failed read must never pass for a zero balance.
 export async function balanceOf(token: string, owner: string): Promise<bigint> {
   const r = await ethCall(token, '0x70a08231' + padA(owner)); // works for 0x3600 too (ERC-20 precompile)
-  return r ? BigInt(r) : 0n;
+  if (r == null) throw new Error('Could not read your balance from Arc — try again.');
+  return BigInt(r);
 }
 export async function allowance(token: string, owner: string, spender: string): Promise<bigint> {
   const r = await ethCall(token, '0xdd62ed3e' + padA(owner) + padA(spender));
@@ -474,28 +490,67 @@ async function v3PoolMeta(pool: string): Promise<{ token0: string; fee: number }
   v3Meta.set(pool, m); return m;
 }
 export const v3PoolFor = (token: string): string | undefined => V3_POOL[token.toLowerCase()];
+// ANY token's Uniswap V3 USDC pool on the Arc factory (the one SwapRouter02 is bound to): getPool for every fee tier,
+// deepest by USDC held. Before 09-25 only the 11 pools above could trade in-app. The $500 guard in quoteV3 still
+// keeps a thin pool from giving a ruinous fill.
+const V3_FACTORY = '0xf0db7b58379503491d857db50ac9ece64c653918';
+const v3Found = new Map<string, string | null>();
+export async function findV3Pool(token: string): Promise<string | null> {
+  const t = token.toLowerCase();
+  if (V3_POOL[t]) return V3_POOL[t];
+  if (v3Found.has(t)) return v3Found.get(t)!;
+  const pools = (await Promise.all([100, 500, 3000, 10000].map((fee) =>
+    ethCall(V3_FACTORY, '0x1698ee82' + padA(t) + padA(USDC) + padU(fee)).then((r) => (r && r.length >= 66 ? ('0x' + r.slice(-40)).toLowerCase() : null)))))
+    .filter((p): p is string => !!p && p !== ZERO);
+  let best: string | null = null, bestBal = 0n;
+  for (const p of pools) {
+    const b = await ethCall(USDC, '0x70a08231' + padA(p)); // USDC held (ERC-20 face == native balance, verified 09-25)
+    const v = b ? BigInt(b) : 0n;
+    if (v > bestBal) { bestBal = v; best = p; }
+  }
+  v3Found.set(t, best);
+  return best;
+}
+// Exact-in output for a V3 swap that stays inside the current tick range, from sqrtPrice + in-range liquidity
+// (standard V3 swap math). Verified 09-25 against 7,453 real swaps on ARGUS/TOLLY/COOL: max error 0.0002%,
+// where the old spot-price quote over-promised by up to 1%. A trade that crosses a tick can still differ — the
+// on-chain min-out + the pre-sign simulation cover that.
+const Q96 = 1n << 96n;
+function v3InRangeOut(sqrtP: bigint, L: bigint, amountIn: bigint, zeroForOne: boolean, fee: number): bigint {
+  const inLessFee = (amountIn * BigInt(1_000_000 - fee)) / 1_000_000n;
+  if (L <= 0n || inLessFee <= 0n) return 0n;
+  if (zeroForOne) { const num = L * Q96; const sqrtN = (num * sqrtP) / (num + inLessFee * sqrtP); return (L * (sqrtP - sqrtN)) / Q96; }
+  const sqrtN = sqrtP + (inLessFee * Q96) / L;
+  return (L * Q96 * (sqrtN - sqrtP)) / (sqrtP * sqrtN);
+}
 // Quote USDC↔token on the V3 pool from slot0 spot price. Returns { outRaw, fee, pool } or null.
 // A V3 pool must hold at least this much USDC to be routable — guards against near-empty pools
 // (e.g. ARCX10's $16 V3 pair, whose real liquidity is a hooked Uniswap-v4 pool) giving a ruinous
 // fill. Thin/absent pools return null here → the swap falls back to the Warp link, not a bad trade.
 const V3_MIN_USDC = 500n * 10n ** 6n; // $500 (6-dec USDC face)
-export async function quoteV3(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<{ outRaw: bigint; fee: number; pool: string } | null> {
+export async function quoteV3(tokenIn: string, tokenOut: string, amountInRaw: bigint, poolHint?: string | null): Promise<{ outRaw: bigint; fee: number; pool: string } | null> {
   const a = tokenIn.toLowerCase(), b = tokenOut.toLowerCase();
   const token = a === USDC ? b : (b === USDC ? a : null); // one side must be native USDC
   if (!token) return null;
-  const pool = V3_POOL[token]; if (!pool) return null;
-  const [meta, slot0, usdcHex] = await Promise.all([
+  const pool = poolHint || (await findV3Pool(token)); if (!pool) return null;
+  const [meta, slot0, usdcHex, liqHex] = await Promise.all([
     v3PoolMeta(pool), ethCall(pool, '0x3850c7bd'), // slot0()
     ethCall(USDC, '0x70a08231000000000000000000000000' + pool.slice(2)), // USDC balanceOf(pool)
+    ethCall(pool, '0x1a686502'), // liquidity() — in-range liquidity at the current tick
   ]);
   if (!meta || !slot0 || slot0.length < 66) return null;
   // Liquidity guard: skip near-empty pools (their spot price is meaningless / fills are ruinous).
   try { if (!usdcHex || BigInt(usdcHex) < V3_MIN_USDC) return null; } catch { return null; }
   let sqrtP: bigint; try { sqrtP = BigInt('0x' + slot0.slice(2, 66)); } catch { return null; }
   if (sqrtP <= 0n) return null;
-  const p2 = sqrtP * sqrtP; // price(token1/token0, raw) = p2 / 2^192
-  let outRaw = a === meta.token0 ? (amountInRaw * p2) / Q192 : (amountInRaw * Q192) / p2;
-  outRaw = (outRaw * BigInt(1_000_000 - meta.fee)) / 1_000_000n; // pool fee
+  let L = 0n; try { if (liqHex) L = BigInt(liqHex); } catch { /* */ }
+  let outRaw: bigint;
+  if (L > 0n) outRaw = v3InRangeOut(sqrtP, L, amountInRaw, a === meta.token0, meta.fee); // real in-range math (price impact included)
+  else { // no liquidity() answer: spot × (1 − fee), the old approximation
+    const p2 = sqrtP * sqrtP; // price(token1/token0, raw) = p2 / 2^192
+    outRaw = a === meta.token0 ? (amountInRaw * p2) / Q192 : (amountInRaw * Q192) / p2;
+    outRaw = (outRaw * BigInt(1_000_000 - meta.fee)) / 1_000_000n;
+  }
   if (outRaw <= 0n) return null;
   return { outRaw, fee: meta.fee, pool };
 }
@@ -513,7 +568,7 @@ export function buildV3SwapTx(tokenIn: string, tokenOut: string, fee: number, am
 export const UNIVERSAL_ROUTER = '0x4fca4a51ab4f23a7447b3284fbd7d73289a89fb1';
 export const PERMIT2 = '0x000000000022d473030f116ddee9f6b43ac78ba3';
 const PM_V4 = '0x8366a39cc670b4001a1121b8f6a443a643e40951'; // v4 PoolManager singleton (extsload for pool state)
-interface V4Cfg { currency0: string; currency1: string; fee: number; tickSpacing: number; hooks: string; stateSlot: string; }
+export interface V4Cfg { currency0: string; currency1: string; fee: number; tickSpacing: number; hooks: string; stateSlot: string; }
 const V4_TOKENS: Record<string, V4Cfg> = {
   '0x12ce1f970722ca6e08364b60099b3d25c09b5434': { // ARCX10 / USDC (currency0 < currency1)
     currency0: '0x12ce1f970722ca6e08364b60099b3d25c09b5434', currency1: NATIVE_USDC, fee: 10000, tickSpacing: 200,
@@ -527,6 +582,49 @@ const V4_TOKENS: Record<string, V4Cfg> = {
   },
 };
 export const v4CfgFor = (token: string): V4Cfg | undefined => V4_TOKENS[token.toLowerCase()];
+const hx = (u8: Uint8Array) => '0x' + Array.from(u8).map((b) => b.toString(16).padStart(2, '0')).join('');
+const unhex = (h: string) => { h = h.replace(/^0x/, ''); const a = new Uint8Array(h.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; };
+const padI = (n: number) => (n < 0 ? ((1n << 256n) + BigInt(n)) : BigInt(n)).toString(16).padStart(64, '0'); // int24 → two's complement word
+/** poolId = keccak256(abi.encode(PoolKey)) — the check that a key really belongs to the pool we priced. */
+export const v4PoolIdOf = (c: { currency0: string; currency1: string; fee: number; tickSpacing: number; hooks: string }) =>
+  hx(keccak_256(unhex(padA(c.currency0) + padA(c.currency1) + padU(c.fee) + padI(c.tickSpacing) + padA(c.hooks))));
+const v4SlotOf = (poolId: string) => hx(keccak_256(unhex(poolId.replace(/^0x/, '').padStart(64, '0') + padU(6))));
+const POSM = '0x6049c9a0e26405c0985f9e3685c87d0ae917f82b'; // Uniswap V4 PositionManager on Arc
+/**
+ * The V4 route for ANY token with a USDC V4 pool — not just the two hardcoded above.
+ * Key source: the screener row (the indexer stores fee/tickSpacing/hooks per pool), else PositionManager.poolKeys
+ * (knows every pool that ever had a position). Either way the key is only used if keccak(key) == the poolId, so a
+ * wrong or stale hint can never route a trade into a different pool.
+ */
+export interface V4Hint { poolId?: string | null; usdcIsC0?: boolean; v4fee?: number | null; v4tick?: number | null; hooks?: string | null }
+const v4Found = new Map<string, V4Cfg | null>();
+export async function findV4Route(token: string, hint?: V4Hint | null): Promise<V4Cfg | null> {
+  const t = token.toLowerCase();
+  if (V4_TOKENS[t]) return V4_TOKENS[t];
+  if (v4Found.has(t)) return v4Found.get(t)!;
+  // No poolId from the screener → find the token's real (most-traded) USDC V4 pool on-chain. A miss here is not
+  // cached, so a later call that does carry a hint still gets its chance.
+  const poolId = (hint?.poolId || (await findV4Pool(t).catch(() => null))?.poolId)?.toLowerCase();
+  if (!poolId) return null;
+  let key: Omit<V4Cfg, 'stateSlot'> | null = null;
+  if (hint?.v4fee != null && hint?.v4tick != null) {
+    const usdcC0 = !!hint.usdcIsC0;
+    key = { currency0: usdcC0 ? USDC : t, currency1: usdcC0 ? t : USDC, fee: hint.v4fee, tickSpacing: hint.v4tick, hooks: (hint.hooks || ZERO).toLowerCase() };
+    if (v4PoolIdOf(key) !== poolId) key = null;
+  }
+  if (!key) {
+    const r = await ethCall(POSM, '0x86b6be7d' + poolId.slice(2, 52).padEnd(64, '0')); // poolKeys(bytes25)
+    if (r && r.length >= 2 + 64 * 5) {
+      const w = (i: number) => r.slice(2 + i * 64, 2 + i * 64 + 64);
+      let ts = BigInt('0x' + w(3)); if (ts >= (1n << 255n)) ts -= 1n << 256n;
+      const k = { currency0: ('0x' + w(0).slice(24)).toLowerCase(), currency1: ('0x' + w(1).slice(24)).toLowerCase(), fee: Number(BigInt('0x' + w(2))), tickSpacing: Number(ts), hooks: ('0x' + w(4).slice(24)).toLowerCase() };
+      if (v4PoolIdOf(k) === poolId && (k.currency0 === USDC || k.currency1 === USDC)) key = k;
+    }
+  }
+  const cfg = key ? { ...key, stateSlot: v4SlotOf(poolId) } : null;
+  v4Found.set(t, cfg);
+  return cfg;
+}
 // ABI encode a `bytes` value: length word + right-padded data.
 const encBytes = (hex: string): string => { const h = hex.replace(/^0x/, ''); return padU(BigInt(h.length / 2)) + h.padEnd(Math.ceil(h.length / 64) * 64, '0'); };
 // ABI encode a `bytes[]`: count + offsets + concatenated element encodings.
@@ -550,10 +648,10 @@ async function quoteV4Exact(cfg: V4Cfg, zeroForOne: boolean, amountInRaw: bigint
   try { const out = BigInt('0x' + j.result.slice(2, 66)); return out > 0n ? out : null; } catch { return null; }
 }
 // V4 quote: the official Quoter first (true executable out), slot0 spot × (1 − fee) only as a fallback.
-export async function quoteV4(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<{ outRaw: bigint; zeroForOne: boolean } | null> {
+export async function quoteV4(tokenIn: string, tokenOut: string, amountInRaw: bigint, cfgIn?: V4Cfg | null): Promise<{ outRaw: bigint; zeroForOne: boolean } | null> {
   const a = tokenIn.toLowerCase(), b = tokenOut.toLowerCase();
   const token = a === USDC ? b : (b === USDC ? a : null); if (!token) return null;
-  const cfg = V4_TOKENS[token]; if (!cfg) return null;
+  const cfg = cfgIn || V4_TOKENS[token]; if (!cfg) return null;
   const zeroForOne = a === cfg.currency0; // tokenIn is currency0 → 0→1
   const q = await quoteV4Exact(cfg, zeroForOne, amountInRaw);
   if (q != null && q > 0n) return { outRaw: q, zeroForOne };
@@ -569,8 +667,8 @@ export async function quoteV4(tokenIn: string, tokenOut: string, amountInRaw: bi
   return { outRaw, zeroForOne };
 }
 // Build the Universal Router execute() calldata for a V4 exact-in swap. Verified byte-identical.
-export function buildV4SwapTx(token: string, zeroForOne: boolean, amountInRaw: bigint, minOutRaw: bigint, from: string): TxReq | null {
-  const cfg = V4_TOKENS[token.toLowerCase()]; if (!cfg) return null;
+export function buildV4SwapTx(token: string, zeroForOne: boolean, amountInRaw: bigint, minOutRaw: bigint, from: string, cfgIn?: V4Cfg | null): TxReq | null {
+  const cfg = cfgIn || V4_TOKENS[token.toLowerCase()]; if (!cfg) return null;
   const settleCur = zeroForOne ? cfg.currency0 : cfg.currency1; // paying this currency
   const takeCur = zeroForOne ? cfg.currency1 : cfg.currency0;   // receiving this currency
   const params0 = '0x' + padU(0x20n) + padA(cfg.currency0) + padA(cfg.currency1) + padU(BigInt(cfg.fee)) + padU(BigInt(cfg.tickSpacing)) + padA(cfg.hooks)
@@ -619,7 +717,9 @@ export async function simulate(tx: TxReq): Promise<string | null> {
 // human ↔ raw
 export const toRaw = (human: number, decimals: number): bigint => {
   if (!isFinite(human) || human <= 0) return 0n;
-  const [i, f = ''] = human.toString().split('.');
+  // toString() gives "1e-7" for tiny numbers (BigInt then throws and the quote hangs) — print it plainly.
+  const plain = human.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 20 });
+  const [i, f = ''] = plain.split('.');
   const frac = (f + '0'.repeat(decimals)).slice(0, decimals);
   return BigInt((i || '0') + frac);
 };

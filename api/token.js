@@ -1,3 +1,5 @@
+import { liveToken } from '../lib/livetoken.js';
+
 // Server-rendered HTML for /token/:addr so X / Discord / Telegram unfurl a per-token card.
 // A Vite SPA ships one static index.html with generic meta — crawlers don't run JS, so they'd all
 // show the same preview. This function serves the SAME shell (so the app still boots) but injects
@@ -25,10 +27,8 @@ export default async function handler(req, res) {
   let html = await fetch(`${origin}/index.html`, { headers: { 'x-og-render': '1' } }).then((r) => (r.ok ? r.text() : '')).catch(() => '');
   if (!html) { res.statusCode = 302; res.setHeader('location', `/`); return res.end(); }
 
-  let t = null;
-  if (addr) {
-    try { const snap = await fetch(`${origin}/tokens-snapshot.json`, { cache: 'no-store' }).then((r) => r.json()); t = (snap.tokens || []).find((x) => (x.address || '').toLowerCase() === addr) || null; } catch { /* no data */ }
-  }
+  // Live: the site's current list (VPS /api/snapshot) + the price re-read from the token's pool right now.
+  const t = addr ? await liveToken(origin, addr).catch(() => null) : null;
 
   const sym = t?.symbol || 'Token';
   const price = fmtUsd(t?.price);
@@ -44,7 +44,10 @@ export default async function handler(req, res) {
     ? `${stats ? stats + ' · ' : ''}${t.name || sym} on Arc mainnet — live chart, holders & trades on StateraArc.`
     : 'Live Arc-mainnet token screener — price, charts, liquidity, holders and trades.';
   // &sq=1 = the 600x600 square image X's `summary` card needs; v=N busts X/Discord's cached image on a redesign.
-  const img = addr ? `${origin}/api/og?token=${addr}&sq=1&v=7` : `${origin}/api/og?sq=1&v=7`;
+  // &t = a 5-minute bucket: X/Discord cache a card image by its URL, so a fresh page fetch must point at a fresh
+  // image URL or they keep showing the old price. (&v busts caches on a redesign.)
+  const bucket = Math.floor(Date.now() / 300000);
+  const img = addr ? `${origin}/api/og?token=${addr}&sq=1&v=8&t=${bucket}` : `${origin}/api/og?sq=1&v=8`;
   const pageUrl = `${origin}/token/${addr}`;
 
   const meta = [
@@ -68,7 +71,7 @@ export default async function handler(req, res) {
   html = html.replace('</head>', meta + '\n</head>');
 
   res.setHeader('content-type', 'text/html; charset=utf-8');
-  res.setHeader('cache-control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=86400');
+  res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
   res.statusCode = 200;
   res.end(html);
 }

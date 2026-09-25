@@ -81,6 +81,8 @@ const MAX_NEW_PER_RUN = Number(process.env.ONCHAIN_MAX_NEW || 3000); // V3 candi
 const V4_ACTIVE_WINDOW = BigInt(process.env.V4_ACTIVE_WINDOW || 40000); // blocks of recent V4 swaps to catch active launchpad pools
 const MIN_USDC = Number(process.env.ONCHAIN_MIN_USDC || 60); // a V3 pool must hold >= this much USDC to be tracked (≈ $120 both-sides value)
 const MIN_LIQ = Number(process.env.ONCHAIN_MIN_LIQ || 100);  // only OUTPUT tokens whose total pool value clears this — cuts nanocap noise + keeps the indexer lean/fast
+// First block with code at the V4 PoolManager (binary search on eth_getCode, 09-25). The registry backfills from here.
+const V4_START = BigInt(process.env.V4_START || 1948056);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const pad = (a) => a.toLowerCase().replace('0x', '').padStart(64, '0');
@@ -116,6 +118,52 @@ async function scanLogs(address, topics, from, head, chunk = CH) {
   for (const r of res) { if (Array.isArray(r)) out.push(...r); else failed++; }
   if (failed) console.log(`[scan] WARN ${failed}/${ranges.length} log chunks failed (RPC cap/error) at chunk=${chunk} — results are PARTIAL`);
   return out;
+}
+
+// ── V4 pool REGISTRY (every USDC-paired Initialize since the PoolManager was deployed) ────────────────────────
+// ⛔ Before 09-25 the Initialize map was re-scanned only from state.cursor (the last run, ~15 min), so a V4 pool
+// created earlier that STARTED trading later was never matched to its token by the activity scan (only the
+// subgraph's top-500 could catch it), and a decoy could never be swapped for an older real pool. Now every
+// USDC-paired pool is kept in state.v4reg (poolId -> [c0, c1, createdBlock, hooks, fee, tickSpacing]): backfilled
+// once from V4_START, then only new blocks. A range that fails is remembered in `gaps` and retried next run, so a
+// flaky RPC can never silently leave a hole.
+function addInit(reg, logs) {
+  let n = 0;
+  for (const l of logs) {
+    const c0 = ('0x' + l.topics[2].slice(26)).toLowerCase(), c1 = ('0x' + l.topics[3].slice(26)).toLowerCase();
+    if (c0 !== USDC && c1 !== USDC) continue;
+    const d = l.data.slice(2);
+    const fee = parseInt(d.slice(0, 64), 16);
+    let ts = BigInt('0x' + d.slice(64, 128)); if (ts >= (1n << 255n)) ts -= (1n << 256n);   // int24, sign-extended
+    const hooks = ('0x' + d.slice(2 * 64 + 24, 3 * 64)).toLowerCase();
+    if (!reg.pools[l.topics[1]]) n++;
+    reg.pools[l.topics[1]] = [c0, c1, parseInt(l.blockNumber, 16), hooks, fee, Number(ts)];
+  }
+  return n;
+}
+async function scanInitRanges(reg, ranges) {
+  const res = await runLimited(ranges.map(([f, t]) => () => rpc('eth_getLogs', [{ address: PM_V4, topics: [T_V4_INIT], fromBlock: '0x' + f.toString(16), toBlock: '0x' + t.toString(16) }], true)), 8);
+  const failed = []; let added = 0;
+  // A range that fails again is usually one with MORE Initialize logs than the RPC returns in one call (the same 4
+  // ranges failed on every retry, 09-25) — so it comes back as two halves next run, until the pieces fit.
+  res.forEach((r, i) => {
+    if (Array.isArray(r)) { added += addInit(reg, r); return; }
+    const [f, t] = ranges[i];
+    if (t - f > 2000n) { const m = f + (t - f) / 2n; failed.push([f.toString(), m.toString()], [m.toString(), t.toString()]); }
+    else failed.push([f.toString(), t.toString()]);
+  });
+  return { failed, added };
+}
+async function updateV4Registry(state, head) {
+  const reg = state.v4reg || (state.v4reg = { to: null, gaps: [], pools: {} });
+  const ranges = [];
+  for (const [f, t] of reg.gaps || []) ranges.push([BigInt(f), BigInt(t)]);   // retry earlier failures first
+  const start = reg.to != null ? BigInt(reg.to) : V4_START;
+  for (let f = start; f < head; f += CH) ranges.push([f, f + CH > head ? head : f + CH]);
+  const { failed, added } = await scanInitRanges(reg, ranges);
+  reg.gaps = failed; reg.to = head.toString();
+  console.log(`[disc] V4 registry: ${Object.keys(reg.pools).length} USDC pools (+${added} new), scanned ${ranges.length} ranges${failed.length ? `, ${failed.length} FAILED (retry next run)` : ''}`);
+  return reg;
 }
 
 // Batched parallel eth_call (reliable — no hand-rolled ABI encoding). Returns results aligned to `calls`.
@@ -160,10 +208,10 @@ async function main() {
   const v4active = new Map(); for (const l of v4swaps) v4active.set(l.topics[1], (v4active.get(l.topics[1]) || 0) + 1);
   const activeIds = [...v4active].filter(([, c]) => c >= 3);
   const v4cand = [];
+  const reg = await updateV4Registry(state, BigInt(head));
+  const regGet = (poolId) => { const r = reg.pools[poolId]; return r ? { c0: r[0], c1: r[1], created: r[2], hooks: r[3], fee: r[4], tickSpacing: r[5] } : null; };
   if (activeIds.length) {
-    const initLogs = await scanLogs(PM_V4, [T_V4_INIT], from, BigInt(head)); // sparse: one map for all
-    const idMap = new Map();
-    for (const l of initLogs) idMap.set(l.topics[1], { c0: ('0x' + l.topics[2].slice(26)).toLowerCase(), c1: ('0x' + l.topics[3].slice(26)).toLowerCase(), created: parseInt(l.blockNumber, 16), hooks: ('0x' + l.data.slice(2).slice(2*64 + 24, 2*64 + 64)).toLowerCase() });
+    const idMap = { get: regGet }; // every USDC pool ever initialized, not just the last run's
     // ⛔ A token can have MANY active pools — real + WASH-TRADED DECOYS (GLITCH's real pool had 5736 swaps,
     // a decoy 38). Group by token and keep the poolId with the MOST swaps, so price/vol come from the real one.
     const byToken = new Map();
@@ -172,14 +220,14 @@ async function main() {
       if (cc.c0 !== USDC && cc.c1 !== USDC) continue;
       const token = cc.c0 === USDC ? cc.c1 : cc.c0;
       const prev = byToken.get(token);
-      if (!prev || cnt > prev.cnt) byToken.set(token, { poolId, cnt, usdcIsC0: cc.c0 === USDC, created: cc.created, hooks: cc.hooks });
+      if (!prev || cnt > prev.cnt) byToken.set(token, { poolId, cnt, usdcIsC0: cc.c0 === USDC, created: cc.created, hooks: cc.hooks, fee: cc.fee, tickSpacing: cc.tickSpacing });
     }
     for (const [token, info] of byToken) {
       const known = state.tokens[token];
       if (known && known.poolId === info.poolId) continue; // already have the best pool
       if (known && known.cnt != null && known.cnt >= info.cnt) continue; // keep the better existing choice
       // new token, OR upgrade an existing token whose stored pool was a weaker (decoy) one
-      if (known) { known.poolId = info.poolId; known.usdcIsC0 = info.usdcIsC0; known.cnt = info.cnt; continue; }
+      if (known) { known.poolId = info.poolId; known.usdcIsC0 = info.usdcIsC0; known.cnt = info.cnt; known.hooks = info.hooks; continue; }
       v4cand.push({ token, poolId: info.poolId, usdcIsC0: info.usdcIsC0, created: info.created, cnt: info.cnt, hooks: info.hooks });
     }
   }
@@ -238,6 +286,14 @@ async function main() {
   }
   console.log(`[disc] added ${newTokens.length} new tokens`);
 
+  // Every token with a V4 pool gets its full PoolKey (fee, tickSpacing, hooks) from the registry, so the site can
+  // quote + route a swap through that pool without scanning for its Initialize event itself.
+  for (const t of Object.values(state.tokens)) {
+    if (!t.poolId) continue;
+    const k = regGet(t.poolId);
+    if (k) { t.v4fee = k.fee; t.v4tick = k.tickSpacing; t.hooks = k.hooks; }
+  }
+
   // ── 5) Re-price EVERY known token on-chain (they move) ────────────────────────────────────────────
   const entries = Object.entries(state.tokens);
   const priceCalls = [];
@@ -280,13 +336,18 @@ async function main() {
         rpc('eth_getBalance', [x.t.pool, 'latest']),
         call(x.addr, '0x70a08231' + pad(PM_V4)).catch(() => null),
       ]);
-      const v3usdc = b ? Number(BigInt(b)) / 1e18 : 0;
-      const v4tok = vb && vb !== '0x' ? Number(BigInt(vb)) / 10 ** x.t.decimals : 0;
+      if (b == null || vb == null) return null; // a FAILED read is not $0 (see below)
+      const v3usdc = Number(BigInt(b)) / 1e18;
+      const v4tok = vb !== '0x' ? Number(BigInt(vb)) / 10 ** x.t.decimals : 0;
       return v3usdc + v4tok * x.price;
     }
-    const b = await call(x.addr, '0x70a08231' + pad(PM_V4)); const tok = b && b !== '0x' ? Number(BigInt(b)) / 10 ** x.t.decimals : 0; return tok * x.price; // V4: token side value (all its V4 pools)
+    const b = await call(x.addr, '0x70a08231' + pad(PM_V4)); if (b == null) return null;
+    const tok = b !== '0x' ? Number(BigInt(b)) / 10 ** x.t.decimals : 0; return tok * x.price; // V4: token side value (all its V4 pools)
   }), 12);
-  rows.forEach((x, i) => { x.liq = liqs[i]; });
+  // ⛔ A rate-limited read used to count as $0 liquidity → under the $100 floor → the token vanished from the
+  // screener for a cycle (09-25 A/B: 91 tokens incl. the real ARGUS dropped on a busy run). Same rule as price:
+  // a failed read keeps the last good value.
+  rows.forEach((x, i) => { x.liq = liqs[i] != null ? liqs[i] : (x.t.lastLiq ?? 0); });
 
   // HOLDERS from arc-scan for EVERY token we'll output (not just the old top-300-by-liq) — else a real
   // token whose count we never fetched shows holders:null and is wrongly hidden by the screener's default
@@ -409,11 +470,13 @@ async function main() {
       iconUrl: t.iconUrl || null,
       // pool identity so the client can re-price the row LIVE (kills the ~15-min screener staleness).
       pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: !!t.usdcIsC0, decimals: dec,
+      v4fee: t.poolId && t.v4fee != null ? t.v4fee : null, v4tick: t.poolId && t.v4tick != null ? t.v4tick : null, hooks: t.poolId && t.hooks ? t.hooks : null,
       hooked: !!(t.hooks && t.hooks !== ZERO && /[1-9a-f]/.test(t.hooks.slice(2))),
       source: t.kind.toUpperCase(), launchpad: t.kind === 'v4' ? 'onchain' : null });
   }
   console.log(`[disc] priced ${out.length}, liquid (vol/chg scanned) ${liquid.length}`);
 
+  for (const x of rows) { const st = state.tokens[x.addr]; if (st && x.liq > 0) st.lastLiq = x.liq; } // remember last-good liquidity
   for (const o of out) { const st = state.tokens[o.address]; if (st) st.lastPrice = o.price; } // remember last-good price
   state.cursor = head;
   fs.writeFileSync(STATE_FILE, JSON.stringify(state));

@@ -3,7 +3,7 @@ import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
-import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, fetchTokenBurn, primePool, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
+import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown } from './icons';
 import { useNames, displayName } from '../lib/names';
@@ -30,9 +30,10 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const [holderCount, setHolderCount] = useState<number | null>(null);
   const [txs, setTxs] = useState<TokenTransfer[] | null>(null);
   const [swaps, setSwaps] = useState<RadarSwap[] | null>(null);
-  const [ocPool, setOcPool] = useState<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null; price?: number | null } | null>(null);
+  const [ocPool, setOcPool] = useState<{ tvl: number | null; reserveQuote: number | null; reserveBase: number | null; pool?: string | null; price?: number | null } | null>(null);
   const [ocPools, setOcPools] = useState<OnchainPool[] | null>(null);
-  const [dayStats, setDayStats] = useState<{ change24h: number | null; volume24h: number | null; buys24: number | null; sells24: number | null; txns24: number | null; makers24: number | null } | null>(null);
+  const [dayStats, setDayStats] = useState<DayStats | null>(null);
+  const [dec, setDec] = useState<number | null>(null); // token decimals actually used for every on-chain read
   const [burn, setBurn] = useState<{ burnt: number; supply: number | null; pct: number | null } | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders'>('txns');
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
@@ -49,43 +50,35 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // DEX-style detail: RadarDEX token stats (buys/sells/burned/change) + rich holders (with pool/dev
   // flags + accurate %), plus recent on-chain transfers (mainnet RPC).
   useEffect(() => {
-    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null);
+    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null); setDayStats(null); setBurn(null); setDec(null);
     // Prime the pool cache from the snapshot so every panel skips the slow ~900k-block pool-discovery scan.
     if (seed && (seed.pool || seed.poolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0 });
     (async () => {
-      const detail = await fetchRadarTokenDetail(address).catch(() => null);
-      if (alive) setRd(detail);
-      const dec = detail?.decimals ?? seed?.decimals ?? 18; // seed.decimals covers 8-dec tokens (cirBTC) that RadarDEX doesn't index
-      // If RadarDEX doesn't index this token, read the pool reserves on-chain so Liquidity & Pool fills.
-      if (!detail || detail.liquidityUsdc == null) {
-        fetchOnchainPoolStats(address, dec).then((s) => { if (alive) setOcPool(s); }).catch(() => {});
-      }
-      // Pools breakdown: if RadarDEX has no per-pool data (WARP tokens like ARGUS), discover every USDC
-      // pool on-chain (V3 fee tiers + V2) so the Pools card still shows real depth/price per pair.
-      if (!detail?.pools || detail.pools.length === 0) {
-        fetchAllOnchainPools(address, dec).then((ps) => { if (alive) setOcPools(ps); }).catch(() => {});
-      }
-      // 24H change + 24h volume on-chain when no indexer has them (V4/launchpad coins) so the header fills.
-      if (detail?.volume24 == null && detail?.change24h == null) {
-        fetchOnchainDayStats(address, dec).then((s) => { if (alive) setDayStats(s); }).catch(() => {});
-      }
-      // Burn % on-chain (null/dead balances vs supply) when RadarDEX doesn't report it.
-      if (detail?.burnedPct == null) fetchTokenBurn(address, dec).then((b) => { if (alive) setBurn(b); }).catch(() => {});
+      // ⛔ ON-CHAIN IS PRIMARY (owner, 09-24). Every market number on this page is read from the chain first;
+      // RadarDEX / Warp only fill what the chain can't give (socials, deployer, 5m change when a coin has no
+      // swaps…). Before 09-25 this page asked RadarDEX first and only went on-chain when RadarDEX had nothing.
+      // Decimals: RadarDEX / snapshot if known, else read from the contract — never a guessed 18 (an 8-dec coin
+      // like cirBTC read with 18 is 10^10 off).
+      const rdP = fetchRadarTokenDetail(address).catch(() => null);
+      const dec = seed?.decimals ?? (await fetchTokenDecimals(address)) ?? (await rdP)?.decimals ?? 18;
+      if (!alive) return;
+      setDec(dec);
+      rdP.then((detail) => { if (alive) setRd(detail); });
+      fetchOnchainPoolStats(address, dec).then((s) => { if (alive) setOcPool(s); }).catch(() => {});
+      fetchAllOnchainPools(address, dec).then((ps) => { if (alive) setOcPools(ps); }).catch(() => {});
+      fetchOnchainDayStats(address, dec).then((s) => { if (alive) setDayStats(s); }).catch(() => {});
+      fetchTokenBurn(address, dec).then((b) => { if (alive) setBurn(b); }).catch(() => {});
       fetchRadarHolders(address, dec, 100).then(async (h) => {
         if (h.holders && h.holders.length) { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } return; }
         // RadarDEX doesn't index this token (on-chain/launchpad coins) → arc-scan holder list.
         const a = await fetchTokenHolders(address, 100).catch(() => []);
         if (alive) { setHolders(a.map((x) => ({ rank: x.rank, address: x.address, amount: x.balance, percent: x.share, isPool: x.isContract, isDeployer: false }))); if (h.holderCount != null) setHolderCount(h.holderCount); }
       }).catch(() => { if (alive) setHolders([]); });
-      // Real trades feed: RadarDEX indexed swaps first; if it doesn't index this token (ARGUS etc.),
-      // decode the pool's on-chain Swap events so we still show Buy/Sell — never "Transfer".
-      fetchRadarSwaps(address, dec, 50).then(async (s) => {
-        if (s && s.length) { if (alive) setSwaps(s); return; }
-        const oc = await fetchPoolTrades(address, dec, 40).catch(() => [] as RadarSwap[]);
-        if (alive) setSwaps(oc);
-      }).catch(async () => {
-        const oc = await fetchPoolTrades(address, dec, 40).catch(() => [] as RadarSwap[]);
-        if (alive) setSwaps(oc);
+      // Trades: the pool's own on-chain Swap events first; RadarDEX's indexed swaps only if the chain read is empty.
+      fetchPoolTrades(address, dec, 40).catch(() => [] as RadarSwap[]).then(async (oc) => {
+        if (oc && oc.length) { if (alive) setSwaps(oc); return; }
+        const r = await fetchRadarSwaps(address, dec, 50).catch(() => [] as RadarSwap[]);
+        if (alive) setSwaps(r);
       });
     })();
     fetchTokenTransfers(address, 18, 40).then((t) => { if (alive) setTxs(t); }).catch(() => { if (alive) setTxs([]); });
@@ -136,7 +129,13 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // like cirBTC/WBTC), then Warp. ⚠️ Warp's API reports price IGNORING token decimals, so an 8-dec
   // token (cirBTC) comes back 10^(18-8)=10^10 too high — never trust warp.price over the seed.
   const supplyNum = d?.supply ? Number(d.supply) : (seed?.totalSupply != null ? Number(seed.totalSupply) : null);
-  const px = seed?.price ?? warp?.price ?? ocPool?.price ?? null; // ocPool covers V4-only launchpad coins (GLITCH)
+  // Snapshot rows priced from the chain are on-chain values (≤30 min old); indexer-priced rows are not.
+  const chainSeed = seed?.priceFrom === 'chain' ? seed : undefined;
+  // Price: the pool RIGHT NOW (slot0 / V4 StateView) first. A live read >20x off the snapshot's chain price is a
+  // bad read (wrong pool / decimals), not a market move — then the snapshot's on-chain price stands.
+  const livePx = ocPool?.price != null && isFinite(ocPool.price) && ocPool.price > 0
+    && !(seed?.price && (ocPool.price / seed.price > 20 || seed.price / ocPool.price > 20)) ? ocPool.price : null;
+  const px = livePx ?? seed?.price ?? warp?.price ?? null;
   const reserveBase = rd?.reserveBase ?? ocPool?.reserveBase ?? null;
   const reserveQuote = rd?.reserveQuote ?? ocPool?.reserveQuote ?? null;
   const bothSides = reserveQuote != null && reserveBase != null && px != null ? reserveQuote + reserveBase * px : null; // full pool value
@@ -147,10 +146,19 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   // back to on-chain reserves for coins with no seed. (bothSides can be a spurious 0 from a near-empty pool.)
   const liq = firstPos(seed?.liq, bothSides, ocPool?.tvl, rd?.liquidityTotal, warp?.liquidity);
   const mc = firstPos(seed?.mcap, warp?.mcap, px != null && supplyNum ? px * supplyNum : null);
-  const vol = firstPos(rd?.volume24, seed?.volume24h, dayStats?.volume24h, warp?.volume24h);
-  const burnedPct = rd?.burnedPct ?? burn?.pct ?? null; // burn %: RadarDEX first, else on-chain null/dead balances
-  const burnedSupply = rd?.burnedSupply ?? (burn?.burnt && burn.burnt > 0 ? burn.burnt : null);
-  const chg = rd?.change24h ?? seed?.change24h ?? dayStats?.change24h ?? null;
+  // 24h volume: the indexer's on-chain figure summed across ALL the token's pools, then this page's own on-chain scan
+  // (primary pool only), then the indexers.
+  const vol = firstPos(chainSeed?.volume24h, dayStats?.volume24h, rd?.volume24, seed?.volume24h, warp?.volume24h);
+  const burnedPct = burn?.pct ?? rd?.burnedPct ?? null; // burn %: on-chain null/dead balances first, RadarDEX backup
+  const burnedSupply = burn ? (burn.burnt > 0 ? burn.burnt : null) : (rd?.burnedSupply ?? null);
+  const chg = dayStats?.change24h ?? chainSeed?.change24h ?? rd?.change24h ?? seed?.change24h ?? null;
+  // 5m / 1h / 6h / 24h bar: this page's on-chain swap scan first, RadarDEX only for a window the chain can't answer.
+  const chgBar = {
+    '5m': dayStats?.change5m ?? rd?.change5m ?? null,
+    '1h': dayStats?.change1h ?? chainSeed?.change1h ?? rd?.change1h ?? null,
+    '6h': dayStats?.change6h ?? rd?.change6h ?? null,
+    '24h': chg,
+  };
   // Holder count: on-chain (arc-scan) and Warp agree and are ground truth; RadarDEX's count is stale/
   // partial (it only lists ~50 rows and undercounted ARGUS 12k vs the real 18k), so it goes LAST — else
   // it loaded late and OVERRODE the correct number, making the header flip 18k -> 12k.
@@ -185,9 +193,14 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   };
   const quoteSym = (a?: string) => { const k = (a || '').toLowerCase(); return QUOTE_SYM[k] || (k.length >= 10 ? `${k.slice(0, 6)}…` : 'USDC'); };
   const MIN_POOL_LIQ = 100;
-  const allPoolsRaw = (rd?.pools && rd.pools.length
-    ? rd.pools.map((p) => ({ pool: p.pool, version: p.version, dex: p.dex, feeTier: p.feeTier, quote: p.quote, liquidityUsdc: p.liquidityUsdc, swaps: p.swaps, price: null as number | null }))
-    : (ocPools ?? []).map((p) => ({ pool: p.pool, version: p.version, dex: null as string | null, feeTier: p.feeTier, quote: p.quote, liquidityUsdc: p.liquidityUsdc, swaps: null as number | null, price: p.price })));
+  // Pools: every USDC pool read on-chain (V3 fee tiers, V2, the real V4 pool) with its live depth + price. RadarDEX's
+  // list only ADDS pools the chain scan doesn't cover (non-USDC pairs such as TOKEN/WARP) — it never replaces one.
+  const ocList = (ocPools ?? []).map((p) => ({ pool: p.pool, version: p.version, dex: null as string | null, feeTier: p.feeTier, quote: '0x3600000000000000000000000000000000000000', liquidityUsdc: p.liquidityUsdc, swaps: null as number | null, price: p.price }));
+  const ocSet = new Set(ocList.map((p) => p.pool.toLowerCase()));
+  const rdExtra = (rd?.pools ?? []).filter((p) => !ocSet.has(p.pool.toLowerCase()) && p.quote !== '0x3600000000000000000000000000000000000000')
+    .map((p) => ({ pool: p.pool, version: p.version, dex: p.dex, feeTier: p.feeTier, quote: p.quote, liquidityUsdc: p.liquidityUsdc, swaps: p.swaps, price: null as number | null }));
+  // Until the on-chain scan answers, show RadarDEX's list rather than nothing.
+  const allPoolsRaw = ocPools == null ? (rd?.pools ?? []).map((p) => ({ pool: p.pool, version: p.version, dex: p.dex, feeTier: p.feeTier, quote: p.quote, liquidityUsdc: p.liquidityUsdc, swaps: p.swaps, price: null as number | null })) : [...ocList, ...rdExtra];
   const allPools = allPoolsRaw.filter((p) => (p.liquidityUsdc ?? 0) >= MIN_POOL_LIQ);
   // True aggregate = sum of the real pools; fall back to RadarDEX's own total only when we have no per-pool data.
   const poolsTotalLiq = allPools.length ? allPools.reduce((s, p) => s + (p.liquidityUsdc ?? 0), 0) : (rd?.liquidityTotal ?? null);
@@ -209,7 +222,10 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
     if (s < 60) return `${s}s`; if (s < 3600) return `${Math.floor(s / 60)}m`;
     if (s < 86400) return `${Math.floor(s / 3600)}h`; return `${Math.floor(s / 86400)}d`;
   };
-  const ageStr = rd?.ageSec != null ? (rd.ageSec >= 86400 ? `${Math.floor(rd.ageSec / 86400)}d` : rd.ageSec >= 3600 ? `${Math.floor(rd.ageSec / 3600)}h` : `${Math.floor(rd.ageSec / 60)}m`) : null;
+  // Pool age = the OLDEST of what we know: the indexer's creation block can be a newer side pool (cirBTC's V4 pool is
+  // 3d old, its main V3 pool 129d), so the older date is the one that describes the market.
+  const ageSecs = (() => { const a = seed?.createdAt ? Math.max(0, (Date.now() - seed.createdAt) / 1000) : null; const b = rd?.ageSec ?? null; return a == null ? b : b == null ? a : Math.max(a, b); })();
+  const ageStr = ageSecs != null ? (ageSecs >= 86400 ? `${Math.floor(ageSecs / 86400)}d` : ageSecs >= 3600 ? `${Math.floor(ageSecs / 3600)}h` : `${Math.floor(ageSecs / 60)}m`) : null;
   // Liquidity & Pool cells — only the ones we actually have (so the panel fills even without RadarDEX).
   const liqCells = ([
     tvl != null ? { v: usd(tvl), l: 'TVL' } : null,
@@ -225,8 +241,8 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const sig = {
     depth: depthPct == null ? null : Math.max(0, Math.min(100, Math.round((Math.min(depthPct, 10) / 10) * 100))),          // ≥10% of valuation in pool = full marks
     dist: top10 == null ? null : Math.max(0, Math.min(100, Math.round(100 - Math.max(0, top10 - 20) * (100 / 60)))),        // ≤20% top-10 = full; 80%+ = 0
-    quality: rd?.traders24 == null || rd?.txns24 == null || rd.txns24 === 0 ? null : Math.round(Math.min(100, (rd.traders24 / rd.txns24) * 100)), // unique-trader/txn ratio
-    age: rd?.ageSec == null ? null : Math.round(Math.min(100, (rd.ageSec / (30 * 86400)) * 100)),                            // 30d+ = full marks
+    quality: makersF == null || !txnsF ? null : Math.round(Math.min(100, (makersF / txnsF) * 100)), // unique-trader/txn ratio (on-chain 24h first)
+    age: ageSecs == null ? null : Math.round(Math.min(100, (ageSecs / (30 * 86400)) * 100)),                                 // 30d+ = full marks
     vol: chg == null ? null : Math.round(Math.max(0, 100 - Math.min(100, Math.abs(chg)))),                                   // calmer 24h = healthier
   };
   const HW = { depth: 35, dist: 20, quality: 20, age: 15, vol: 10 };
@@ -247,7 +263,7 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
   const chgClass = (v: number | null) => (v == null ? '' : v >= 0 ? 'up' : 'down');
   const chgTxt = (v: number | null) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(v <= -100 || v >= 100 ? 0 : 1)}%`);
   // Classify a raw transfer as a buy/sell using the token's main pool (tokens FROM pool = buy, TO pool = sell).
-  const pool = rd?.bestPool ?? null;
+  const pool = ocPool?.pool ?? rd?.bestPool ?? null;
   const txKind = (t: TokenTransfer): 'buy' | 'sell' | 'xfer' =>
     !pool ? 'xfer' : t.from.toLowerCase() === pool ? 'buy' : t.to.toLowerCase() === pool ? 'sell' : 'xfer';
   const txMaker = (t: TokenTransfer) => (txKind(t) === 'buy' ? t.to : t.from);
@@ -301,16 +317,16 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
       </div>
 
       {/* Change over multiple timeframes (DEX-style) */}
-      {rd && (rd.change5m != null || rd.change1h != null || rd.change6h != null || rd.change24h != null) && (
+      {Object.values(chgBar).some((v) => v != null) && (
         <div className="chg-bar">
-          {([['5m', rd.change5m], ['1h', rd.change1h], ['6h', rd.change6h], ['24h', rd.change24h]] as const).map(([l, v]) => (
+          {(Object.entries(chgBar) as [string, number | null][]).map(([l, v]) => (
             <div className="chg-cell" key={l}><span className="chg-l">{l}</span><span className={`chg-v chg ${chgClass(v)}`}>{chgTxt(v)}</span></div>
           ))}
         </div>
       )}
 
       <div style={{ marginTop: 12 }}>
-        <PriceChart address={address} symbol={sym} decimals={d?.decimals ?? seed?.decimals ?? 18} priceScale={chartScale} change24h={chg} />
+        {dec != null && <PriceChart address={address} symbol={sym} decimals={dec} priceScale={chartScale} change24h={chg} />}
       </div>
 
       {/* Dashboard: token info + activity (left) · pool metrics + health (right) */}
@@ -321,8 +337,8 @@ export function PremainDetail({ address, seed, onBack, onTrade }: { address: str
             <h3>Info</h3>
             <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
             <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
-            <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{d?.decimals ?? '—'}</span></div>
-            {rd?.bestPool && <div className="ir"><span className="ir-k">Pool ID</span><a className="ir-v mono" href={`https://explorer.arc.io/address/${rd.bestPool}`} target="_blank" rel="noreferrer" style={{ color: 'var(--red-hi)', textDecoration: 'none' }}>{rd.bestPool.slice(0, 10)}…{rd.bestPool.slice(-6)}</a></div>}
+            <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{dec ?? d?.decimals ?? '—'}</span></div>
+            {pool && <div className="ir"><span className="ir-k">Pool ID</span><a className="ir-v mono" href={`https://explorer.arc.io/address/${pool}`} target="_blank" rel="noreferrer" style={{ color: 'var(--red-hi)', textDecoration: 'none' }}>{pool.slice(0, 10)}…{pool.slice(-6)}</a></div>}
             {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
             {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
             {burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{burnedPct.toFixed(2)}%</span></div>}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { compact, usd, CHAIN, fetchPortfolioMainnet, fetchHoldingsMainnet, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx } from '../lib/arc';
+import { compact, usd, CHAIN, fetchPortfolioMainnet, fetchHoldingsOnchain, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 import { IconSwapVertical, IconExternal } from './icons';
 import {
@@ -8,7 +8,8 @@ import {
   permitInfo, buildPermitTypedData, buildSwapWithPermitTx, type Quote, type TxReq,
   setSwapMainnet, activeScan, MAINNET_CHAIN_ID, quoteCurveBuy, buildCurveBuyTx,
   quoteCurveSell, buildCurveSellTx, quoteV3, buildV3SwapTx, v3PoolFor, V3_ROUTER,
-  quoteV4, buildV4SwapTx, v4CfgFor, v4Permit2Status, buildPermit2ApproveTx, PERMIT2,
+  quoteV4, buildV4SwapTx, v4Permit2Status, buildPermit2ApproveTx, PERMIT2,
+  findV3Pool, findV4Route, type V4Cfg,
 } from '../lib/swap';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenPicker } from './TokenPicker';
@@ -55,6 +56,8 @@ async function ensureChain(chainId: number): Promise<boolean> {
 }
 
 const SLIPPAGES = [0.5, 1, 3];
+// Token amounts: compact (1.3K) at >= 1, significant digits below — `compact` rounded 0.000118 cirBTC to "0".
+const amtFmt = (n: number) => (n >= 1 ? compact(n) : n > 0 ? String(Number(n.toPrecision(4))) : '0');
 
 interface Preload { address: string; symbol: string; name?: string; price?: number | null }
 export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { tokens: Token[]; wallet: string | null; onConnect: () => void; preload?: Preload | null; mainnet?: boolean }) {
@@ -98,7 +101,8 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     const a = preload.address, k = a.toLowerCase();
     setExtra((p) => p.some((t) => t.address.toLowerCase() === k) ? p
       : [{ address: a, name: preload.name || preload.symbol, symbol: preload.symbol, holders: null, totalSupply: null, type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false, isEcosystem: false, price: preload.price ?? null, liq: null, mcap: null }, ...p]);
-    setDec((p) => (p[k] != null ? p : { ...p, [k]: 18 }));
+    // ⛔ was `?? 18`: a guessed decimals made every 8-dec cirBTC amount 10^10 off (quote read "0 cirBTC", 09-25).
+    // The decimals effect reads the real value from the contract.
     if (preload.price != null) setWarpPx((p) => ({ ...p, [k]: preload.price! }));
     setFromA(USDC.address);
     setToA(a);
@@ -111,8 +115,8 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     if (!wallet) { setBal({}); return; }
     let alive = true;
     [from?.address, to?.address].filter(Boolean).forEach(async (a) => {
-      const b = await balanceOf(a!, wallet);
-      if (alive) setBal((p) => ({ ...p, [a!.toLowerCase()]: b }));
+      // A failed read throws (never a fake 0) — keep what's shown and try again on the next change.
+      try { const b = await balanceOf(a!, wallet); if (alive) setBal((p) => ({ ...p, [a!.toLowerCase()]: b })); } catch { /* keep */ }
     });
     return () => { alive = false; };
   }, [wallet, fromA, toA, phaseTick]); // eslint-disable-line
@@ -124,35 +128,30 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     if (!wallet) { setHoldings(null); setActs(null); return; }
     let alive = true;
     setHoldings((h) => h ?? null); setActs((a) => a ?? null);
-    // Explorer lists the full bag in one call; RadarDEX /portfolio is only a fallback (it often
-    // returned USDC alone and dropped the rest).
+    // Same source as the Portfolio page (09-25 — this panel showed $61 of a ~$190 bag): the explorer / RadarDEX
+    // paint first, then the COMPLETE on-chain read (/api/holdings: every token the wallet ever received, balances
+    // via Multicall, priced V3/V2/V4/Warp) replaces it. Prices the endpoint left blank come from the screener list.
+    const byScreener = new Map(tokens.map((t) => [t.address.toLowerCase(), t]));
+    const priced = (list: RadarHolding[]) => list.map((h) => {
+      const k = h.address.toLowerCase();
+      let price = h.price ?? byScreener.get(k)?.price ?? null;
+      if (price != null && !(isFinite(price) && price > 0 && price < 1e6)) price = null; // same sanity clamp as Portfolio
+      const v = price != null ? h.amount * price : null;
+      return { ...h, icon: h.icon ?? byScreener.get(k)?.iconUrl ?? null, price, usd: v != null && v < 1e9 ? v : null };
+    }).sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0) || b.amount - a.amount);
     fetchPortfolioMainnet(wallet)
       .then(async (pf) => (pf.holdings.length ? pf : await fetchRadarPortfolio(wallet).catch(() => pf)))
-      .then((pf) => { if (alive) setHoldings(pf.holdings); })
-      .catch(() => { if (alive) setHoldings([]); });
-    // Phase 2: the fast explorer call misses some tokens (ARCX10, a V4-only token, was missing). Directly
-    // read balances of the CORE tradeable tokens (ARCX10, WARP, ARGUS, TOLLY, LONG, COOL…) via Multicall and
-    // price them from the screener list we already have — guaranteed to catch a held core token. Add any the
-    // explorer missed (never overwrite a real explorer row) and re-sort by value.
-    fetchHoldingsMainnet(wallet).then((core) => {
-      if (!alive || !core.length) return;
-      const byScreener = new Map(tokens.map((t) => [t.address.toLowerCase(), t]));
-      setHoldings((prev) => {
-        const byAddr = new Map((prev || []).map((h) => [h.address.toLowerCase(), h]));
-        for (const h of core) {
-          const k = h.address.toLowerCase();
-          if (byAddr.has(k)) continue; // explorer already has it
-          const t = byScreener.get(k); const price = t?.price ?? null;
-          byAddr.set(k, { address: k, symbol: h.symbol, name: h.name, decimals: h.decimals, icon: h.iconUrl ?? t?.iconUrl ?? null, price, amount: h.balance, usd: price != null ? h.balance * price : null });
-        }
-        return [...byAddr.values()].sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0) || b.amount - a.amount);
-      });
-    }).catch(() => { /* explorer result stands */ });
+      .then((pf) => { if (alive) setHoldings((prev) => (prev && prev.length > pf.holdings.length ? prev : priced(pf.holdings))); })
+      .catch(() => { if (alive) setHoldings((prev) => prev ?? []); });
+    fetchHoldingsOnchain(wallet).then((oc) => {
+      if (alive && oc.ok && oc.holdings.length) setHoldings(priced(oc.holdings));
+    }).catch(() => { /* the fast view stands */ });
     fetchAddressTxs(wallet, 12).then((t) => { if (alive) setActs(t); }).catch(() => { if (alive) setActs([]); });
     return () => { alive = false; };
   }, [wallet, phaseTick]); // eslint-disable-line
 
   // Total = sum of the listed holdings' USD, so it always matches what's shown (incl. the phase-2 core merge).
+  const byAddrEco = (a: string) => !!tokens.find((t) => t.address.toLowerCase() === a.toLowerCase() && t.isEcosystem);
   const pfTotal = holdings && holdings.some((h) => h.usd != null) ? holdings.reduce((s, h) => s + (h.usd ?? 0), 0) : null;
 
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -188,6 +187,19 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       .catch(() => { if (alive) setWarpMeta(null); });
     return () => { alive = false; };
   }, [warpTokenAddr]);
+  // Uniswap V3 / V4 pools for the traded token, found on-chain for ANY token (09-25 — before, only 11 hardcoded V3
+  // pools and 2 V4 tokens could trade here). The V4 key comes from the screener row and is checked against the poolId.
+  const [route, setRoute] = useState<{ addr: string; v3: string | null; v4: V4Cfg | null } | null>(null);
+  useEffect(() => {
+    if (!warpTokenAddr) { setRoute(null); return; }
+    const k = warpTokenAddr.toLowerCase(); let alive = true;
+    // Pool hint from the SCREENER row (it carries poolId + PoolKey); a token loaded via Trade/paste is a bare stub.
+    const hint = tokens.find((t) => t.address.toLowerCase() === k) || universe.find((t) => t.address.toLowerCase() === k);
+    Promise.all([findV3Pool(k).catch(() => null), findV4Route(k, hint).catch(() => null)])
+      .then(([v3, v4]) => { if (alive) setRoute({ addr: k, v3, v4 }); });
+    return () => { alive = false; };
+  }, [warpTokenAddr, tokens.length]); // eslint-disable-line
+  const routeFor = (a?: string) => (route && a && route.addr === a.toLowerCase() ? route : null);
   const [curveOut, setCurveOut] = useState<bigint | null>(null); // in-app curve-buy expected tokens
   const [curveSellOut, setCurveSellOut] = useState<bigint | null>(null); // curve-sell expected USDC (6-dec)
   const [v3q, setV3q] = useState<{ outRaw: bigint; fee: number; tokenIn: string; tokenOut: string } | null>(null); // Uni V3 quote
@@ -199,9 +211,12 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   const curveSellable = !!(warpMode && warpMeta && !warpMeta.migrated && warpMeta.curve
     && toA.toLowerCase() === usdcK && from && from.address.toLowerCase() === warpMeta.addr);
   // Uniswap V3 (Argus factory) trade = one side USDC, the other a V3-pooled token (buy OR sell).
-  const v3Trade = !!(warpMode && from && to && ((fromA.toLowerCase() === usdcK && v3PoolFor(to.address)) || (toA.toLowerCase() === usdcK && v3PoolFor(from.address))));
+  const v3Trade = !!(warpMode && from && to && ((fromA.toLowerCase() === usdcK && (v3PoolFor(to.address) || routeFor(to.address)?.v3)) || (toA.toLowerCase() === usdcK && (v3PoolFor(from.address) || routeFor(from.address)?.v3))));
   // Uniswap V4 trade = one side USDC, the other a V4-only token (e.g. ARCX10, hooked pool).
-  const v4Trade = !!(warpMode && from && to && ((fromA.toLowerCase() === usdcK && v4CfgFor(to.address)) || (toA.toLowerCase() === usdcK && v4CfgFor(from.address))));
+  const v4Trade = !!(warpMode && from && to && ((fromA.toLowerCase() === usdcK && routeFor(to.address)?.v4) || (toA.toLowerCase() === usdcK && routeFor(from.address)?.v4)));
+  const tradeToken = from && fromA.toLowerCase() !== usdcK ? from.address : to?.address;
+  const v3PoolSel = v3Trade ? (v3PoolFor(tradeToken || '') || routeFor(tradeToken)?.v3 || null) : null;
+  const v4CfgSel = v4Trade ? (routeFor(tradeToken)?.v4 || null) : null;
   // Auto-refresh the live quote every 12s (mainnet pools move fast — keeps the shown amount current).
   const [refreshTick, setRefreshTick] = useState(0);
   useEffect(() => {
@@ -222,20 +237,22 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setQuoting(true);
       const id = setTimeout(async () => {
         const amountInRaw = toRaw(n, decIn);
-        const q = await bestQuote(from.address, to.address, amountInRaw); // engine is on mainnet (see flip effect)
+        // Every venue the token trades on, quoted together — the best fill wins (a token can have WarpV2 AND V3 AND
+        // V4 pools; the first one that answered used to win even when another paid more).
+        const [q, r3, r4] = await Promise.all([
+          bestQuote(from.address, to.address, amountInRaw).catch(() => null), // engine is on mainnet (see flip effect)
+          v3Trade ? quoteV3(from.address, to.address, amountInRaw, v3PoolSel).catch(() => null) : Promise.resolve(null),
+          v4Trade ? quoteV4(from.address, to.address, amountInRaw, v4CfgSel).catch(() => null) : Promise.resolve(null),
+        ]);
         if (seq !== qSeq.current) return;
-        if (q) { setQuoting(false); setQuote(q); return; }
-        // Uniswap V3 (Argus factory): buy OR sell a V3-pooled token against USDC.
-        if (v3Trade) {
-          const r = await quoteV3(from.address, to.address, amountInRaw);
-          if (seq !== qSeq.current) return;
-          if (r) { setQuoting(false); setV3q({ outRaw: r.outRaw, fee: r.fee, tokenIn: from.address, tokenOut: to.address }); return; }
-        }
-        // Uniswap V4 (Universal Router, hooked pools): buy OR sell a V4-only token against USDC.
-        if (v4Trade) {
-          const r = await quoteV4(from.address, to.address, amountInRaw);
-          if (seq !== qSeq.current) return;
-          if (r) { setQuoting(false); setV4q(r); return; }
+        const outs = [q?.amountOutRaw ?? -1n, r3?.outRaw ?? -1n, r4?.outRaw ?? -1n];
+        const best = outs.reduce((bi, v, i) => (v > outs[bi] ? i : bi), 0);
+        if (outs[best] > 0n) {
+          setQuoting(false);
+          if (best === 0) setQuote(q);
+          else if (best === 1) setV3q({ outRaw: r3!.outRaw, fee: r3!.fee, tokenIn: from.address, tokenOut: to.address });
+          else setV4q(r4);
+          return;
         }
         // Curve BUY: USDC → a non-graduated Warp curve token, quoted live from the curve contract.
         if (curveBuyable && wallet) {
@@ -272,7 +289,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setQuote(q);
     }, 450);
     return () => clearTimeout(id);
-  }, [amt, fromA, toA, decIn, decOut, warpMode, warpMeta, wallet, v3Trade, v4Trade, refreshTick]); // eslint-disable-line
+  }, [amt, fromA, toA, decIn, decOut, warpMode, warpMeta, wallet, v3Trade, v4Trade, v3PoolSel, v4CfgSel, refreshTick]); // eslint-disable-line
 
   const outHuman = v3q != null && decOut != null ? fromRaw(v3q.outRaw, decOut)
     : v4q != null && decOut != null ? fromRaw(v4q.outRaw, decOut)
@@ -286,6 +303,19 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     : curveOut != null && decOut != null ? fromRaw(minOut(curveOut, slip), decOut)
     : (curveSellOut != null && decOut != null ? fromRaw(minOut(curveSellOut, slip), decOut) : null);
   const rate = outHuman && parseFloat(amt) ? outHuman / parseFloat(amt) : null;
+  // What this fill pays vs the token's market price (screener, on-chain). Thin pools and 4-5% pool fees are common
+  // on Arc — a $10 cirBTC buy through its only V4 pool costs ~3x market (09-25) — so every quote shows it.
+  const mkt = (() => {
+    const tokSide = fromA.toLowerCase() === usdcK ? to : toA.toLowerCase() === usdcK ? from : null;
+    const p = tokSide ? universe.find((t) => t.address.toLowerCase() === tokSide.address.toLowerCase())?.price : null;
+    const n = parseFloat(amt);
+    if (!tokSide || !p || !(p > 0) || !outHuman || !n || estimate) return null;
+    const eff = fromA.toLowerCase() === usdcK ? n / outHuman : outHuman / n; // USD per token actually paid / received
+    return fromA.toLowerCase() === usdcK ? (eff / p - 1) * 100 : (1 - eff / p) * 100; // + = worse than market
+  })();
+  const mktRow = mkt != null && Math.abs(mkt) >= 0.5 ? (
+    <div className={`sq-row${mkt >= 5 ? ' warn' : ''}`}><span>vs market price</span><span className="mono" style={mkt >= 5 ? { color: '#ff5a5a' } : undefined}>{mkt >= 0 ? `${mkt.toFixed(1)}% worse` : `${(-mkt).toFixed(1)}% better`}{mkt >= 5 ? ' — thin pool / high fee' : ''}</span></div>
+  ) : null;
 
   const fromBalRaw = from ? bal[from.address.toLowerCase()] : undefined;
   const toBalRaw = to ? bal[to.address.toLowerCase()] : undefined;
@@ -399,7 +429,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       }
       // Re-quote at the moment of execution so min-out reflects the CURRENT price (these pools move
       // fast; a stale display quote is what caused reverts). Approval can take a few blocks too.
-      const fresh = await quoteV3(from.address, to.address, amountInRaw);
+      const fresh = await quoteV3(from.address, to.address, amountInRaw, v3PoolSel);
       if (!fresh) { setPhase('error'); setMsg('Could not refresh the quote — try again.'); return; }
       const tx = buildV3SwapTx(from.address, to.address, fresh.fee, amountInRaw, minOut(fresh.outRaw, slip), wallet);
       const rev = await simulate(tx);
@@ -433,9 +463,9 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
         setPhase('approving'); setMsg(`One-time approval for ${from.symbol} (2/2)…`);
         if (!(await waitReceipt(await sendTx(buildPermit2ApproveTx(from.address, wallet))))) { setPhase('error'); setMsg('Approval failed.'); return; }
       }
-      const fresh = await quoteV4(from.address, to.address, amountInRaw); // fresh min-out at current price
+      const fresh = await quoteV4(from.address, to.address, amountInRaw, v4CfgSel); // fresh min-out at current price
       const outRaw = fresh?.outRaw ?? v4q.outRaw;
-      const tx = buildV4SwapTx(from.address.toLowerCase() === usdcK ? to.address : from.address, v4q.zeroForOne, amountInRaw, minOut(outRaw, slip), wallet);
+      const tx = buildV4SwapTx(from.address.toLowerCase() === usdcK ? to.address : from.address, v4q.zeroForOne, amountInRaw, minOut(outRaw, slip), wallet, v4CfgSel);
       if (!tx) { setPhase('error'); setMsg('Could not build the V4 swap.'); return; }
       const rev = await simulate(tx);
       if (rev) { setPhase('error'); setMsg(`Swap would revert: ${rev}. Try a higher slippage.`); return; }
@@ -559,7 +589,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               {wallet && to && toBal != null && <span className="swap-bal">Balance: {fmtBal(toBal)} {to.symbol}</span>}
             </div>
             <div className="swap-in">
-              <input className="swap-amt" placeholder="0.0" value={outHuman != null ? compact(outHuman) : ''} readOnly />
+              <input className="swap-amt" placeholder="0.0" value={outHuman != null ? amtFmt(outHuman) : ''} readOnly />
               <TokenPicker value={to} tokens={universe} exclude={fromA} onSelect={(t) => setToA(t.address)} onAddAddress={(a) => addToken(a, 'to')} adding={adding} />
             </div>
           </div>
@@ -574,36 +604,40 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
           {quoting && <div className="swap-info"><span>Finding best route…</span><span /></div>}
           {quote && rate != null && (
             <div className="swap-quote">
-              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {compact(rate)} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? compact(minRecv) : '—'} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? amtFmt(minRecv) : '—'} {to?.symbol}</span></div>
               <div className="sq-row"><span>Route</span><span className="mono">{quote.routerName} · {quote.hops === 1 ? 'direct' : `${quote.hops} hops`}</span></div>
+              {mktRow}
             </div>
           )}
           {v3q != null && rate != null && (
             <div className="swap-quote">
-              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {compact(rate)} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? compact(minRecv) : '—'} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? amtFmt(minRecv) : '—'} {to?.symbol}</span></div>
               <div className="sq-row"><span>Route</span><span className="mono">Uniswap V3 · {(v3q.fee / 10000).toFixed(2)}% fee</span></div>
+              {mktRow}
             </div>
           )}
           {v4q != null && rate != null && (
             <div className="swap-quote">
-              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {compact(rate)} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? compact(minRecv) : '—'} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Route</span><span className="mono">Uniswap V4 · hooked pool</span></div>
+              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? amtFmt(minRecv) : '—'} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Route</span><span className="mono">Uniswap V4{v4CfgSel ? ` · ${(v4CfgSel.fee / 10000).toFixed(2)}% fee` : ''}{v4CfgSel && v4CfgSel.hooks !== '0x0000000000000000000000000000000000000000' ? ' · hooked' : ''}</span></div>
+              {mktRow}
             </div>
           )}
           {(curveOut != null || curveSellOut != null) && rate != null && (
             <div className="swap-quote">
-              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {compact(rate)} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? compact(minRecv) : '—'} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? amtFmt(minRecv) : '—'} {to?.symbol}</span></div>
               <div className="sq-row"><span>Route</span><span className="mono">Warp bonding curve</span></div>
+              {mktRow}
             </div>
           )}
           {estimate && rate != null && (
             <div className="swap-quote">
-              <div className="sq-row"><span>Est. rate</span><span className="mono">1 {from?.symbol} ≈ {compact(rate)} {to?.symbol}</span></div>
-              <div className="sq-row"><span>You’d receive</span><span className="mono">≈ {outHuman != null ? compact(outHuman) : '—'} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Est. rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
+              <div className="sq-row"><span>You’d receive</span><span className="mono">≈ {outHuman != null ? amtFmt(outHuman) : '—'} {to?.symbol}</span></div>
               <div className="sq-row"><span>Route</span><span className="mono">Warp · Uniswap v4</span></div>
             </div>
           )}
@@ -657,7 +691,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
                   {holdings.slice(0, 6).map((h) => (
                     <button className="sp-hold" key={h.address} onClick={() => tradeHolding(h)} title={`Trade ${h.symbol}`}>
                       <TokenLogo symbol={h.symbol} seed={h.address} url={h.icon} />
-                      <span className="sp-h-id"><span className="sp-h-sym">{h.symbol}</span><span className="sp-h-amt">{compact(h.amount)}</span></span>
+                      <span className="sp-h-id"><span className="sp-h-sym">{/^(USDC|EURC|USDT)$/i.test(h.symbol) && h.address.toLowerCase() !== usdcK && !byAddrEco(h.address) ? h.name : h.symbol}</span><span className="sp-h-amt">{compact(h.amount)}</span></span>
                       <span className="sp-h-usd">{h.usd != null ? usd(h.usd) : '—'}</span>
                     </button>
                   ))}

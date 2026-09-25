@@ -3,8 +3,8 @@ import { createChart, ColorType, LineStyle, type IChartApi, type ISeriesApi } fr
 import { fetchWarpCandles, type Candle } from '../lib/warp';
 import { fetchPoolCandles, tprice } from '../lib/arc';
 
-// TradingView-style price chart for an Arc token. Data = Warp OHLC candles (chain 5042) with an
-// on-chain pool-swap fallback for deep V3 tokens. DEX-style controls: timeframe, candles/line, lin/log.
+// TradingView-style price chart for an Arc token. Data = candles rebuilt from the pool's on-chain swaps
+// (chain 5042), Warp OHLC candles only as the fallback for coins with no pool swaps. DEX-style controls: timeframe, candles/line, lin/log.
 // Arc mainnet launched 2026-09-16, so there are only a couple days of history — 1W/1M/ALL would just
 // repeat the same ~2 days. These span from fine-grain to a multi-day view; longer ones become useful
 // as the chain ages.
@@ -51,9 +51,8 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   const seriesRef = useRef<ISeriesApi<any> | null>(null);
   const seriesTypeRef = useRef<ChartType | null>(null);
 
-  // Warm the wide-timeframe swap cache in the background shortly after load. The default view (5m) uses
-  // Warp candles (instant), so the ~4s on-chain 900k-block scan for 4H/1D/1W/ALL would otherwise only
-  // start when the user clicks one. Prefetching it (once per token) makes that first wide click instant.
+  // Warm the wide-timeframe swap cache in the background shortly after load, so the first click on
+  // 4H/1D/1W/ALL (a ~900k-block scan) is instant instead of a few seconds.
   useEffect(() => {
     const t = setTimeout(() => { fetchPoolCandles(address, decimals ?? 18, 43200, 3650 * 86400).catch(() => {}); }, 1200);
     return () => clearTimeout(t);
@@ -65,36 +64,27 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     setLoading(true);
     (async () => {
       const cfg = TF_CFG[tf] ?? TF_CFG['5m'];
-      // Warp base candles (finest available for this tf), then re-bucket up to the target size.
-      let c = await fetchWarpCandles(address, cfg.warp).catch(() => [] as Candle[]);
-      // Warp candles use Warp's price scale, which ignores token decimals — rescale to the real price
-      // (priceScale = trusted seed price ÷ warp price; =1 for normal 18-dec tokens). Fixes cirBTC etc.
-      if (c && c.length && priceScale && priceScale !== 1) {
-        c = c.map((k) => ({ time: k.time, open: k.open * priceScale, high: k.high * priceScale, low: k.low * priceScale, close: k.close * priceScale }));
-      }
-      if (c && c.length) c = rebucket(c, cfg.sec);
-      // Warp's candle API only serves ~1 day of history (capped) AND its feed can stop updating (it went
-      // stale for ~28h on 2026-09-21) — a stale feed made every narrow-TF chart EMPTY once the 24h window
-      // filter dropped the old candles. So: reconstruct candles from the pool's ON-CHAIN swaps (always
-      // current, decimals-correct) whenever the view is wide, Warp is empty, OR Warp is STALE, and use the
-      // fresher/longer series. Deep V3 tokens not on Warp at all fall here too.
+      // ⛔ ON-CHAIN FIRST (owner, 09-24): candles are rebuilt from the token's own pool Swap events (V3/V2/V4 —
+      // always current, decimals-correct). Warp's candle API is only the fallback for a coin with no pool swaps
+      // (a pre-graduation curve token). Before 09-25 Warp came first and the chain only filled in when Warp was
+      // stale or the timeframe was wide.
       const nowS = Math.floor(Date.now() / 1000);
-      const warpNewest = c && c.length ? c[c.length - 1].time : 0;
-      const warpStale = !c || !c.length || nowS - warpNewest > Math.max(1800, cfg.sec * 3); // newest older than ~3 buckets
-      const WIDE = tf === '4h' || tf === '1d' || tf === '1w' || tf === 'all';
-      if (WIDE || warpStale) {
-        const oc = await fetchPoolCandles(address, decimals ?? 18, cfg.sec, cfg.look).catch(() => [] as Candle[]);
-        if (oc && oc.length) {
-          if (!c || !c.length || warpStale) c = oc;           // Warp missing/stale → on-chain (current) wins
-          else if (oc[0].time < c[0].time) {                  // on-chain reaches further back → MERGE:
-            // keep Warp's recent/current candles, prepend on-chain buckets older than Warp's earliest.
-            const cut = c[0].time;
-            c = [...oc.filter((k) => k.time < cut), ...c];
-          }
-        }
-      }
+      const inWindow = (cs: Candle[]) => cs.filter((k) => k.time >= nowS - cfg.look);
+      const ocP = fetchPoolCandles(address, decimals ?? 18, cfg.sec, cfg.look).catch(() => [] as Candle[]);
+      const warpP = fetchWarpCandles(address, cfg.warp).catch(() => [] as Candle[]).then((w) => {
+        // Warp prices ignore token decimals — rescale (priceScale = trusted seed price ÷ warp price; 1 for 18-dec).
+        if (w.length && priceScale && priceScale !== 1) w = w.map((k) => ({ time: k.time, open: k.open * priceScale, high: k.high * priceScale, low: k.low * priceScale, close: k.close * priceScale }));
+        return w.length ? rebucket(w, cfg.sec) : w;
+      });
+      // Warp answers in well under a second, the on-chain scan takes a few: draw Warp's candles as a PLACEHOLDER
+      // until the chain answers, then the chain's replace them. Warp stays on screen only if the chain has none.
+      let chainDone = false;
+      warpP.then((w) => { const v = inWindow(w); if (alive && !chainDone && v.length) { setCandles(v); setLoading(false); } });
+      let c: Candle[] = await ocP;
+      chainDone = true;
+      if (!c.length) c = await warpP;
       // Show only this timeframe's window.
-      if (c && c.length) { const cut = nowS - cfg.look; c = c.filter((k) => k.time >= cut); }
+      c = inWindow(c);
       if (alive) { setCandles(c); setLoading(false); }
     })();
     return () => { alive = false; };
@@ -180,7 +170,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
           </div>
         )}
       </div>
-      <div className="chart-src">Chart: Warp candles or on-chain pool swaps · Arc mainnet (5042) · unofficial · DYOR</div>
+      <div className="chart-src">Chart: on-chain pool swaps (Warp candles if none) · Arc mainnet (5042) · unofficial · DYOR</div>
     </div>
   );
 }

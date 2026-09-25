@@ -257,7 +257,7 @@ async function poolStats(token, pool) {
   // TVL = both sides of the pool = USDC held + token held × price (usdc×2 assumed a balanced V2 pool and
   // understated V3 concentrated liquidity, e.g. CRCL $77k vs the real ~$129k).
   const liq = price != null ? usdc + toks * price : usdc * 2;
-  return { price, liq, mcap: price != null && supply ? price * supply : null };
+  return { price, liq, mcap: price != null && supply ? price * supply : null, usdcIsT0 };
 }
 
 (async () => {
@@ -282,10 +282,11 @@ async function poolStats(token, pool) {
       let added = 0;
       for (const t of (oc.tokens || [])) {
         const a = (t.address || '').toLowerCase(); if (!a) continue;
-        if (map.has(a)) { const row = map.get(a); if (row.price == null && t.price != null) row.price = t.price; if (row.liq == null && t.liq != null) row.liq = t.liq; if (row.mcap == null && t.mcap != null) row.mcap = t.mcap; if (row.volume24h == null && t.volume24h != null) row.volume24h = t.volume24h; if (row.change24h == null && t.change24h != null) row.change24h = t.change24h; if (!row.iconUrl && t.iconUrl) row.iconUrl = t.iconUrl; if (row.holders == null && t.holders != null) row.holders = t.holders; if (!row.poolId && t.poolId) { row.poolId = t.poolId; row.usdcIsC0 = !!t.usdcIsC0; } if (row.decimals == null && t.decimals != null) row.decimals = t.decimals; if (!row.pool && t.pool) row.pool = t.pool; if (t.hooked) row.hooked = true; continue; }
+        if (map.has(a)) { const row = map.get(a); if (row.price == null && t.price != null) row.price = t.price; if (row.liq == null && t.liq != null) row.liq = t.liq; if (row.mcap == null && t.mcap != null) row.mcap = t.mcap; if (row.volume24h == null && t.volume24h != null) row.volume24h = t.volume24h; if (row.change24h == null && t.change24h != null) row.change24h = t.change24h; if (!row.iconUrl && t.iconUrl) row.iconUrl = t.iconUrl; if (row.holders == null && t.holders != null) row.holders = t.holders; if (!row.poolId && t.poolId) { row.poolId = t.poolId; row.usdcIsC0 = !!t.usdcIsC0; } if (row.decimals == null && t.decimals != null) row.decimals = t.decimals; if (!row.pool && t.pool) row.pool = t.pool; if (t.hooked) row.hooked = true; if (row.v4fee == null && t.v4fee != null) { row.v4fee = t.v4fee; row.v4tick = t.v4tick; row.hooks = t.hooks; } continue; }
         const row = mk({ address: a, name: t.name, symbol: t.symbol, price: t.price ?? null, liq: t.liq ?? null, mcap: t.mcap ?? null, launchpad: t.launchpad ?? null, source: t.source ?? 'onchain', iconUrl: t.iconUrl ?? null, holders: t.holders ?? null });
         row.volume24h = t.volume24h ?? null; row.change24h = t.change24h ?? null; row.change1h = t.change1h ?? null; row.createdAt = t.createdAt ?? null; if (Array.isArray(t.spark)) row.spark = t.spark;
         row.pool = t.pool ?? null; row.poolId = t.poolId ?? null; row.usdcIsC0 = !!t.usdcIsC0; row.decimals = t.decimals ?? 18; row.hooked = !!t.hooked;
+        row.v4fee = t.v4fee ?? null; row.v4tick = t.v4tick ?? null; row.hooks = t.hooks ?? null; // V4 PoolKey → in-app swap routes it
         set(row); chainPriced.add(a);
         added++;
       }
@@ -354,6 +355,10 @@ async function poolStats(token, pool) {
     if (ex) { if (ex.icon && !row.iconUrl) row.iconUrl = ex.icon; if (ex.holders != null) row.holders = ex.holders; }
     if (stats && stats.price != null) chainPriced.add(token);
     if (stats) { if (stats.price != null) row.price = stats.price; if (stats.liq != null) row.liq = stats.liq; if (stats.mcap != null) row.mcap = stats.mcap; }
+    // ⛔ The row's pool must be the pool its PRICE came from. The indexer may have tagged these tokens with a V4
+    // poolId; the site's live re-price and the token page read poolId FIRST, so the price flipped between the V3
+    // deep pool and that V4 pool every refresh (ARGUS 0.02409 vs 0.0234, 09-25). Point them at the V3 pool.
+    if (stats && stats.price != null) { row.pool = meta.pool; row.poolId = null; row.usdcIsC0 = stats.usdcIsT0; row.decimals = 18; row.v4fee = null; row.v4tick = null; }
     if (act) { if (act.volume24h != null) row.volume24h = act.volume24h; if (act.change1h != null) row.change1h = act.change1h; if (act.change24h != null) row.change24h = act.change24h; if (act.spark) row.spark = act.spark; if (act.txns24 != null) row.txns24 = act.txns24; }
     console.log(`  ${meta.symbol}: price=${row.price} liq=${row.liq?.toFixed?.(0)} vol24=${row.volume24h?.toFixed?.(0)} chg24=${row.change24h?.toFixed?.(1)} holders=${row.holders} icon=${row.iconUrl ? 'yes' : 'no'} spark=${row.spark ? row.spark.length : 0}`);
   }

@@ -1,13 +1,14 @@
 import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import FONT_B64 from '../lib/ogfont.js';
 import WASM_B64 from '../lib/ogwasm.js';
+import { liveToken } from '../lib/livetoken.js';
 
 // Dynamic social card for a token: paste stateraarc.com/token/0x… anywhere and it unfurls into this.
 // Rasterised with the WASM build of resvg. The NATIVE @resvg/resvg-js renders blank text under
 // Vercel's Node 24 (self-test came back blank there while identical code works locally); the WASM
 // build is the same bytecode everywhere. Both the font and the wasm are base64-embedded from lib/
 // (OUT of /api so they aren't compiled as functions) — self-fetch and fs-tracing both failed here.
-const OG_VER = 'v7-wasm';
+const OG_VER = 'v8-live';
 const FONT = Buffer.from(FONT_B64, 'base64');
 
 let wasmReady = null;
@@ -81,11 +82,8 @@ export default async function handler(req, res) {
       return res.status(200).send(JSON.stringify({ ver: OG_VER, node: process.version, fontLen: FONT.length, fontB64Len: (FONT_B64 || '').length, selftest }));
     }
 
-    let t = null;
-    try {
-      const snap = await fetch(`${origin}/tokens-snapshot.json`, { cache: 'no-store' }).then((r) => r.json());
-      t = (snap.tokens || []).find((x) => (x.address || '').toLowerCase() === addr) || null;
-    } catch { /* no data */ }
+    // Live: the site's current list (VPS /api/snapshot) + the price re-read from the token's pool right now.
+    const t = addr ? await liveToken(origin, addr).catch(() => null) : null;
 
     const sym = esc(t?.symbol || 'TOKEN');
     const name = esc((t?.name || 'Arc token').slice(0, 42));
@@ -158,7 +156,7 @@ export default async function handler(req, res) {
     }).render().asPng();
 
     res.setHeader('content-type', 'image/png');
-    res.setHeader('cache-control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=86400');
+    res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300'); // live price: a minute at most
     res.status(200).send(Buffer.from(png)); // .asPng() is a Uint8Array; Buffer for correct binary send
   } catch (e) {
     res.status(500).send('og render failed: ' + (e?.message || String(e)));
