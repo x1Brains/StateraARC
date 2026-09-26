@@ -1558,3 +1558,12 @@ footer .wrap { padding: 16px 20px; }
   .td-head { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: start; }
 }
 .chart-note { font: 600 11px var(--mono); color: var(--gray-2); text-align: center; margin-top: 4px; }
+
+/* Hero market strip: 5 figures (tracked / liquidity / volume / active / live) — wrap instead of overflowing */
+.hero-trust { flex-wrap: wrap; row-gap: 12px; gap: 18px; }
+.hero-trust .ht { white-space: nowrap; }
+@media (max-width: 640px) {
+  .hero-trust { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 10px 18px; }
+  .hero-trust .div { display: none; }
+  .hero-trust .ht b { font-size: 16px; }
+}

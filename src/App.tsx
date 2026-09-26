@@ -291,6 +291,10 @@ export default function App() {
     // tokens washing $700K/day each had pushed the total to $27M (09-25).
     vol24: tokens.filter((t) => quality(t)).reduce((s, t) => s + (t.volume24h ?? 0), 0),
     newToday: tokens.filter((t) => t.createdAt != null && Date.now() - t.createdAt < 86400000 && notDup(t) && active(t)).length,
+    tracked: tokens.length, // every token the on-chain indexer reads (junk included) — what we TRACK
+    // DEX liquidity on Arc: every real token's pools summed (no fakes/dups/flagged rows, 50+ holders or core; the hard
+    // rules already capped every row) — active and quiet tokens alike.
+    tvl: tokens.filter((t) => notDup(t) && (t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS)).reduce((s, t) => s + (t.liq ?? 0), 0),
   }), [tokens, canonical, tickerCount]); // eslint-disable-line
 
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -426,9 +430,13 @@ export default function App() {
                     <button type="submit" className="hs-go" aria-label="Search">Search <IconArrowRight className="arw" /></button>
                   </form>
                   <div className="hero-trust">
-                    <div className="ht"><b>{dashStats.count || '—'}</b><span>Active Tokens</span></div>
+                    <div className="ht"><b>{dashStats.tracked ? dashStats.tracked.toLocaleString() : '—'}</b><span>Tokens Tracked</span></div>
                     <div className="div" />
-                    <div className="ht"><b>{launchpadCount || '—'}</b><span>Launchpad</span></div>
+                    <div className="ht"><b>{dashStats.tvl > 0 ? usd(dashStats.tvl) : '—'}</b><span>DEX Liquidity</span></div>
+                    <div className="div" />
+                    <div className="ht"><b>{dashStats.vol24 > 0 ? usd(dashStats.vol24) : '—'}</b><span>24h Volume</span></div>
+                    <div className="div" />
+                    <div className="ht"><b>{dashStats.count || '—'}</b><span>Active 24h</span></div>
                     <div className="div" />
                     <div className="ht"><b className="r">Live</b><span>Arc Mainnet</span></div>
                   </div>
@@ -495,7 +503,9 @@ export default function App() {
             </div>
 
             <div className="stats">
-              <div className="stat" title={`${tokens.length.toLocaleString()} tokens indexed in total; ${dashStats.count} actively traded`}><div className="v">{dashStats.count || '—'}</div><div className="l">Active Tokens</div></div>
+              <div className="stat"><div className="v">{dashStats.tracked ? dashStats.tracked.toLocaleString() : '—'}</div><div className="l">Tokens Tracked</div></div>
+              <div className="stat" title="Tokens with $50+ of trading in the last 24h"><div className="v">{dashStats.count || '—'}</div><div className="l">Active 24h</div></div>
+              <div className="stat"><div className="v">{dashStats.tvl > 0 ? usd(dashStats.tvl) : '—'}</div><div className="l">DEX Liquidity</div></div>
               <div className="stat"><div className="v">{dashStats.vol24 > 0 ? usd(dashStats.vol24) : '—'}</div><div className="l">24h Volume</div></div>
               <div className="stat"><div className="v">{dashStats.newToday || '—'}</div><div className="l">New Today</div></div>
               <div className="stat"><div className="v">{launchpadCount || '—'}</div><div className="l">Launchpad Tokens</div></div>
