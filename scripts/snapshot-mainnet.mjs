@@ -416,6 +416,7 @@ async function poolStats(token, pool) {
       if (t.mcap != null && t.mcap > 5e8) { t.mcap = null; t.bad = t.bad || 'mcap'; }
       if (t.liq != null && t.liq > 5e7) { t.liq = null; t.bad = t.bad || 'liq'; }
       if (t.volume24h != null && t.volume24h > 5e7) { t.volume24h = null; t.bad = t.bad || 'vol'; }
+      if (t.liq != null && t.mcap > 0 && t.liq > t.mcap * 1.5) { t.liq = null; t.bad = t.bad || 'liq>mcap'; } // fake depth (Arcanium $27.9M on $3.7K)
       if (t.volume24h != null && t.liq > 0 && t.volume24h > t.liq * 20) t.volume24h = null; // wash
       if (IMPOSTOR_SYM.test((t.symbol || '').trim()) || IMPOSTOR_NAME.test(t.name || '')) t.bad = t.bad || 'impersonator';
     }

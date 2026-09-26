@@ -73,7 +73,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
       fetchAllOnchainPools(address, dec).then((ps) => { if (alive) setOcPools(ps); }).catch(() => {});
       fetchOnchainDayStats(address, dec).then((s) => {
         if (!alive) return; setDayStats(s);
-        fetchOnchainMakers24(address).then((m) => { if (alive && m != null) setDayStats((d) => (d ? { ...d, makers24: m } : d)); }).catch(() => {}); // fills in after
+        fetchOnchainMakers24(address).then((m) => { if (alive && m != null) setDayStats((d) => (d ? { ...d, makers24: m.makers, makersSample: m.sample, makersIsFloor: m.sample < m.total } : d)); }).catch(() => {}); // fills in after
       }).catch(() => {});
       fetchTokenBurn(address, dec).then((b) => { if (alive) setBurn(b); }).catch(() => {});
       fetchRadarHolders(address, dec, 100).then(async (h) => {
@@ -273,7 +273,9 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
   const sig = {
     depth: depthPct == null ? null : Math.max(0, Math.min(100, Math.round((Math.min(depthPct, 10) / 10) * 100))),          // ≥10% of valuation in pool = full marks
     dist: top10 == null ? null : Math.max(0, Math.min(100, Math.round(100 - Math.max(0, top10 - 20) * (100 / 60)))),        // ≤20% top-10 = full; 80%+ = 0
-    quality: makersF == null || !txnsF ? null : Math.round(Math.min(100, (makersF / txnsF) * 100)), // unique-trader/txn ratio (on-chain 24h first)
+    // unique wallets per trade, both counted over the SAME tx sample (the maker lookup samples the latest 140 txs)
+    quality: dayStats?.makers24 != null && dayStats.makersSample ? Math.round(Math.min(100, (dayStats.makers24 / dayStats.makersSample) * 100))
+      : (makersF == null || !txnsF ? null : Math.round(Math.min(100, (makersF / txnsF) * 100))),
     age: ageSecs == null ? null : Math.round(Math.min(100, (ageSecs / (30 * 86400)) * 100)),                                 // 30d+ = full marks
     vol: chg == null ? null : Math.round(Math.max(0, 100 - Math.min(100, Math.abs(chg)))),                                   // calmer 24h = healthier
   };
@@ -404,7 +406,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
               </div>
               <div className="ta-grid">
                 <div className="ta-cell"><div className="ta-v">{txnsF != null ? txnsF.toLocaleString() : '—'}</div><div className="ta-l">Txns</div></div>
-                <div className="ta-cell"><div className="ta-v">{makersF != null ? makersF.toLocaleString() : '—'}</div><div className="ta-l">Makers</div></div>
+                <div className="ta-cell" title={dayStats?.makersIsFloor ? `Distinct wallets in the latest ${dayStats.makersSample} trades — at least this many` : undefined}><div className="ta-v">{makersF != null ? makersF.toLocaleString() + (dayStats?.makersIsFloor && makersF === dayStats.makers24 ? '+' : '') : '—'}</div><div className="ta-l">Makers</div></div>
                 <div className="ta-cell"><div className="ta-v">{burnedPct != null ? burnedPct.toFixed(1) + '%' : '—'}</div><div className="ta-l">Burned</div></div>
                 <div className="ta-cell"><div className="ta-v">{top10 != null ? top10.toFixed(1) + '%' : '—'}</div><div className="ta-l">Top 10</div></div>
               </div>

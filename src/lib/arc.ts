@@ -1065,6 +1065,9 @@ export function sanitizeToken<T extends Token>(t: T): T & { bad?: string } {
     if (r.mcap != null && r.mcap > MCAP_MAX) { r.mcap = null; r.bad = r.bad || 'mcap'; }
     if (r.liq != null && r.liq > LIQ_MAX) { r.liq = null; r.bad = r.bad || 'liq'; }
     if (r.volume24h != null && r.volume24h > 5e7) { r.volume24h = null; r.bad = r.bad || 'vol'; }
+    // A pool can't hold more than the whole token is worth: liquidity > 1.5x market cap = fake (09-26: "Arcanium Launchpad"
+    // $27.9M liq on a $3,655 mcap, 0 volume). Real tokens: median 0.63x, 97% under 1.12x — only 2 of 314 exceed 1.5x.
+    if (r.liq != null && r.mcap != null && r.mcap > 0 && r.liq > r.mcap * 1.5) { r.liq = null; r.bad = r.bad || 'liq>mcap'; }
     // Wash trading: 60-110x its own liquidity in a day from 4-5 wallets (ONBOARD, BLINKR, fake "SP500 xStock"…) is not volume.
     if (r.volume24h != null && r.liq != null && r.liq > 0 && r.volume24h > r.liq * 20) r.volume24h = null;
     if (IMPOSTOR_SYM.test((r.symbol || '').trim()) || IMPOSTOR_NAME.test(r.name || '')) r.bad = r.bad || 'impersonator';
@@ -1575,17 +1578,20 @@ const dayTxList = new Map<string, string[]>();   // token -> the 24h scan's uniq
 // Real MAKERS = distinct tx.origin, NOT the swap event's `sender` topic — that is the ROUTER (one address for every
 // launchpad/V4 trade), which collapsed the count to 1. Resolve origins for the most-recent txs (capped, so a hot token
 // doesn't fire thousands of calls); when capped this is an honest floor. Call after fetchOnchainDayStats.
-export async function fetchOnchainMakers24(token: string): Promise<number | null> {
+// Returns the distinct wallets AND how many txs they were counted over — a ratio must use the SAME sample (09-26: Trading
+// Quality divided 128 makers-in-140-txs by all 8,610 txs and scored busy GLITCH a 1/100).
+export async function fetchOnchainMakers24(token: string): Promise<{ makers: number; sample: number; total: number } | null> {
   const uniqTx = dayTxList.get(token.toLowerCase());
   if (!uniqTx || !uniqTx.length) return null;
   const sampleTx = uniqTx.slice(-140);
   try {
     const txs = await mrpcBatchByHash('eth_getTransactionByHash', sampleTx);
-    const set = new Set(sampleTx.map((h) => (txs[h]?.from ? String(txs[h].from).toLowerCase() : null)).filter(Boolean) as string[]);
-    return set.size || null;
+    const got = sampleTx.filter((h) => txs[h]?.from);
+    const set = new Set(got.map((h) => String(txs[h].from).toLowerCase()));
+    return set.size ? { makers: set.size, sample: got.length, total: uniqTx.length } : null;
   } catch { return null; }
 }
-export interface DayStats { change24h: number | null; change6h: number | null; change1h: number | null; change5m: number | null; volume24h: number | null; buys24: number | null; sells24: number | null; txns24: number | null; makers24: number | null }
+export interface DayStats { change24h: number | null; change6h: number | null; change1h: number | null; change5m: number | null; volume24h: number | null; buys24: number | null; sells24: number | null; txns24: number | null; makers24: number | null; makersSample?: number; makersIsFloor?: boolean }
 const dayStatsCache = new Map<string, { at: number; v: DayStats }>();
 export async function fetchOnchainDayStats(token: string, decimals = 18): Promise<DayStats> {
   const t = token.toLowerCase();

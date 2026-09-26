@@ -99,6 +99,13 @@ export default function App() {
   const [dir, setDir] = useState<'desc' | 'asc'>('desc');
   const [hideDupes, setHideDupes] = useState(true); // hide counterfeit/duplicate-ticker impersonators
   const MIN_HOLDERS = 50; // sub-50-holder pools are always hidden from the screener (no toggle — owner call)
+  // ⛔ 09-26 (owner: "ur filter aint blocking a lot of spam pools"): holder counts are GAMED by dust airdrops — TIP 33,612
+  // holders / $0 volume, DALVBANG 21,059 / $0, INU 10,337 / $0. Of 314 tokens passing the holder bar only 89 had traded $50
+  // in 24h. The default screener + dashboard now show ACTIVE tokens only (24h volume >= $50, or a pinned/core asset); the
+  // rest stay searchable and one tap away ("Show inactive").
+  const MIN_VOL_24H = 50;
+  const [showInactive, setShowInactive] = useState(false);
+  const active = (t: Token) => t.isEcosystem || PINNED.has(t.address.toLowerCase()) || (t.volume24h ?? 0) >= MIN_VOL_24H;
   const [dashTab, setDashTab] = useState<'liq' | 'new' | 'movers'>('liq'); // home dashboard tab
   // Click a column header to sort by it; click again to flip direction (name defaults A→Z, numbers high→low).
   const clickSort = (k: SortKey) => {
@@ -235,6 +242,7 @@ export default function App() {
     // = 12). Hide sub-50-holder pools by default — a token pops back in the moment it crosses 50. Core
     // ecosystem assets (USDC, cirBTC) are always exempt. Unknown holder count is treated as below the bar.
     r = r.filter((t) => t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS); // always hide sub-50-holder pools
+    if (!showInactive) r = r.filter(active); // no real trading in 24h = not on the default board
     // Value a token exposes for the active sort key (null = "no data", always sorts last).
     const val = (t: Token): number | null => (
       sort === 'volume' ? t.volume24h
@@ -250,32 +258,32 @@ export default function App() {
       if (bv == null) return -1;
       return dir === 'desc' ? bv - av : av - bv;
     });
-  }, [tokens, filter, q, sort, dir, hideDupes, canonical, tickerCount]);
+  }, [tokens, filter, q, sort, dir, hideDupes, showInactive, canonical, tickerCount]);
 
   useEffect(() => { setPageNum(1); }, [filter, q, sort, dir, perPage, hideDupes]);
   const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
   const pageRows = rows.slice((pageNum - 1) * perPage, pageNum * perPage);
 
-  const launchpadCount = tokens.filter((t) => t.launchpad).length;
   const ecoCount = tokens.filter((t) => t.isEcosystem).length;
 
   // Home DASHBOARD data — one panel, three tabs. Impersonators (non-canonical duplicate tickers) are always
   // dropped so a wash-inflated fake never features. Top Liquidity + Movers also require >=50 holders (a
   // "best of" list shouldn't show thin scams); the New tab keeps every fresh launch (they're small by nature).
   const notDup = (t: Token) => !isDup(t);
-  const quality = (t: Token) => notDup(t) && (t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS);
+  const quality = (t: Token) => notDup(t) && (t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS) && active(t);
+  const launchpadCount = tokens.filter((t) => t.launchpad && quality(t)).length; // actively traded launchpad tokens, not every junk launch
   const trending = useMemo(() => [...tokens].filter((t) => t.liq != null && quality(t)).sort(byLiq).slice(0, 8), [tokens, canonical, tickerCount]); // eslint-disable-line
-  const launches = useMemo(() => [...tokens].filter((t) => t.launchpad && t.createdAt != null && notDup(t))
+  const launches = useMemo(() => [...tokens].filter((t) => t.launchpad && t.createdAt != null && notDup(t) && active(t)) // a launch nobody trades is spam
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).slice(0, 8), [tokens, canonical, tickerCount]); // eslint-disable-line
   const movers = useMemo(() => [...tokens].filter((t) => t.change24h != null && t.liq != null && quality(t))
     .sort((a, b) => (b.change24h ?? 0) - (a.change24h ?? 0)).slice(0, 8), [tokens, canonical, tickerCount]); // eslint-disable-line
   const dashStats = useMemo(() => ({
-    count: tokens.length,
+    count: tokens.filter((t) => quality(t)).length, // real, actively traded tokens — not every junk pool ever created
     // One token per ticker: copycats of a real coin (a fake "ARGUS" claimed $2.99M, 09-24) are not market volume.
     // Only tokens that pass the screener's own quality bar (not a dup/fake, 50+ holders or a core asset) — 4-holder bot
     // tokens washing $700K/day each had pushed the total to $27M (09-25).
     vol24: tokens.filter((t) => quality(t)).reduce((s, t) => s + (t.volume24h ?? 0), 0),
-    newToday: tokens.filter((t) => t.createdAt != null && Date.now() - t.createdAt < 86400000).length,
+    newToday: tokens.filter((t) => t.createdAt != null && Date.now() - t.createdAt < 86400000 && notDup(t) && active(t)).length,
   }), [tokens, canonical, tickerCount]); // eslint-disable-line
 
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -411,7 +419,7 @@ export default function App() {
                     <button type="submit" className="hs-go" aria-label="Search">Search <IconArrowRight className="arw" /></button>
                   </form>
                   <div className="hero-trust">
-                    <div className="ht"><b>{tokens.length || '—'}</b><span>Tokens Tracked</span></div>
+                    <div className="ht"><b>{dashStats.count || '—'}</b><span>Active Tokens</span></div>
                     <div className="div" />
                     <div className="ht"><b>{launchpadCount || '—'}</b><span>Launchpad</span></div>
                     <div className="div" />
@@ -480,7 +488,7 @@ export default function App() {
             </div>
 
             <div className="stats">
-              <div className="stat"><div className="v">{tokens.length || '—'}</div><div className="l">Tokens Tracked</div></div>
+              <div className="stat" title={`${tokens.length.toLocaleString()} tokens indexed in total; ${dashStats.count} actively traded`}><div className="v">{dashStats.count || '—'}</div><div className="l">Active Tokens</div></div>
               <div className="stat"><div className="v">{dashStats.vol24 > 0 ? usd(dashStats.vol24) : '—'}</div><div className="l">24h Volume</div></div>
               <div className="stat"><div className="v">{dashStats.newToday || '—'}</div><div className="l">New Today</div></div>
               <div className="stat"><div className="v">{launchpadCount || '—'}</div><div className="l">Launchpad Tokens</div></div>
@@ -511,6 +519,12 @@ export default function App() {
                   { value: 'name', label: 'Name' },
                 ]} />
               </div>
+              {!q.trim() && (
+                <button className={`dupe-toggle${showInactive ? ' on' : ''}`} onClick={() => setShowInactive((v) => !v)}
+                  title="Tokens with under $50 of trading in 24h — mostly dead or airdrop-spam pools">
+                  {showInactive ? 'Hide inactive' : 'Show inactive'}
+                </button>
+              )}
               {dupCount > 0 && !q.trim() && (
                 <button className={`dupe-toggle${hideDupes ? '' : ' on'}`} onClick={() => setHideDupes((v) => !v)}
                   title="Duplicate tickers on Arc are usually impersonators — only the most-liquid one is shown">
