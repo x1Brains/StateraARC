@@ -145,7 +145,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   const last = candles && candles.length ? candles[candles.length - 1].close : null;
   // Header %: use the token's real 24h change (matches the stat cards) — NOT first-vs-last over the whole
   // visible window, which is a different period and blows up when the first candle is a near-zero outlier.
-  const chg = change24h ?? null;
+  const chg = change24h != null && isFinite(change24h) && Math.abs(change24h) < 1e5 ? change24h : null; // display hard rule
 
   return (
     <div className="chart-card panel">

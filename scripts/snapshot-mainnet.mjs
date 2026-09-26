@@ -366,13 +366,26 @@ async function poolStats(token, pool) {
       continue;
     }
     if (stats && stats.price != null) chainPriced.add(token);
-    if (stats) { if (stats.price != null) row.price = stats.price; if (stats.liq != null) row.liq = stats.liq; if (stats.mcap != null) row.mcap = stats.mcap; }
+    // ⛔ 09-25 audit: this pool is ONE of the token's pools — its liquidity/volume may never REPLACE a bigger total the indexer
+    // summed across all of them (ARGUS: this V3 pool ~$1.0M/24h, its V4 pool $2.09M — the site said $1.0M, chain $2.85M).
+    const ocVol = row.volume24h, ocLiq = row.liq;
+    if (stats) { if (stats.price != null) row.price = stats.price; if (stats.liq != null) row.liq = Math.max(stats.liq, ocLiq ?? 0); if (stats.mcap != null) row.mcap = stats.mcap; }
     // ⛔ The row's pool must be the pool its PRICE came from. The indexer may have tagged these tokens with a V4
     // poolId; the site's live re-price and the token page read poolId FIRST, so the price flipped between the V3
     // deep pool and that V4 pool every refresh (ARGUS 0.02409 vs 0.0234, 09-25). Point them at the V3 pool.
     if (stats && stats.price != null) { row.pool = meta.pool; row.poolId = null; row.usdcIsC0 = stats.usdcIsT0; row.decimals = 18; row.v4fee = null; row.v4tick = null; }
-    if (act) { if (act.volume24h != null) row.volume24h = act.volume24h; if (act.change1h != null) row.change1h = act.change1h; if (act.change24h != null) row.change24h = act.change24h; if (act.spark) row.spark = act.spark; if (act.txns24 != null) row.txns24 = act.txns24; }
+    if (act) { if (act.volume24h != null && act.volume24h >= (ocVol ?? 0)) { row.volume24h = act.volume24h; if (act.txns24 != null) row.txns24 = act.txns24; } if (act.change1h != null) row.change1h = act.change1h; if (act.change24h != null) row.change24h = act.change24h; if (act.spark) row.spark = act.spark; }
     console.log(`  ${meta.symbol}: price=${row.price} liq=${row.liq?.toFixed?.(0)} vol24=${row.volume24h?.toFixed?.(0)} chg24=${row.change24h?.toFixed?.(1)} holders=${row.holders} icon=${row.iconUrl ? 'yes' : 'no'} spark=${row.spark ? row.spark.length : 0}`);
+  }
+
+  // Logos: Circle's core tokens have no logo URL anywhere → the site's own coin art; any other token without one points at
+  // the VPS logo cache (scripts/logo-cache.mjs, served via /api/logo/<addr>) when it holds a file. 09-25 audit: 100 of the
+  // 290 shown tokens (cirBTC, EURC, CRCL, WETH…) had no logo url.
+  const CORE_ICON = { '0x171a4217b86a807a64eb94757db6849fb4bdbaa0': '/coins/BTC.png', '0x128cc466b61f542da60c70e3aa11c10e19b84edb': '/coins/ETH.png', '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1': '/coins/EURC.svg' };
+  const LOGO_DIR = '/root/statera-live/logos';
+  for (const t of map.values()) {
+    if (CORE_ICON[t.address]) t.iconUrl = CORE_ICON[t.address];
+    else if (!t.iconUrl && fs.existsSync(path.join(LOGO_DIR, t.address + '.png'))) t.iconUrl = `/api/logo/${t.address}`;
   }
 
   // 3) Circle & Arc core (USDC, cirBTC, WETH, EURC, USYC, ARC) — always present + flagged as ecosystem.
@@ -388,7 +401,11 @@ async function poolStats(token, pool) {
   // a direct address lookup still renders the token page from on-chain, so nothing becomes unviewable.
   // ═══ HARD RULES (09-25) — same as the site's sanitizeToken (src/lib/arc.ts): no impossible number leaves this builder. ═══
   const PINNED = new Set([...ECO.map((e) => e.address), ...Object.keys(POOLS)].map((a) => a.toLowerCase()));
-  const CIRCLE_NAME = /circle|usdc|eurc|usyc|cirbtc/i;
+// Impersonator = claims to BE a Circle / major asset: that exact ticker, or a name that starts like the real one. (Was any
+  // name containing circle/usdc — the 09-25 audit found it hid meme tokens that only MENTION Circle: "Circled" 2,076 holders,
+  // "Circle Inu", "DogInCircle", "USDC Bull". Every fake from the owner's screenshots still matches this narrower rule.)
+  const IMPOSTOR_SYM = /^(usdc|usdt|eurc|usyc|cirbtc|crcl|weth|wbtc|dai|usd)$/i;
+  const IMPOSTOR_NAME = /^\s*(usd coin|circle internet|circle wrapped|euro coin|us yield coin|tether|wrapped ether|wrapped bitcoin)/i;
   let scrubbed = 0;
   for (const t of map.values()) {
     const pinned = PINNED.has(t.address) || t.isEcosystem; const before = JSON.stringify([t.price, t.liq, t.mcap, t.volume24h]);
@@ -400,7 +417,7 @@ async function poolStats(token, pool) {
       if (t.liq != null && t.liq > 5e7) { t.liq = null; t.bad = t.bad || 'liq'; }
       if (t.volume24h != null && t.volume24h > 5e7) { t.volume24h = null; t.bad = t.bad || 'vol'; }
       if (t.volume24h != null && t.liq > 0 && t.volume24h > t.liq * 20) t.volume24h = null; // wash
-      if (CIRCLE_NAME.test(`${t.name} ${t.symbol}`)) t.bad = t.bad || 'impersonator';
+      if (IMPOSTOR_SYM.test((t.symbol || '').trim()) || IMPOSTOR_NAME.test(t.name || '')) t.bad = t.bad || 'impersonator';
     }
     if (Array.isArray(t.spark) && t.spark.some((x) => !isFinite(x) || x <= 0 || x >= 1e6)) t.spark = null;
     if (JSON.stringify([t.price, t.liq, t.mcap, t.volume24h]) !== before || t.bad) scrubbed++;

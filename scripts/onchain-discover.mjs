@@ -180,9 +180,9 @@ const decStr = (hex) => {
     if (b.length === 64) { let s = ''; for (let i = 0; i < 64; i += 2) { const c = parseInt(b.substr(i, 2), 16); if (c >= 32 && c < 127) s += String.fromCharCode(c); } return s; } // bytes32
     if (b.length < 128) return '';
     const len = parseInt(b.slice(64, 128), 16); if (!Number.isFinite(len) || len > 200) return '';
-    let s = ''; const d = b.slice(128, 128 + len * 2);
-    for (let i = 0; i < d.length; i += 2) { const c = parseInt(d.substr(i, 2), 16); if (c) s += String.fromCharCode(c); }
-    return s;
+    // ⛔ 09-25 audit: decoded byte-by-byte with fromCharCode, so every multi-byte UTF-8 name came out as mojibake
+    // ("Circle Internet Group â¢ Arc Token", "StÃ©phane"). Decode the bytes as UTF-8; drop NULs/control characters.
+    return Buffer.from(b.slice(128, 128 + len * 2), 'hex').toString('utf8').replace(/[\u0000-\u001f\u007f\ufffd]/g, '').trim();
   } catch { return ''; }
 };
 
@@ -411,6 +411,22 @@ async function main() {
     console.log(`[disc] holders fetched for ${needH.length} tokens (arc-scan, full-coverage)`);
   }
 
+  // ── Supply + names, re-read ─────────────────────────────────────────────────────────────────────────────────────────────
+  // ⛔ 09-25 audit: market cap used the totalSupply captured ONCE at discovery. Tokens that mint or burn drift — cirBTC showed
+  // $43M where live supply × price is ~$398M (supply grew ~9x), WETH 7x low. Re-read it every run for every token we output.
+  // Names stored before the UTF-8 fix are repaired once (any Latin-1 mojibake character).
+  {
+    const outRows = rows.filter((x) => x.liq >= MIN_LIQ);
+    const sup = await batchCall(outRows.map((x) => ({ target: x.addr, data: '0x18160ddd' })));
+    outRows.forEach((x, i) => { const h = sup[i]?.data; if (h && h !== '0x' && h.length >= 66) state.tokens[x.addr].supplyRaw = h.slice(0, 66); });
+    const moji = outRows.filter((x) => /[\u0080-\u00ff]/.test((x.t.name || '') + (x.t.symbol || '')) && !x.t.nameFixed);
+    if (moji.length) {
+      const r = await batchCall(moji.flatMap((x) => [{ target: x.addr, data: '0x95d89b41' }, { target: x.addr, data: '0x06fdde03' }]));
+      moji.forEach((x, i) => { const sy = decStr(r[i * 2]?.data), nm = decStr(r[i * 2 + 1]?.data); const st = state.tokens[x.addr]; if (sy) st.symbol = sy; if (nm) st.name = nm; st.nameFixed = true; });
+    }
+    console.log(`[disc] supply refreshed for ${outRows.length} tokens; ${moji.length} mojibake names re-read`);
+  }
+
   // 24h volume + change from each LIQUID pool's own swaps. Scanning every one floods the RPCs (→ zeros),
   // so scan the most-liquid TOP_VOL tokens (covers everything with real volume; sub-floor nanocaps have
   // ~$0 volume anyway). Verified: GLITCH scans to $18.7k/24h.
@@ -431,6 +447,13 @@ async function main() {
     // Add it so 24h VOLUME sums across V3 + V4, not just the primary. (Liquidity already aggregates V4 via
     // the balanceOf read; this pool is volume-only here and never touches extraUsdc, so no double count.)
     else if (x.t.pool) { const sg = sgV4ByToken.get(x.addr.toLowerCase()); if (sg?.poolId) pools.push({ kind: 'v4', poolId: sg.poolId, usdcIsC0: sg.usdcIsC0, primary: false }); }
+    // Every OTHER active V4 USDC pool of this token counts toward its volume too (09-25 audit: MURMUR trades on two real V4
+    // pools, $213K + $115K, and only the primary was counted). Active = 20+ swaps in the recent window; the per-swap 20x
+    // price filter below still drops junk pools.
+    for (const pid of v4ByToken.get(x.addr) || []) {
+      if (pid === x.t.poolId || pools.some((p) => p.poolId === pid) || (v4active.get(pid) || 0) < 20) continue;
+      const r = reg.pools[pid]; pools.push({ kind: 'v4', poolId: pid, usdcIsC0: r[0] === USDC, primary: false });
+    }
     const seen = new Set(pools.filter((p) => p.address).map((p) => p.address));
     const cand = await Promise.all([100, 500, 3000, 10000].map((fee) => call(V3_FACTORY, '0x1698ee82' + pad(x.addr) + pad(USDC) + fee.toString(16).padStart(64, '0')).catch(() => null)));
     for (const r of cand) {
@@ -445,6 +468,8 @@ async function main() {
     }
     return { pools, extraUsdc };
   }
+  const v4ByToken = new Map(); // token -> every USDC V4 poolId it has (from the registry)
+  for (const [pid, r] of Object.entries(reg.pools)) { const tok = r[0] === USDC ? r[1] : r[0]; (v4ByToken.get(tok) || v4ByToken.set(tok, []).get(tok)).push(pid); }
   const blocks1h = Math.ceil(3600 / blockTime), cut1h = head - blocks1h;
   const dayMap = new Map();
   for (const x of liquid) {

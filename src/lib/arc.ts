@@ -641,18 +641,21 @@ export async function fetchMarket(): Promise<MarketPx[]> {
   out.push({ sym: 'USDC', price: 1, logo: '/coins/USDC.svg' }, { sym: 'EURC', price: 1.08, logo: '/coins/EURC.svg' });
   return out;
 }
+// ⛔ DISPLAY HARD RULE (09-25 audit): no formatter prints an impossible number, whatever the data source — ELLIPSE's
+// drained pool put "2.12e+43" on its token page through live reads that never passed the list's sanitizeToken.
+const ok = (n: number | null | undefined, max: number): n is number => n != null && isFinite(n) && Math.abs(n) < max;
 export const price = (n: number | null) =>
-  n == null ? '—' : n >= 1000 ? '$' + (n / 1000).toFixed(1) + 'K' : n >= 1 ? '$' + n.toFixed(2) : '$' + n.toFixed(4);
+  !ok(n, 1e7) ? '—' : n >= 1000 ? '$' + (n / 1000).toFixed(1) + 'K' : n >= 1 ? '$' + n.toFixed(2) : '$' + n.toFixed(4);
 
 export const usd = (n: number | null) => {
-  if (n == null) return '—';
+  if (!ok(n, 1e13)) return '—';
   if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
   if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
   if (n >= 1e3) return '$' + (n / 1e3).toFixed(2) + 'K';
   return '$' + n.toFixed(2);
 };
 export const compact = (n: number | null) =>
-  n == null ? '—' : n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(Math.round(n));
+  !ok(n, 1e18) ? '—' : n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(Math.round(n));
 
 // Token price — handles both normal and sub-cent values.
 // Clean, consistent price formatting: ~4 significant figures for sub-dollar prices (no long messy
@@ -662,7 +665,7 @@ export const compact = (n: number | null) =>
 const SUBSCRIPTS = '₀₁₂₃₄₅₆₇₈₉';
 const subDigits = (z: number) => String(z).split('').map((d) => SUBSCRIPTS[+d] || d).join('');
 export const tprice = (n: number | null) => {
-  if (n == null) return '—';
+  if (!ok(n, 1e6)) return '—';
   if (!isFinite(n) || n <= 0) return '$0';
   if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
   if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
@@ -1044,7 +1047,11 @@ const ECOSYSTEM_ADDRS = new Set<string>([NATIVE_USDC_ADDR.toLowerCase(), ...ECOS
 // same rules; this is the last line, so a bad build can never reach the screen. ═════════
 // Real tokens pinned BY ADDRESS: for their ticker they are always the canonical one, however many holders a copycat airdrops.
 export const PINNED = new Set<string>([NATIVE_USDC_ADDR, ...ECOSYSTEM_TOKENS.map((e) => e.address), ...MAINNET_CORE.map((t) => t.address)].map((a) => a.toLowerCase()));
-const CIRCLE_NAME = /circle|usdc|eurc|usyc|cirbtc/i; // only Circle's own assets may use these words
+// Impersonator = claims to BE a Circle / major asset: that exact ticker, or a name that starts like the real one. (Was any
+// name containing circle/usdc — the 09-25 audit found it hid meme tokens that only MENTION Circle: "Circled" 2,076 holders,
+// "Circle Inu", "DogInCircle", "USDC Bull". Every fake from the owner's screenshots still matches this narrower rule.)
+const IMPOSTOR_SYM = /^(usdc|usdt|eurc|usyc|cirbtc|crcl|weth|wbtc|dai|usd)$/i;
+const IMPOSTOR_NAME = /^\s*(usd coin|circle internet|circle wrapped|euro coin|us yield coin|tether|wrapped ether|wrapped bitcoin)/i;
 const PRICE_MAX = 1e6, LIQ_MAX = 5e7, MCAP_MAX = 5e8;
 /** Scrub impossible numbers and flag fakes. Flagged rows (`bad`) are hidden from the screener, dashboard and totals. */
 export function sanitizeToken<T extends Token>(t: T): T & { bad?: string } {
@@ -1060,7 +1067,7 @@ export function sanitizeToken<T extends Token>(t: T): T & { bad?: string } {
     if (r.volume24h != null && r.volume24h > 5e7) { r.volume24h = null; r.bad = r.bad || 'vol'; }
     // Wash trading: 60-110x its own liquidity in a day from 4-5 wallets (ONBOARD, BLINKR, fake "SP500 xStock"…) is not volume.
     if (r.volume24h != null && r.liq != null && r.liq > 0 && r.volume24h > r.liq * 20) r.volume24h = null;
-    if (CIRCLE_NAME.test(`${r.name} ${r.symbol}`)) r.bad = r.bad || 'impersonator';
+    if (IMPOSTOR_SYM.test((r.symbol || '').trim()) || IMPOSTOR_NAME.test(r.name || '')) r.bad = r.bad || 'impersonator';
   }
   if (r.spark && r.spark.some((x) => !isFinite(x) || x <= 0 || x >= PRICE_MAX)) r.spark = null;
   return r;

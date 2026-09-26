@@ -21,6 +21,10 @@
       "destination": "/api/radar?path=:path*"
     },
     {
+      "source": "/api/logo/:addr",
+      "destination": "/api/logo?addr=:addr"
+    },
+    {
       "source": "/token/:addr",
       "destination": "/api/token?addr=:addr"
     },

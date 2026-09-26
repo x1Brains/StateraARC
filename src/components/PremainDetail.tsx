@@ -197,7 +197,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
   // so moving to another token inside the app left the OLD token's name + price in the tab (owner 09-25: copied the
   // wrong token because of it). Set it here, live, and whenever the price/24h change updates.
   useEffect(() => {
-    const chgS = chg != null ? ` (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% 24h)` : '';
+    const chgS = chg != null && isFinite(chg) && Math.abs(chg) < 1e5 ? ` (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% 24h)` : '';
     document.title = `$${sym}${px != null ? ` · ${tprice(px)}${chgS}` : ''} — StateraArc`;
   }, [sym, px, chg]);
 
@@ -247,7 +247,8 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
   const circSupply = mintedSupply != null ? Math.max(0, mintedSupply - (burnedSupply ?? 0)) : (rd?.circulating ?? null);
   const fdv = (px != null && mintedSupply) ? px * mintedSupply : (rd?.fdv ?? null);
   const valuation = mc ?? fdv ?? null;
-  const depthPct = tvl != null && valuation ? (tvl / valuation) * 100 : null; // pool depth as % of valuation
+  const depthRaw = tvl != null && valuation ? (tvl / valuation) * 100 : null; // pool depth as % of valuation
+  const depthPct = depthRaw != null && isFinite(depthRaw) && depthRaw <= 1000 ? depthRaw : null; // display hard rule
   const agoStr = (sec: number) => {
     const s = Math.max(0, Math.floor(Date.now() / 1000) - sec);
     if (s < 60) return `${s}s`; if (s < 3600) return `${Math.floor(s / 60)}m`;
@@ -292,7 +293,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
     { k: 'Telegram', u: rd?.telegram }, { k: 'Discord', u: rd?.discord },
   ].filter((s) => s.u) as { k: string; u: string }[];
   const chgClass = (v: number | null) => (v == null ? '' : v >= 0 ? 'up' : 'down');
-  const chgTxt = (v: number | null) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(v <= -100 || v >= 100 ? 0 : 1)}%`);
+  const chgTxt = (v: number | null) => (v == null || !isFinite(v) || Math.abs(v) > 1e5 ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(v <= -100 || v >= 100 ? 0 : 1)}%`); // display hard rule
   // Classify a raw transfer as a buy/sell using the token's main pool (tokens FROM pool = buy, TO pool = sell).
   const pool = ocPool?.pool ?? rd?.bestPool ?? null;
   const txKind = (t: TokenTransfer): 'buy' | 'sell' | 'xfer' =>
