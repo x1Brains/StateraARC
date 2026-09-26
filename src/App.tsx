@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, shareStamp, sanitizeToken, PINNED, LAUNCHPADS, type Token, type MarketPx } from './lib/arc';
+import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, shareStamp, sanitizeToken, PINNED, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -74,14 +74,15 @@ const ageStr = (ms: number | null | undefined) => {
   return `${(s / 31536000).toFixed(1)}y`;
 };
 
-// Legend for the launchpad/factory tags we detect on Arc (from LAUNCHPADS deployer clustering).
+// Legend for the launchpad tags. ⛔ 09-26: tags now come from the contract that CREATED each token (snapshot builder,
+// tagLaunchpads) — the old list here (Memepad / LP factory / Launcher / Curve factory) was testnet addresses that match
+// nothing on mainnet. The legend lists only tags that actually appear in the current list.
 const LP_DESC: Record<string, string> = {
-  'Memepad': 'Memecoin launchpad — fresh degen mints.',
-  'Launcher': 'Generic token launcher.',
-  'LP factory': 'Liquidity-pool factory — usually an LP / pool token.',
-  'Curve factory': 'Curve-style stableswap factory — usually an LP / pool token.',
+  'Argus pad': 'Minted by the Argus launchpad contracts (the ARGUS team) — GLITCH and most Arc meme launches.',
+  'faze.fun': 'Minted by the faze.fun launchpad.',
+  'Warp': 'Launched on Warp and still on its bonding curve.',
+  'Launchpad': 'Minted by a token-factory contract that has launched several Arc tokens.',
 };
-const LAUNCHPAD_LEGEND = [...new Set(Object.values(LAUNCHPADS))].map((l) => ({ label: l, desc: LP_DESC[l] || `Tokens minted by the ${l} contract on Arc.` }));
 
 export default function App() {
   const [acked, setAcked] = useState<boolean>(() => disclaimerAcked());
@@ -271,7 +272,12 @@ export default function App() {
   // "best of" list shouldn't show thin scams); the New tab keeps every fresh launch (they're small by nature).
   const notDup = (t: Token) => !isDup(t);
   const quality = (t: Token) => notDup(t) && (t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS) && active(t);
-  const launchpadCount = tokens.filter((t) => t.launchpad && quality(t)).length; // actively traded launchpad tokens, not every junk launch
+  const launchpadCount = tokens.filter((t) => t.launchpad && quality(t)).length;
+  const launchpadLegend = useMemo(() => {
+    const n = new Map<string, number>();
+    for (const t of tokens) if (t.launchpad && quality(t)) n.set(t.launchpad, (n.get(t.launchpad) ?? 0) + 1);
+    return [...n.entries()].sort((a, b) => b[1] - a[1]).map(([label, c]) => ({ label, desc: `${LP_DESC[label] || `Minted by the ${label} contract on Arc.`} ${c} active.` }));
+  }, [tokens, canonical, tickerCount]); // eslint-disable-line // actively traded launchpad tokens, not every junk launch
   // Swap token picker: the SAME filter as the board — one real token per ticker, no fakes/flagged rows (09-26: the picker
   // listed three "ARGUS", a fake DIVIDEND…). Pinned/core first, then actively traded by volume, then the rest by liquidity.
   // Any other token is still one paste of its address away.
@@ -648,11 +654,11 @@ export default function App() {
               </div>
               <div className="legend-grid">
                 <div className="legend-item"><span className="badge b-gray">ECO</span><span>Core ecosystem asset — Circle / Arc infra &amp; stablecoins (USDC, EURC, USDT…).</span></div>
-                {LAUNCHPAD_LEGEND.map((l) => (
+                {launchpadLegend.map((l) => (
                   <div className="legend-item" key={l.label}><span className="badge b-red">{l.label}</span><span>{l.desc}</span></div>
                 ))}
               </div>
-              <div className="legend-foot">Tracking <b>{LAUNCHPAD_LEGEND.length}</b> launchpads / factories on Arc — each token flagged by the deployer contract that minted it.</div>
+              <div className="legend-foot">Each token is tagged by the contract that created it, read from chain.</div>
             </div>
           </section></div>
         )}

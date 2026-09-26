@@ -1264,7 +1264,7 @@ async function findV4PoolUncached(t: string): Promise<V4Pool | null> {
 // Until the chain-wide V4 discovery bake lands (28k candidate pools, mostly decoys → must filter to real
 // volume), these are added to the screener by hand so they're findable/searchable. Priced + supply on-chain.
 const CURATED_V4: { address: string; symbol: string; name: string; launchpad?: string; poolId: string; usdcIsC0: boolean }[] = [
-  { address: '0x08adbf431569a1aacac2606d2adcd18f4ebf2a71', symbol: 'GLITCH', name: 'Glitch', launchpad: 'potato',
+  { address: '0x08adbf431569a1aacac2606d2adcd18f4ebf2a71', symbol: 'GLITCH', name: 'Glitch', launchpad: 'Argus pad',
     poolId: '0x278eab5f794ccbaa85dd7cd275e56bf563d8d26e35fd717800f39340f9730c3a', usdcIsC0: false },
 ];
 export async function fetchCuratedV4Tokens(): Promise<Token[]> {

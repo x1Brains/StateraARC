@@ -607,7 +607,7 @@ async function main() {
       pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: !!t.usdcIsC0, decimals: dec,
       v4fee: t.poolId && t.v4fee != null ? t.v4fee : null, v4tick: t.poolId && t.v4tick != null ? t.v4tick : null, hooks: t.poolId && t.hooks ? t.hooks : null,
       hooked: !!(t.hooks && t.hooks !== ZERO && /[1-9a-f]/.test(t.hooks.slice(2))),
-      source: t.kind === 'v2' ? (t.dex || 'V2') : t.kind.toUpperCase(), launchpad: t.kind === 'v4' ? 'onchain' : null });
+      source: t.kind === 'v2' ? (t.dex || 'V2') : t.kind.toUpperCase(), launchpad: null }); // ⛔ was 'onchain' on every V4 row — a source, not a launchpad (09-26); the snapshot tags real pads
   }
   console.log(`[disc] priced ${out.length}, liquid (vol/chg scanned) ${liquid.length}`);
 

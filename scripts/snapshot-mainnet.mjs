@@ -424,6 +424,7 @@ async function poolStats(token, pool) {
     if (JSON.stringify([t.price, t.liq, t.mcap, t.volume24h]) !== before || t.bad) scrubbed++;
   }
   console.log(`[snap] hard rules: ${scrubbed} rows scrubbed/flagged`);
+  await tagLaunchpads(map);
   const DUST_LIQ = 100, DUST_HOLDERS = 50;
   const all = [...map.values()];
   const radarSet = new Set(rlist.map((t) => (t.address || '').toLowerCase()));
@@ -436,3 +437,57 @@ async function poolStats(token, pool) {
   console.log(`[snap] price source: chain ${tokens.filter((t) => t.priceFrom === 'chain').length} · radar ${tokens.filter((t) => t.priceFrom === 'radar').length} · warp ${tokens.filter((t) => t.priceFrom === 'warp').length}`);
   console.log(`[snap] wrote ${tokens.length} tokens (dropped ${all.length - tokens.length} sub-$100/sub-50-holder dust), ${(fs.statSync(file).size / 1024).toFixed(0)}KB — ${tokens.filter((t) => t.volume24h != null).length} with volume, ${tokens.filter((t) => t.spark).length} with sparkline`);
 })().catch((e) => { console.error('FATAL', e.message); process.exit(1); });
+
+// ═══ LAUNCHPAD TAGS (09-26) — from the contract that CREATED the token, read from chain data ═══
+// ⛔ Owner: "ALL and LAUNCHPAD stay the same". The indexer stamped launchpad:'onchain' on every V4 token — a SOURCE, not a
+// launchpad — so 79 of 106 active tokens counted as launchpad coins. Now: each token's creator (arc-scan creation record,
+// cached forever in CREATORS_CACHE — a creator never changes), and a creator counts as a launchpad only if it is a CONTRACT
+// (eth_getCode) that created >= 3 of the listed tokens (a wallet deploying its own tokens is not a launchpad).
+// Names only where PROVEN; every other factory reads the generic "Launchpad" until the owner names it.
+const PAD_NAMES = {
+  // Argus pad — all three deployed by the Argus dev wallet 0x7d613c63…beE4 (ARGUS itself came from the first one)
+  '0x0f1c7cb26d6cd36bd4189e41947658b39437587a': 'Argus pad',
+  '0xb021be536808f551b31789422fd28a6c9c6e97da': 'Argus pad',
+  '0xd969062076f75fbc4fd0195561501dc13ef87c72': 'Argus pad',
+  '0x6a62919ccbf0c19e0c4e084f986b582b4492dda4': 'faze.fun', // every token it made keeps its logo on faze.fun/cdn
+};
+const CREATORS_CACHE = process.env.CREATORS_CACHE || '/root/statera-live/creators.json';
+async function tagLaunchpads(map) {
+  for (const t of map.values()) if (t.launchpad === 'onchain') t.launchpad = null; // the old placeholder, never a launchpad
+  let cache;
+  try { cache = JSON.parse(fs.readFileSync(CREATORS_CACHE, 'utf8')); } catch { cache = null; }
+  if (!cache) { if (!fs.existsSync(path.dirname(CREATORS_CACHE))) { console.log('[snap] launchpads: no creators cache here — tags left as they are'); return; } cache = { tokens: {}, isContract: {} }; }
+  // Look up creators for listed tokens we haven't seen (>= 50 holders or traded today), a bounded batch per run.
+  const want = [...map.values()].filter((t) => !(t.address in cache.tokens) && ((t.holders ?? 0) >= 50 || (t.volume24h ?? 0) >= 50 || t.isEcosystem)).slice(0, 300);
+  let i = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    while (i < want.length) {
+      const t = want[i++];
+      try {
+        const j = await fetch(`https://api.arc-scan.org/v1/address/${t.address}`, { signal: AbortSignal.timeout(10000) }).then((r) => r.json());
+        if (j && j.address) cache.tokens[t.address] = j.creation?.creator?.address?.toLowerCase() || null;
+      } catch { /* next run */ }
+    }
+  }));
+  const made = {};
+  for (const c of Object.values(cache.tokens)) if (c) made[c] = (made[c] || 0) + 1;
+  for (const c of Object.keys(made)) {
+    if (made[c] < 3 || c in cache.isContract) continue;
+    for (const url of RPCS) {
+      try {
+        const j = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getCode', params: [c, 'latest'] }), signal: AbortSignal.timeout(6000) }).then((r) => r.json());
+        if (typeof j?.result === 'string') { cache.isContract[c] = j.result.length > 2; break; }
+      } catch { /* next node */ }
+    }
+  }
+  const tmp = CREATORS_CACHE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(cache)); fs.renameSync(tmp, CREATORS_CACHE);
+  const tally = {};
+  for (const t of map.values()) {
+    const c = cache.tokens[t.address];
+    const name = c ? (PAD_NAMES[c] || (made[c] >= 3 && cache.isContract[c] ? 'Launchpad' : null)) : null;
+    if (name) t.launchpad = name, t.launchpadFactory = c;
+    else if (c !== undefined && t.launchpad !== 'Warp') t.launchpad = null; // creator known and not a pad → no tag (keeps Warp's own tag)
+    if (t.launchpad) tally[t.launchpad] = (tally[t.launchpad] || 0) + 1;
+  }
+  console.log(`[snap] launchpads: ${want.length} creators looked up, ${Object.keys(cache.tokens).length} cached; tags ${JSON.stringify(tally)}`);
+}
