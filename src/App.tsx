@@ -350,12 +350,30 @@ export default function App() {
     // (owner 09-25: an ARGUS link unfurled at a days-old $0.0170; the emoji site learned the same — "a URL is burned by
     // its first crawl"). So a token page's address bar carries a fresh ?v= stamp: a url copied from the browser is one
     // X has never seen, and it crawls the live card. The router reads only the path; og:url stays the clean path.
+    // ⛔ 09-26 (owner: "Post to X works, but a link copied from the browser didn't"): the stamp was set ONCE when the
+    // page opened and then kept (reloads kept the old ?v= too) — so a link copied later was one X had already crawled
+    // (possibly while that card was failing) and X served its cached, imageless card. Now every load gets a fresh
+    // stamp, and the effect below keeps re-stamping the address bar, so what you copy is always ≤ 1 minute old.
     const isTok = path.startsWith('/token/');
-    const hasStamp = /[?&]v=/.test(window.location.search);
-    if (cur === path && (!isTok || hasStamp)) { navReady.current = true; return; }
+    if (cur === path && !isTok) { navReady.current = true; return; }
     const want = isTok ? `${path}?v=${shareStamp()}` : path;
     if (navReady.current && cur !== path) window.history.pushState(null, '', want);
     else { window.history.replaceState(null, '', want); navReady.current = true; }
+  }, [page, selected]);
+  // Keep a token page's address-bar link fresh: re-stamp every minute and whenever the tab comes back into view.
+  useEffect(() => {
+    const path = pathFor(page, selected);
+    if (!path.startsWith('/token/')) return;
+    const restamp = () => {
+      if ((window.location.pathname.replace(/\/+$/, '') || '/') !== path) return;
+      const want = `${path}?v=${shareStamp()}`;
+      if (window.location.pathname + window.location.search !== want) window.history.replaceState(window.history.state, '', want);
+    };
+    const id = window.setInterval(restamp, 60000);
+    const onVis = () => { if (document.visibilityState === 'visible') restamp(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', restamp);
+    return () => { window.clearInterval(id); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', restamp); };
   }, [page, selected]);
 
   return (
