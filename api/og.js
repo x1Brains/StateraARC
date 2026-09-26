@@ -8,7 +8,7 @@ import { liveToken, within } from '../lib/livetoken.js';
 // Vercel's Node 24 (self-test came back blank there while identical code works locally); the WASM
 // build is the same bytecode everywhere. Both the font and the wasm are base64-embedded from lib/
 // (OUT of /api so they aren't compiled as functions) — self-fetch and fs-tracing both failed here.
-const OG_VER = 'v9-logos';
+const OG_VER = 'v10-budget';
 const FONT = Buffer.from(FONT_B64, 'base64');
 
 let wasmReady = null;
