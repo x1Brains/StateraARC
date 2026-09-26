@@ -272,6 +272,13 @@ export default function App() {
   const notDup = (t: Token) => !isDup(t);
   const quality = (t: Token) => notDup(t) && (t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS) && active(t);
   const launchpadCount = tokens.filter((t) => t.launchpad && quality(t)).length; // actively traded launchpad tokens, not every junk launch
+  // Swap token picker: the SAME filter as the board — one real token per ticker, no fakes/flagged rows (09-26: the picker
+  // listed three "ARGUS", a fake DIVIDEND…). Pinned/core first, then actively traded by volume, then the rest by liquidity.
+  // Any other token is still one paste of its address away.
+  const swapTokens = useMemo(() => tokens.filter((t) => !isDup(t) && (t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS)).sort((a, b) => {
+    const rank = (t: Token) => (t.isEcosystem || PINNED.has(t.address.toLowerCase()) ? 2 : active(t) ? 1 : 0);
+    return rank(b) - rank(a) || (b.volume24h ?? 0) - (a.volume24h ?? 0) || (b.liq ?? 0) - (a.liq ?? 0);
+  }), [tokens, canonical, tickerCount]); // eslint-disable-line
   const trending = useMemo(() => [...tokens].filter((t) => t.liq != null && quality(t)).sort(byLiq).slice(0, 8), [tokens, canonical, tickerCount]); // eslint-disable-line
   const launches = useMemo(() => [...tokens].filter((t) => t.launchpad && t.createdAt != null && notDup(t) && active(t)) // a launch nobody trades is spam
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).slice(0, 8), [tokens, canonical, tickerCount]); // eslint-disable-line
@@ -624,7 +631,7 @@ export default function App() {
 
         {page === 'token' && <TokenPage />}
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} onOpenToken={openToken} mainnet />}
-        {page === 'swap' && <Swap tokens={tokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} mainnet />}
+        {page === 'swap' && <Swap tokens={swapTokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} mainnet />}
 
         <footer><div className="wrap">
           <span className="fbrand">STATERA · ARC</span>

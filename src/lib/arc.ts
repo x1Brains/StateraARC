@@ -1358,6 +1358,9 @@ function decodeSwap(dataHex: string, topic0: string, usdcIsToken0: boolean): { u
 // relying on a hardcoded list — so charts/volume work for every token that trades on Uniswap V3 or V2.
 const V3_FACTORY = '0xf0db7b58379503491d857db50ac9ece64c653918';
 const V2_FACTORY = '0x942bd5bfdc5317c5507e326f8eb4bb6058ab5c10';
+// WarpV2 = Warp's own UniV2-style exchange (graduated Warp tokens trade here). 09-26: WARP's real market is its WarpV2 pair
+// ($12.9K USDC + $12.9K WARP) and nothing looked at this factory — the site showed WARP at $1.77K from a side V4 pool.
+const WARPV2_FACTORY = '0x32330c2400a6e0830d56661169ebb6c147e3577a';
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
 const poolDiscovery = new Map<string, string | null>();
 // Prime the pool caches from the screener snapshot (which already knows each on-chain token's pool), so
@@ -1397,6 +1400,7 @@ async function findTokenPoolUncached(t: string): Promise<string | null> {
   const candidates = await Promise.all([
     ...[100, 500, 3000, 10000].map((fee) => mCall(V3_FACTORY, '0x1698ee82' + pad(t) + pad(NATIVE_USDC_ADDR) + fee.toString(16).padStart(64, '0')).catch(() => null)),
     mCall(V2_FACTORY, '0xe6a43905' + pad(t) + pad(NATIVE_USDC_ADDR)).catch(() => null),
+    mCall(WARPV2_FACTORY, '0xe6a43905' + pad(t) + pad(NATIVE_USDC_ADDR)).catch(() => null),
   ]);
   const pools = candidates.map((r) => (r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null));
   const depths = await Promise.all(pools.map((p) => (!p || p === ZERO_ADDR ? Promise.resolve(-Infinity) : usdcOf(p))));   // in parallel
@@ -1462,13 +1466,15 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
   const hit = allPoolsCache.get(t); if (hit && Date.now() - hit.at < 60000) return hit.v;
   const pad = (a: string) => a.toLowerCase().replace('0x', '').padStart(64, '0');
   const fees = [100, 500, 3000, 10000];
-  const [v3, v2] = await Promise.all([
+  const [v3, v2, wv2] = await Promise.all([
     Promise.all(fees.map((f) => mCall(V3_FACTORY, '0x1698ee82' + pad(t) + pad(NATIVE_USDC_ADDR) + f.toString(16).padStart(64, '0')).catch(() => null))),
     mCall(V2_FACTORY, '0xe6a43905' + pad(t) + pad(NATIVE_USDC_ADDR)).catch(() => null),
+    mCall(WARPV2_FACTORY, '0xe6a43905' + pad(t) + pad(NATIVE_USDC_ADDR)).catch(() => null),
   ]);
   const found: { pool: string; version: string; feeTier: number | null }[] = [];
   v3.forEach((r, i) => { const p = r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR) found.push({ pool: p, version: 'V3', feeTier: fees[i] }); });
   { const p = v2 && v2.length >= 42 ? ('0x' + v2.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR) found.push({ pool: p, version: 'V2', feeTier: null }); }
+  { const p = wv2 && wv2.length >= 42 ? ('0x' + wv2.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR) found.push({ pool: p, version: 'WarpV2', feeTier: null }); }
   const dexp = 10 ** (decimals - 6);
   const out = await Promise.all(found.map(async (f): Promise<OnchainPool> => {
     const [natB, tokB, t0] = await Promise.all([
@@ -1484,7 +1490,7 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
     if (f.version === 'V3' && usdcIsToken0 != null) {
       const slot0 = await mCall(f.pool, '0x3850c7bd').catch(() => null); // slot0(): sqrtPriceX96 in word 0
       if (slot0 && slot0.length >= 66) { try { const sqrtP = BigInt(slot0.slice(0, 66)); if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp; } } catch { /* */ } }
-    } else if (usdc != null && tokRes) { price = usdc / tokRes; }
+    } else if (usdc != null && tokRes) { price = usdc / tokRes; } // V2 / WarpV2: constant product → reserve ratio is the price
     // ⛔ A near-empty V3 pool sits at an uninitialized/extreme tick → a GARBAGE derived price (~1e40), and
     // `tokRes * price` then explodes to $1e35 (this put a $1e35 TVL on the cirBTC/WETH pages). No real
     // USDC-quoted token is worth > $1e9, so treat such a price as invalid. The USDC reserve is always real;
