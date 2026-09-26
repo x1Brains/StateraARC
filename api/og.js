@@ -1,7 +1,7 @@
 import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import FONT_B64 from '../lib/ogfont.js';
 import WASM_B64 from '../lib/ogwasm.js';
-import { liveToken } from '../lib/livetoken.js';
+import { liveToken, within } from '../lib/livetoken.js';
 
 // Dynamic social card for a token: paste stateraarc.com/token/0x… anywhere and it unfurls into this.
 // Rasterised with the WASM build of resvg. The NATIVE @resvg/resvg-js renders blank text under
@@ -52,14 +52,21 @@ const priceInner = (n, fs) => {
 // token's logo to a 192px PNG, served by holdings-svc at /holdings/logo/<addr> (a local file, milliseconds; a miss
 // kicks a background fetch so the next card has it). The old sources stay as the fallback, ipfs resolved via a gateway.
 const toHttp = (u) => { const cid = String(u || '').match(/^ipfs:\/\/(?:ipfs\/)?(.+)$/i)?.[1]; return cid ? `https://gateway.pinata.cloud/ipfs/${cid}` : u; };
-async function logoDataUri(t, addr) {
+// The VPS cache needs only the address, so it runs in PARALLEL with the token lookup; the other sources need the
+// token's iconUrl and run only on a cache miss.
+function vpsLogoTries(addr) {
   const UP = process.env.HOLDINGS_UPSTREAM, KEY = process.env.HOLDINGS_KEY;
+  return UP && KEY && addr ? [{ u: `${UP.replace(/\/+$/, '')}/holdings/logo/${addr}`, h: { 'x-relay-key': KEY } }] : [];
+}
+function otherLogoTries(t, addr) {
   const tries = [];
-  if (UP && KEY && addr) tries.push({ u: `${UP.replace(/\/+$/, '')}/holdings/logo/${addr}`, h: { 'x-relay-key': KEY } });
   for (const u of [t?.iconUrl ? toHttp(t.iconUrl) : null, addr ? `https://api.tollylabs.com/token-image/${addr}.png` : null]) if (u && /^https?:/i.test(u)) tries.push({ u, h: {} });
+  return tries;
+}
+async function logoDataUri(tries) {
   for (const { u, h } of tries) {
     try {
-      const r = await fetch(u, { headers: h, signal: AbortSignal.timeout(2500) });
+      const r = await fetch(u, { headers: h, signal: AbortSignal.timeout(1500) });
       if (!r.ok) continue;
       const ct = (r.headers.get('content-type') || '').toLowerCase();
       if (ct.includes('svg') || ct.includes('html') || ct.includes('webp') || ct.includes('json')) continue; // resvg <image> draws png/jpeg only
@@ -92,14 +99,17 @@ export default async function handler(req, res) {
     }
 
     // Live: the site's current list (VPS /api/snapshot) + the price re-read from the token's pool right now.
-    const t = addr ? await liveToken(origin, addr).catch(() => null) : null;
+    // Hard budget (~4.5s worst case, ~0.5-1s normally): X gives up on a slow image and keeps the card broken.
+    const vpsLogo = within(logoDataUri(vpsLogoTries(addr)), 1500, '');
+    const t = addr ? await within(liveToken(origin, addr), 3000) : null;
 
     const sym = esc(t?.symbol || 'TOKEN');
     const name = esc((t?.name || 'Arc token').slice(0, 42));
     const ch = t?.change24h;
     const chStr = ch == null ? '' : `${ch >= 0 ? '+' : '-'}${Math.abs(ch).toFixed(1)}% 24h`;
     const chColor = ch == null ? '#8f8478' : ch >= 0 ? '#4ecb71' : '#ff5a5a';
-    const [logo] = await Promise.all([logoDataUri(t, addr), ensureWasm()]);
+    let [logo] = await Promise.all([vpsLogo, ensureWasm()]);
+    if (!logo) logo = await within(logoDataUri(otherLogoTries(t, addr)), 1500, '');
     const symX = logo ? 234 : 64;
 
     // 1200x630 = Twitter/X's exact link-card ratio (1.91:1). ⛔ A SHORTER image gets center-cropped by X (it
@@ -165,9 +175,13 @@ export default async function handler(req, res) {
     }).render().asPng();
 
     res.setHeader('content-type', 'image/png');
-    res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300'); // live price: a minute at most
+    // A card with no token data (lookup ran out of time) must not be cached — the next fetch gets the real one.
+    res.setHeader('cache-control', t || !addr ? 'public, max-age=60, s-maxage=60, stale-while-revalidate=300' : 'no-store');
     res.status(200).send(Buffer.from(png)); // .asPng() is a Uint8Array; Buffer for correct binary send
   } catch (e) {
-    res.status(500).send('og render failed: ' + (e?.message || String(e)));
+    // ⛔ Never answer X with an error: an error = a post with no image, forever. Fall back to the site's static card.
+    res.setHeader('x-og-error', String(e?.message || e).slice(0, 200));
+    res.setHeader('cache-control', 'no-store');
+    res.statusCode = 302; res.setHeader('location', '/og-card.jpg'); res.end();
   }
 }

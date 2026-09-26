@@ -1,4 +1,4 @@
-import { liveToken } from '../lib/livetoken.js';
+import { liveToken, within } from '../lib/livetoken.js';
 
 // Server-rendered HTML for /token/:addr so X / Discord / Telegram unfurl a per-token card.
 // A Vite SPA ships one static index.html with generic meta — crawlers don't run JS, so they'd all
@@ -29,7 +29,7 @@ export default async function handler(req, res) {
   if (!html) { res.statusCode = 302; res.setHeader('location', `/`); return res.end(); }
 
   // Live: the site's current list (VPS /api/snapshot) + the price re-read from the token's pool right now.
-  const t = addr ? await liveToken(origin, addr).catch(() => null) : null;
+  const t = addr ? await within(liveToken(origin, addr), 3500) : null;
 
   const sym = t?.symbol || 'Token';
   const price = fmtUsd(t?.price);
@@ -50,6 +50,11 @@ export default async function handler(req, res) {
   const bucket = Math.floor(Date.now() / 300000);
   const img = addr ? `${origin}/api/og?token=${addr}&sq=1&v=8&t=${bucket}` : `${origin}/api/og?sq=1&v=8`;
   const pageUrl = `${origin}/token/${addr}`;
+  // A crawler (X/Discord/Telegram…) reads this page, then fetches the image ONCE with a short timeout and keeps a
+  // failed image for good. Render the image now so its fetch is a cache hit. Crawlers only; capped at 3s.
+  if (addr && /bot|crawler|spider|facebookexternalhit|embedly|slack|whatsapp|telegram|discord|preview/i.test(req.headers['user-agent'] || '')) {
+    await within(fetch(img, { headers: { 'user-agent': 'StateraArc-prewarm' } }).then((r) => r.arrayBuffer()), 3000);
+  }
 
   const meta = [
     `<meta property="og:title" content="${esc(title)}"/>`,
