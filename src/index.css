@@ -1780,3 +1780,9 @@ footer .wrap { padding: 16px 20px; }
   .tx-hero-id { flex: 1 1 auto; }
   .tx-hero-px { flex: none; }
 }
+/* 09-28 owner: "the banner looks ok but too bright" — about half the tint and warmth; darker base so the text leads. */
+.tx-hero { background: linear-gradient(110deg, rgba(255,122,30,.06), rgba(16,14,14,.72) 40%, rgba(10,9,11,.85)), rgba(10,9,10,.75); }
+.tx-hero-tint { opacity: .13; filter: blur(70px) saturate(1.2); }
+.tx-hero::after { box-shadow: 0 0 8px rgba(255,122,30,.35); opacity: .8; }
+.tx-price { text-shadow: none; }
+.tx-logo { box-shadow: 0 0 10px rgba(255,122,30,.25); }
