@@ -72,15 +72,30 @@ export async function tokenDetail(address: string, seed: Token | undefined): Pro
   return refresh(a, seed);
 }
 /** Keep the busiest token pages warm so their first visitor never waits. */
-export function prewarm(rows: Token[]) { for (const t of rows) refresh(t.address.toLowerCase(), t, false).catch(() => {}); }
+export function prewarm(rows: Token[]) {
+  for (const t of rows) {
+    refresh(t.address.toLowerCase(), t, false).catch(() => {});
+    // the heavy ALL view (the one that 502'd cold), so the busiest tokens' full-history charts open instantly
+    buildCandles(t.address.toLowerCase(), t, 43200, 3650 * 86400, `${t.address.toLowerCase()}:43200:${3650 * 86400}`).catch(() => {});
+  }
+}
 
 // ── Chart candles: the page's own fetchPoolCandles, run here. The chart's timeframes only (sec → max lookback), so a
 // request can't ask for an arbitrary scan. The wide views share one cached swap scan inside arc.ts (60 s).
 const TF_LOOK: Record<number, number> = { 60: 6 * 3600, 300: 24 * 3600, 900: 3 * 86400, 3600: 3 * 86400, 14400: 12 * 86400, 86400: 60 * 86400, 21600: 9 * 86400, 43200: 3650 * 86400 };
 export const candleTfOk = (sec: number, look: number) => TF_LOOK[sec] != null && look === TF_LOOK[sec];
 const candleInflight = new Map<string, Promise<Candle[]>>();
+// Wide views (4H and up: 12k–900k-block scans) are cached here for 5 min and served stale while they refresh — the 09-28
+// audit caught the ALL view 502ing on a cold scan (the page then re-scanned in the visitor's tab). Fine views: 20 s.
+const candleCache = new Map<string, { at: number; c: Candle[] }>();
 export async function tokenCandles(address: string, seed: Token | undefined, sec: number, look: number): Promise<Candle[]> {
   const a = address.toLowerCase(), k = `${a}:${sec}:${look}`;
+  const ttl = sec >= 14400 ? 5 * 60_000 : 20_000, hit = candleCache.get(k);
+  if (hit && Date.now() - hit.at < ttl) return hit.c;
+  if (hit && Date.now() - hit.at < ttl * 6) { buildCandles(a, seed, sec, look, k).catch(() => {}); return hit.c; }
+  return buildCandles(a, seed, sec, look, k);
+}
+function buildCandles(a: string, seed: Token | undefined, sec: number, look: number, k: string): Promise<Candle[]> {
   let p = candleInflight.get(k);
   if (!p) {
     p = (async () => {
@@ -88,7 +103,9 @@ export async function tokenCandles(address: string, seed: Token | undefined, sec
       try {
         const dec = seed?.decimals ?? cache.get(a)?.dec ?? (await fetchTokenDecimals(a)) ?? 18;
         if (seed && (seed.pool || seed.poolId)) primePool(a, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0 });
-        return await fetchPoolCandles(a, dec, sec, look);
+        const c = await fetchPoolCandles(a, dec, sec, look);
+        if (c.length) { candleCache.set(k, { at: Date.now(), c }); if (candleCache.size > 600) candleCache.delete(candleCache.keys().next().value!); }
+        return c;
       } finally { release(); }
     })().finally(() => candleInflight.delete(k));
     candleInflight.set(k, p);

@@ -1905,3 +1905,11 @@ footer .wrap { padding: 16px 20px; }
   .al-pulse b { font-size: 19px; }
   .al-vals { grid-template-columns: repeat(6, 1fr); gap: 5px; } .al-val img { width: 20px; height: 20px; }
 }
+
+/* 09-28 audit: on phones the screener pager (Prev · Page N/M · Next · 50/100/250/500) ran past the right edge */
+@media (max-width: 640px) {
+  .pager { gap: 10px; }
+  .pager-ctrls { flex-wrap: wrap; gap: 6px; width: 100%; }
+  .pager-ctrls button { padding: 8px 10px; font-size: 11px; }
+  .per { margin-left: 0; }
+}
