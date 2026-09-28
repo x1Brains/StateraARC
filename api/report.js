@@ -122,7 +122,7 @@ function tall(c, l, w, when, logos) {
   s += `<rect x="0" y="${H - 170}" width="${W}" height="170" fill="url(#foot)"/>`;
   s += T(P, H - 70, 'stateraarc.com/network', 30, C.fire) + T(W - P, H - 70, 'Live · read directly from Arc mainnet', 20, C.gray, 'text-anchor="end"');
   s += T(P, H - 38, 'Screener · Swap · Portfolio · Network', 18, C.dim) + T(W - P, H - 38, 'chain 5042', 18, C.dim, 'text-anchor="end"');
-  return svg(W, H, s);
+  return svg(W, H, s, 44); // rounded corners (owner 09-28): the downloaded report is a card, not a square
 }
 
 // X link card (1200×630). ⛔ X lays its own title label over the BOTTOM-LEFT (~0–600 × 560–630): nothing important goes there.
@@ -173,16 +173,21 @@ async function validatorLogos(origin) {
   if (Object.keys(out).length >= 6) logoCache = out;
   return out;
 }
-const svg = (W, H, body) => `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}">
+// radius > 0 = transparent rounded corners (everything clipped to a rounded card); 0 = square (X rounds link cards itself).
+const svg = (W, H, body, radius = 0) => `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}">
   <defs>
     <radialGradient id="g1" cx="10%" cy="0%" r="70%"><stop offset="0%" stop-color="#ff7a1e" stop-opacity="0.20"/><stop offset="70%" stop-color="#ff7a1e" stop-opacity="0"/></radialGradient>
     <radialGradient id="g2" cx="100%" cy="100%" r="60%"><stop offset="0%" stop-color="#ff2f14" stop-opacity="0.10"/><stop offset="70%" stop-color="#ff2f14" stop-opacity="0"/></radialGradient>
     <linearGradient id="foot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0806" stop-opacity="0"/><stop offset="1" stop-color="#1a0f08"/></linearGradient>
     <linearGradient id="hair" x1="0" x2="1"><stop offset="0" stop-color="#ffa03c" stop-opacity="0"/><stop offset="0.5" stop-color="#ffa03c" stop-opacity="0.7"/><stop offset="1" stop-color="#ffa03c" stop-opacity="0"/></linearGradient>
+    <clipPath id="card"><rect width="${W}" height="${H}" rx="${radius}"/></clipPath>
   </defs>
+  <g clip-path="url(#card)">
   <rect width="${W}" height="${H}" fill="${C.bg}"/><rect width="${W}" height="${H}" fill="url(#g1)"/><rect width="${W}" height="${H}" fill="url(#g2)"/>
   <rect x="0" y="0" width="${W}" height="6" fill="${C.fire}"/>
   ${body}
+  </g>
+  ${radius ? `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="${radius - 1}" fill="none" stroke="#3a2a1e" stroke-width="2"/>` : ''}
 </svg>`;
 
 export default async function handler(req, res) {
@@ -199,7 +204,9 @@ export default async function handler(req, res) {
     }).render().asPng();
     res.setHeader('content-type', 'image/png');
     res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
-    if (download) res.setHeader('content-disposition', `attachment; filename="arc-network-report-${when.slice(0, 10)}.png"`);
+    // Timestamped name: several downloads in a day were all 'arc-network-report-<date>.png' and the old one got opened.
+    if (download) res.setHeader('content-disposition', `attachment; filename="arc-network-report-${when.slice(0, 16).replace(/[: ]/g, '-')}.png"`);
+    if (download) res.setHeader('cache-control', 'no-store');
     res.status(200).send(Buffer.from(png));
   } catch (e) {
     res.setHeader('x-report-error', String(e?.message || e).slice(0, 200));
