@@ -8,6 +8,9 @@
     },
     "api/v2.js": {
       "maxDuration": 30
+    },
+    "api/report.js": {
+      "maxDuration": 15
     }
   },
   "rewrites": [
@@ -34,6 +37,10 @@
     {
       "source": "/token/:addr",
       "destination": "/api/token?addr=:addr"
+    },
+    {
+      "source": "/network",
+      "destination": "/api/network-page"
     },
     {
       "source": "/((?!api/|assets/|coins/|.*\\.[a-zA-Z0-9]+$).*)",
