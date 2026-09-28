@@ -1698,3 +1698,6 @@ footer .wrap { padding: 16px 20px; }
   .tdx .ta-grid, .tdx .ta-grid-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tdx .ir-v { word-break: break-all; }
 }
+/* 09-28 owner: "why a scroller on the right side when u have all that blank space underneath?" — the sticky, height-capped
+   sidebar scrolled inside itself next to empty space. It now flows with the page at full height; no inner scrollbar. */
+.tdx-side { position: static; max-height: none; overflow: visible; }
