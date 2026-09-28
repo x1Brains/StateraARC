@@ -76,11 +76,13 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
         fetchOnchainMakers24(address).then((m) => { if (alive && m != null) setDayStats((d) => (d ? { ...d, makers24: m.makers, makersSample: m.sample, makersIsFloor: m.sample < m.total } : d)); }).catch(() => {}); // fills in after
       }).catch(() => {});
       fetchTokenBurn(address, dec).then((b) => { if (alive) setBurn(b); }).catch(() => {});
-      fetchRadarHolders(address, dec, 100).then(async (h) => {
-        if (h.holders && h.holders.length) { if (alive) { setHolders(h.holders); setHolderCount(h.holderCount); } return; }
-        // RadarDEX doesn't index this token (on-chain/launchpad coins) → arc-scan holder list.
-        const a = await fetchTokenHolders(address, 100).catch(() => []);
-        if (alive) { setHolders(a.map((x) => ({ rank: x.rank, address: x.address, amount: x.balance, percent: x.share, isPool: x.isContract, isDeployer: false }))); if (h.holderCount != null) setHolderCount(h.holderCount); }
+      // Holders: arc-scan FIRST (its balances match the chain: cirBTC top holder 3,358.29 / 4,820.89 on-chain supply =
+      // 69.66%, exactly its share). RadarDEX only when arc-scan has nothing — its shares were garbage (cirBTC top holder
+      // "1,433%" on 09-28, from a stale ~232 BTC total). Shares are recomputed from the on-chain supply below anyway.
+      fetchTokenHolders(address, 100).catch(() => []).then(async (a) => {
+        if (a.length) { if (alive) setHolders(a.map((x) => ({ rank: x.rank, address: x.address, amount: x.balance, percent: x.share, isPool: x.isContract, isDeployer: false }))); return; }
+        const h = await fetchRadarHolders(address, dec, 100);
+        if (alive) { setHolders(h.holders); if (h.holderCount != null) setHolderCount(h.holderCount); }
       }).catch(() => { if (alive) setHolders([]); });
       // Trades: the pool's own on-chain Swap events first; RadarDEX's indexed swaps only if the chain read is empty.
       fetchPoolTrades(address, dec, 40).catch(() => [] as RadarSwap[]).then(async (oc) => {
@@ -210,7 +212,18 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
   const txnsF = pickNum(dayStats?.txns24, rd?.txns24, swaps && swaps.length ? swaps.length : null);
   const makersF = pickNum(dayStats?.makers24, rd?.traders24, swaps && swaps.length ? new Set(swaps.map((s) => s.trader)).size : null);
   // Clamp each holder % to [0,100] and cap the top-10 sum at 100 — a bad share (arc-scan) made it read 235%.
-  const top10 = holders && holders.length ? Math.min(100, holders.slice(0, 10).reduce((s, h) => s + Math.max(0, Math.min(100, h.percent ?? 0)), 0)) : null;
+  // Holder % = balance / ON-CHAIN totalSupply (burn.supply) whenever we have it — never a source's own percent. A share
+  // that is still impossible (> 100%, or the top 10 summing past 100%) means the list is bad: blank it ("—"), never clamp
+  // it to 100 (the clamp hid RadarDEX's 1,433% as a believable "100%").
+  const holderPct = (h: RadarHolder): number | null => { const sup = burn?.supply; const p = sup && sup > 0 && h.amount != null && isFinite(h.amount) ? (h.amount / sup) * 100 : h.percent; return p != null && isFinite(p) && p >= 0 && p <= 100.5 ? Math.min(100, p) : null; };
+  const top10 = useMemo(() => {
+    if (!holders || !holders.length) return null;
+    const pct = (h: RadarHolder) => (burn?.supply && burn.supply > 0 && h.amount != null && isFinite(h.amount) ? (h.amount / burn.supply) * 100 : h.percent);
+    const top = holders.slice(0, 10).map(pct);
+    if (top.some((p) => p == null || !isFinite(p) || p < 0 || p > 100.5)) return null;
+    const sum = top.reduce<number>((s, p) => s + (p ?? 0), 0);
+    return sum <= 100.5 ? Math.min(100, sum) : null;
+  }, [holders, burn]);
 
   // ── Pools for this token + TRUE aggregate liquidity ──────────────────────────────────────────────
   // Only pools with real depth (≥ $100, the indexer's discovery floor) count — a dust pool ($4.71) is
@@ -579,9 +592,9 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
                       <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer" title={h.address}>{displayName(h.address, names, (a) => a.slice(0, 8) + '…' + a.slice(-6))}</a>
                       {h.isPool && <span className="hl-tag pool">POOL</span>}
                       {h.isDeployer && <span className="hl-tag dev">DEV</span>}
-                      <span className="hl-barwrap"><span className="hl-bar" style={{ width: `${Math.min(100, h.percent ?? 0)}%` }} /></span>
+                      <span className="hl-barwrap"><span className="hl-bar" style={{ width: `${holderPct(h) ?? 0}%` }} /></span>
                       <span className="hl-bal">{compact(h.amount)}</span>
-                      <span className="hl-share">{h.percent != null ? h.percent.toFixed(2) + '%' : '—'}</span>
+                      <span className="hl-share">{(() => { const p = holderPct(h); return p != null ? p.toFixed(2) + '%' : '—'; })()}</span>
                     </div>
                   ))}
                 </div>}

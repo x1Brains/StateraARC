@@ -217,8 +217,10 @@ const rnum = (v: any): number | null => (v == null || isNaN(Number(v)) ? null : 
 function normIcon(u: string | null | undefined): string | null {
   if (!u) return null;
   const m = u.match(/\/_next\/image\?url=([^&]+)/);
-  if (m) { try { return decodeURIComponent(m[1]); } catch { return u; } }
-  return u;
+  let v = u;
+  if (m) { try { v = decodeURIComponent(m[1]); } catch { /* keep u */ } }
+  // Browsers can't load ipfs:// or ar:// (52 broken screener logos, 09-28) — same gateway as toHttp().
+  return v.trim().replace(/^ipfs:\/\/(ipfs\/)?/i, 'https://gateway.pinata.cloud/ipfs/').replace(/^ar:\/\//i, 'https://arweave.net/');
 }
 // Launchpad display names (radar uses lowercase slugs). Falls back to a capitalized slug.
 const RADAR_LP: Record<string, string> = {
@@ -610,6 +612,9 @@ const MARKET_ASSETS = [
   { cb: 'AVAX', sym: 'AVAX', logo: '/coins/AVAX.png' },
   { cb: 'LINK', sym: 'LINK', logo: '/coins/LINK.png' },
   { cb: 'PAXG', sym: 'GOLD', logo: '/coins/PAXG.png' },
+  // Arc's own money, live too: EURC floats with EUR/USD (the old fixed 1.08 sat next to a live $1.14 on the board).
+  { cb: 'USDC', sym: 'USDC', logo: '/coins/USDC.svg' },
+  { cb: 'EURC', sym: 'EURC', logo: '/coins/EURC.svg' },
 ];
 // XNT (X1's native token) — live USD price via XDEX. CORS-blocked, so proxied at /api/xdex
 // (Vercel rewrite in prod, vite proxy in dev). Mint So111…112 = X1 native.
@@ -637,8 +642,6 @@ export async function fetchMarket(): Promise<MarketPx[]> {
   const solIdx = out.findIndex((a) => a.sym === 'SOL');
   const xntEntry: MarketPx = { sym: 'XNT', price: xnt, logo: '/coins/XNT.webp' };
   if (solIdx >= 0) out.splice(solIdx + 1, 0, xntEntry); else out.push(xntEntry);
-  // Arc's own money (fixed peg).
-  out.push({ sym: 'USDC', price: 1, logo: '/coins/USDC.svg' }, { sym: 'EURC', price: 1.08, logo: '/coins/EURC.svg' });
   return out;
 }
 // ⛔ DISPLAY HARD RULE (09-25 audit): no formatter prints an impossible number, whatever the data source — ELLIPSE's
@@ -654,8 +657,11 @@ export const usd = (n: number | null) => {
   if (n >= 1e3) return '$' + (n / 1e3).toFixed(2) + 'K';
   return '$' + n.toFixed(2);
 };
+// Under 1,000: whole numbers stay whole (counts); a FRACTIONAL amount keeps its digits — Math.round printed a 0.0083 cirBTC
+// trade as "0" (09-28). 1–1000 → up to 2 decimals, below 1 → 3 significant figures.
 export const compact = (n: number | null) =>
-  !ok(n, 1e18) ? '—' : n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(Math.round(n));
+  !ok(n, 1e18) ? '—' : Math.abs(n) >= 1e9 ? (n/1e9).toFixed(2)+'B' : Math.abs(n) >= 1e6 ? (n/1e6).toFixed(2)+'M' : Math.abs(n) >= 1e3 ? (n/1e3).toFixed(1)+'K'
+  : Number.isInteger(n) || Math.abs(n) >= 100 ? String(Math.round(n)) : Math.abs(n) >= 1 ? String(+n.toFixed(2)) : n === 0 ? '0' : Math.abs(n) < 1e-4 ? (n < 0 ? '>-0.0001' : '<0.0001') : String(+n.toPrecision(3));
 
 // Token price — handles both normal and sub-cent values.
 // Clean, consistent price formatting: ~4 significant figures for sub-dollar prices (no long messy
