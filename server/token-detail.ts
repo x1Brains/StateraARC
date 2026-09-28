@@ -5,8 +5,9 @@
 import type { Token } from '../src/lib/rules.ts';
 import {
   primePool, fetchTokenDecimals, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24,
-  fetchTokenBurn, fetchTokenHolders, fetchPoolTrades, resolveMakers, fetchTokenTransfers,
+  fetchTokenBurn, fetchTokenHolders, fetchPoolTrades, resolveMakers, fetchTokenTransfers, fetchPoolCandles, pruneChainCaches,
 } from '../src/lib/arc.ts';
+import type { Candle } from '../src/lib/warp.ts';
 
 export interface TokenDetail {
   address: string; at: number; ms: number; dec: number;
@@ -69,3 +70,26 @@ export async function tokenDetail(address: string, seed: Token | undefined): Pro
 }
 /** Keep the busiest token pages warm so their first visitor never waits. */
 export function prewarm(rows: Token[]) { for (const t of rows) refresh(t.address.toLowerCase(), t).catch(() => {}); }
+
+// ── Chart candles: the page's own fetchPoolCandles, run here. The chart's timeframes only (sec → max lookback), so a
+// request can't ask for an arbitrary scan. The wide views share one cached swap scan inside arc.ts (60 s).
+const TF_LOOK: Record<number, number> = { 60: 6 * 3600, 300: 24 * 3600, 900: 3 * 86400, 3600: 3 * 86400, 14400: 12 * 86400, 86400: 60 * 86400, 21600: 9 * 86400, 43200: 3650 * 86400 };
+export const candleTfOk = (sec: number, look: number) => TF_LOOK[sec] != null && look === TF_LOOK[sec];
+const candleInflight = new Map<string, Promise<Candle[]>>();
+export async function tokenCandles(address: string, seed: Token | undefined, sec: number, look: number): Promise<Candle[]> {
+  const a = address.toLowerCase(), k = `${a}:${sec}:${look}`;
+  let p = candleInflight.get(k);
+  if (!p) {
+    p = (async () => {
+      await slot();
+      try {
+        const dec = seed?.decimals ?? cache.get(a)?.dec ?? (await fetchTokenDecimals(a)) ?? 18;
+        if (seed && (seed.pool || seed.poolId)) primePool(a, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0 });
+        return await fetchPoolCandles(a, dec, sec, look);
+      } finally { release(); }
+    })().finally(() => candleInflight.delete(k));
+    candleInflight.set(k, p);
+  }
+  return p;
+}
+setInterval(() => pruneChainCaches(), 60_000).unref();

@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, LineStyle, type IChartApi, type ISeriesApi } from 'lightweight-charts';
 import { fetchWarpCandles, type Candle } from '../lib/warp';
-import { fetchPoolCandles, tprice } from '../lib/arc';
+import { fetchPoolCandles as fetchPoolCandlesInTab, tprice } from '../lib/arc';
+import { v2Enabled, v2Candles } from '../lib/v2';
+// v2: the VPS scans the pool once for every visitor (server/token-detail.ts); the in-tab scan is the fallback.
+const fetchPoolCandles = (a: string, dec: number, sec: number, look: number) =>
+  v2Enabled ? v2Candles(a, sec, look).catch(() => fetchPoolCandlesInTab(a, dec, sec, look)) : fetchPoolCandlesInTab(a, dec, sec, look);
 
 // TradingView-style price chart for an Arc token. Data = candles rebuilt from the pool's on-chain swaps
 // (chain 5042), Warp OHLC candles only as the fallback for coins with no pool swaps. DEX-style controls: timeframe, candles/line, lin/log.

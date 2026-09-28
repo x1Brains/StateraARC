@@ -10,6 +10,7 @@
 //   /v2/search?q&limit                hero typeahead
 //   /v2/token/<addr>                  one row (with pool keys for the token page)
 //   /v2/token/<addr>/detail           the token page's chain data (stats, pools, 24h, trades, holders…), cached per token
+//   /v2/token/<addr>/candles?sec&look the chart (the page's own timeframes only)
 //   /v2/tokens?addrs=a,b,…            rows for a set of addresses (portfolio pricing)
 //   /v2/swap-tokens                   the swap picker list
 //   /v2/list                          the whole live list (v1-compatible shape: { generatedAt, tokens })
@@ -19,7 +20,7 @@ import zlib from 'node:zlib';
 import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
-import { tokenDetail, prewarm, detailStats } from './token-detail.ts';
+import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk } from './token-detail.ts';
 
 const PORT = Number(process.env.PORT || 8790);
 const SNAP = process.env.SNAPSHOT_FILE || '/root/statera-live/tokens-snapshot.json';
@@ -163,6 +164,15 @@ http.createServer((req, res) => {
       tokenDetail(a, v.byAddr.get(a))
         .then((d) => send(req, res, 200, JSON.stringify(d), undefined, 15))
         .catch((e) => send(req, res, 502, JSON.stringify({ error: 'detail failed: ' + (e as Error).message }), undefined, 0));
+      return;
+    }
+    const cm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/candles$/);
+    if (cm) {
+      const a = cm[1].toLowerCase(), sec = Number(u.searchParams.get('sec')), look = Number(u.searchParams.get('look'));
+      if (!candleTfOk(sec, look)) { send(req, res, 400, JSON.stringify({ error: 'unsupported timeframe' }), undefined, 0); return; }
+      tokenCandles(a, v.byAddr.get(a), sec, look)
+        .then((c) => send(req, res, 200, JSON.stringify({ candles: c }), undefined, 20))
+        .catch((e) => send(req, res, 502, JSON.stringify({ error: 'candles failed: ' + (e as Error).message }), undefined, 0));
       return;
     }
     const m = path.match(/^\/token\/(0x[0-9a-fA-F]{40})$/);

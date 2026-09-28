@@ -1470,6 +1470,13 @@ export async function fetchTokenBurn(token: string, decimals = 18): Promise<{ bu
   return { burnt, supply, pct: pct != null && isFinite(pct) ? Math.max(0, Math.min(100, pct)) : null };
 }
 const candleCache = new Map<string, { at: number; data: Candle[] }>();
+// A browser tab is short-lived, so these caches never needed evicting; the VPS API (a long-running process that imports this
+// file) calls this every minute so they can't grow without bound.
+export function pruneChainCaches(maxAgeMs = 5 * 60_000): void {
+  const now = Date.now();
+  for (const [k, v] of candleCache) if (now - v.at > maxAgeMs) candleCache.delete(k);
+  for (const [k, v] of swapsCache) if (now - v.at > maxAgeMs) swapsCache.delete(k);
+}
 export async function fetchPoolCandles(token: string, decimals: number, intervalSec: number, lookbackSec?: number): Promise<Candle[]> {
   const ck = token.toLowerCase() + ':' + intervalSec + ':' + (lookbackSec ?? 0);
   const hit = candleCache.get(ck);
