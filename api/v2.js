@@ -2,7 +2,7 @@
 // Same upstream + key as /api/snapshot (HOLDINGS_UPSTREAM / HOLDINGS_KEY). The API computes the board ONCE for all
 // visitors; the browser gets KBs instead of the 1.14 MB list + ~130 RPC calls per page (v1). On any failure this answers
 // 502 and the page falls back to the v1 path by itself (src/lib/v2.ts → App.tsx).
-const ALLOWED = /^(health|home|board|search|list|swap-tokens|tokens|token\/0x[0-9a-fA-F]{40})$/;
+const ALLOWED = /^(health|home|board|search|list|swap-tokens|tokens|token\/0x[0-9a-fA-F]{40}(\/(detail|candles))?)$/;
 export default async function handler(req, res) {
   const UP = process.env.HOLDINGS_UPSTREAM, KEY = process.env.HOLDINGS_KEY;
   const path = String(req.query.path || '').replace(/^\/+|\/+$/g, '');
@@ -11,7 +11,7 @@ export default async function handler(req, res) {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(req.query)) if (k !== 'path' && typeof v === 'string') qs.set(k, v.slice(0, 4000));
   try {
-    const r = await fetch(`${UP.replace(/\/+$/, '')}/v2/${path}${qs.toString() ? '?' + qs : ''}`, { headers: { 'x-relay-key': KEY, 'accept-encoding': 'gzip' }, signal: AbortSignal.timeout(12000) });
+    const r = await fetch(`${UP.replace(/\/+$/, '')}/v2/${path}${qs.toString() ? '?' + qs : ''}`, { headers: { 'x-relay-key': KEY, 'accept-encoding': 'gzip' }, signal: AbortSignal.timeout(25000) });
     const text = await r.text();
     if (r.status >= 500) return res.status(502).json({ error: 'v2 upstream ' + r.status });
     res.setHeader('content-type', 'application/json; charset=utf-8');
