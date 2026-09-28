@@ -1,6 +1,7 @@
 import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import FONT_B64 from '../lib/ogfont.js';
 import WASM_B64 from '../lib/ogwasm.js';
+import { fetchUpstream } from '../lib/upstream.js';
 
 // ARC NETWORK REPORT — the whole Network page as one image, drawn from the live /v2 data (chain, lending, where) at request
 // time. Owner 09-28: "a full snapshot report image I can just post on X". Same renderer as the token cards (resvg WASM +
@@ -26,7 +27,7 @@ const VALIDATORS = ['Circle · BlackRock · DTCC · Galaxy · Global Payments ·
 async function v2(path) {
   const UP = process.env.HOLDINGS_UPSTREAM, KEY = process.env.HOLDINGS_KEY;
   if (!UP || !KEY) return null;
-  const r = await fetch(`${UP.replace(/\/+$/, '')}/v2/${path}`, { headers: { 'x-relay-key': KEY }, signal: AbortSignal.timeout(4000) });
+  const r = await fetchUpstream(`${UP.replace(/\/+$/, '')}/v2/${path}`, { headers: { 'x-relay-key': KEY } }, { tries: 3, timeoutMs: 1500, lastTimeoutMs: 3000 });
   return r.ok ? r.json() : null;
 }
 const T = (x, y, s, size, fill = C.white, extra = '') => `<text x="${x}" y="${y}" font-family="Open Sans" font-size="${size}" fill="${fill}" ${extra}>${s}</text>`;

@@ -1,3 +1,4 @@
+import { fetchUpstream } from '../lib/upstream.js';
 // The screener's token list, served from the VPS builder — NOT from a Vercel deploy.
 // The VPS rebuilds the list from chain every 30 min; it used to publish by committing to git, i.e. one
 // Vercel DEPLOY per refresh (~48/day). On 09-24 the Hobby deploy limit blocked the good build for a day and
@@ -8,7 +9,7 @@ export default async function handler(req, res) {
   const UP = process.env.HOLDINGS_UPSTREAM, KEY = process.env.HOLDINGS_KEY;
   if (UP && KEY) {
     try {
-      const r = await fetch(`${UP.replace(/\/+$/, '')}/holdings/snapshot`, { headers: { 'x-relay-key': KEY }, signal: AbortSignal.timeout(20000) });
+      const r = await fetchUpstream(`${UP.replace(/\/+$/, '')}/holdings/snapshot`, { headers: { 'x-relay-key': KEY }, }, { lastTimeoutMs: 20000 });
       if (r.ok) {
         const text = await r.text();
         const j = JSON.parse(text);

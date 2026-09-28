@@ -1,3 +1,4 @@
+import { fetchUpstream } from '../lib/upstream.js';
 // Wallet holdings, read straight from the chain — NOT from a single indexer.
 // explorer.arc.io is Cloudflare-walled and RadarDEX /portfolio only knows tokens it pools, so a wallet's
 // real bag (nanocaps, airdrops) went missing. This reads it the honest way, like a block explorer does:
@@ -94,7 +95,7 @@ export default async function handler(req, res) {
     if (UP && HK) {
       const t0 = Date.now();
       try {
-        const r = await fetch(`${UP.replace(/\/+$/, '')}/holdings?addr=${addr}`, { headers: { 'x-relay-key': HK }, signal: AbortSignal.timeout(100000) });
+        const r = await fetchUpstream(`${UP.replace(/\/+$/, '')}/holdings?addr=${addr}`, { headers: { 'x-relay-key': HK } }, { timeoutMs: 8000, lastTimeoutMs: 100000 }); // connect retries: lib/upstream.js
         const txt = await r.text();
         const j = JSON.parse(txt);
         if (r.ok && Array.isArray(j.holdings)) {

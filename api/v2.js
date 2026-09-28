@@ -1,3 +1,4 @@
+import { fetchUpstream } from '../lib/upstream.js';
 // /api/v2/* → the v2 data API on the VPS (server/statera-api.ts via the Tailscale funnel path /v2), edge-cached.
 // Same upstream + key as /api/snapshot (HOLDINGS_UPSTREAM / HOLDINGS_KEY). The API computes the board ONCE for all
 // visitors; the browser gets KBs instead of the 1.14 MB list + ~130 RPC calls per page (v1). On any failure this answers
@@ -11,7 +12,9 @@ export default async function handler(req, res) {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(req.query)) if (k !== 'path' && typeof v === 'string') qs.set(k, v.slice(0, 4000));
   try {
-    const r = await fetch(`${UP.replace(/\/+$/, '')}/v2/${path}${qs.toString() ? '?' + qs : ''}`, { headers: { 'x-relay-key': KEY, 'accept-encoding': 'gzip' }, signal: AbortSignal.timeout(25000) });
+    // connect failures retried (lib/upstream.js — a Tailscale funnel entry server was failing half the calls, 09-28)
+    const r = await fetchUpstream(`${UP.replace(/\/+$/, '')}/v2/${path}${qs.toString() ? '?' + qs : ''}`, { headers: { 'x-relay-key': KEY, 'accept-encoding': 'gzip' } }, { lastTimeoutMs: 20000 });
+    res.setHeader('x-v2-tries', String(r.tries || 1));
     const text = await r.text();
     if (r.status >= 500) return res.status(502).json({ error: 'v2 upstream ' + r.status });
     res.setHeader('content-type', 'application/json; charset=utf-8');
