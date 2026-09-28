@@ -22,7 +22,7 @@ import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
 import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk } from './token-detail.ts';
-import { pollChain, chainSummary, chainStats } from './chain.ts';
+import { pollChain, chainSummary, chainStats, backfillStep, saveChain, loadChain } from './chain.ts';
 
 const PORT = Number(process.env.PORT || 8790);
 const SNAP = process.env.SNAPSHOT_FILE || '/root/statera-live/tokens-snapshot.json';
@@ -216,5 +216,10 @@ setTimeout(warm, 20_000); setInterval(warm, 180_000);
 // The Network page's chain follower: every block, one poll at a time, every 15 s.
 let chaining = false;
 const tickChain = async () => { if (chaining) return; chaining = true; try { await pollChain(rpc, rpcBatch); } catch (e) { chainStats.errors++; console.error('[chain]', (e as Error).message); } finally { chaining = false; } };
-tickChain(); setInterval(tickChain, 15_000);
+loadChain(); tickChain(); setInterval(tickChain, 15_000);
+// History in the background, paced under the public RPC burst limit; state saved every minute (survives deploys).
+const backfill = async () => { try { if (await backfillStep(rpcBatch)) { setTimeout(backfill, 1200); return; } } catch { chainStats.errors++; } setTimeout(backfill, 30_000); };
+setTimeout(backfill, 5_000);
+setInterval(saveChain, 60_000);
+for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveChain(); process.exit(0); });
 setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(); } catch { /* keep serving the last good list */ } }, 5000);

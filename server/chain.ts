@@ -4,6 +4,8 @@
 // from totalSupply(). Verified on-chain 2026-09-28: 17 distinct producers rotating round-robin, ~0.505 s blocks, base fee at
 // the 20 gwei floor; DepositForBurn = USDC leaving Arc, MintAndWithdraw = USDC arriving. The chain does not say which
 // institution runs which producer address — the page shows addresses, never guessed names.
+import fs from 'node:fs';
+import path from 'node:path';
 type Rpc = (method: string, params: unknown[]) => Promise<any>;
 
 const WINDOW_S = 6 * 3600;                 // rolling window kept in memory (6 h of blocks ≈ 43k small rows)
@@ -56,7 +58,9 @@ async function readFlows(rpc: Rpc, from: number, to: number) {
   // A received message's source domain, keyed by tx (MintAndWithdraw and MessageReceived share the receive tx).
   const srcByTx = new Map<string, number>();
   if (Array.isArray(mt)) for (const l of mt) { try { srcByTx.set(l.transactionHash, Number(word(l.data, 0))); } catch { /* skip */ } }
-  const tsOf = (n: number) => blocks.get(n)?.ts ?? null;
+  const headTs = blocks.get(head)?.ts ?? null;
+  // A log in a block not read yet (the backfill is behind): time it from the head at ~0.5 s/block until the block lands.
+  const tsOf = (n: number) => blocks.get(n)?.ts ?? (headTs != null ? Math.round(headTs - (head - n) * 0.5) : null);
   for (const l of tm) {
     const n = parseInt(l.blockNumber, 16);
     try {
@@ -79,26 +83,59 @@ async function readSupplies(rpc: Rpc) {
   suppliesAt = Date.now();
 }
 
-/** One poll: catch up to the head (≤ 40 blocks per batch), CCTP logs since last time, supplies every 5 min, trim window. */
+// ── State survives restarts (a deploy used to blank the page for the ~6 min backfill, 09-28 owner screenshot) ──────
+const STATE_FILE = process.env.CHAIN_STATE || '/root/statera-api-state/chain.json';
+let firstBlock = 0;            // oldest block read so far; the background backfill walks it back to head − 1 h
+let flowsFrom = 0;             // oldest block whose CCTP logs are in `flows`
+export function saveChain() {
+  try {
+    fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+    const tmp = STATE_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, lastBlock, lastLogBlock, firstBlock, flowsFrom, blocks: [...blocks.values()], flows, supplies, suppliesAt }));
+    fs.renameSync(tmp, STATE_FILE);
+  } catch { /* next time */ }
+}
+export function loadChain() {
+  try {
+    const j = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    if (j.v !== 1) return;
+    for (const b of j.blocks as Blk[]) blocks.set(b.n, b);
+    flows = j.flows || []; Object.assign(supplies, j.supplies || {}); suppliesAt = 0; // supplies re-read on the first poll
+    lastBlock = j.lastBlock || 0; lastLogBlock = j.lastLogBlock || 0; firstBlock = j.firstBlock || 0; flowsFrom = j.flowsFrom || 0;
+  } catch { /* fresh start */ }
+}
+
+/** One poll (every 15 s): supplies (every 5 min), the NEWEST blocks up to the head, CCTP logs for the same range. Never
+ *  blocks on history — the page is right from the first poll; backfillStep() lengthens the window in the background. */
 export async function pollChain(rpc: Rpc, rpcBatch: (calls: [string, unknown[]][]) => Promise<any[]>) {
   chainStats.polls++;
   const h = parseInt(await rpc('eth_blockNumber', []), 16);
   if (!Number.isFinite(h)) throw new Error('no head');
   head = h;
-  if (!lastBlock) {
-    // Backfill ~1 h in the background-friendly way: 20 blocks per call, paced to stay under the public RPC's burst limit.
-    const from = h - Math.round(BACKFILL_S / 0.5);
-    for (let n = from; n <= h; n += 20) { await readBlocks(rpcBatch, n, Math.min(h, n + 19)).catch(() => { chainStats.errors++; }); await new Promise((r) => setTimeout(r, 900)); }
-    for (let n = from; n <= h; n += 9000) await readFlows(rpc, n, Math.min(h, n + 8999)).catch(() => { chainStats.errors++; });
-    lastBlock = h; lastLogBlock = h; chainStats.backfilled = true;
-  } else {
-    for (let n = lastBlock + 1; n <= h; n += 40) await readBlocks(rpcBatch, n, Math.min(h, n + 39));
-    lastBlock = h;
-    if (h > lastLogBlock) { await readFlows(rpc, lastLogBlock + 1, Math.min(h, lastLogBlock + 9000)); lastLogBlock = Math.min(h, lastLogBlock + 9000); }
-  }
   if (Date.now() - suppliesAt > 5 * 60_000) await readSupplies(rpc);
-  // Flows found before their block was read get their time now; trim everything older than the window.
-  const newest = blocks.get(h)?.ts ?? Math.floor(Date.now() / 1000);
+  // A long gap (first start, or a restart after hours) = start from the head; the backfill fills in behind.
+  if (!lastBlock || h - lastBlock > 2000) { lastBlock = h - 40; if (!firstBlock || firstBlock > lastBlock) firstBlock = lastBlock + 1; }
+  for (let n = lastBlock + 1; n <= h; n += 40) await readBlocks(rpcBatch, n, Math.min(h, n + 39));
+  // CCTP: the whole last hour in one call on start (≤ 9,000 blocks), then only what is new.
+  if (!lastLogBlock || h - lastLogBlock > 8000) {
+    const from = h - Math.round(BACKFILL_S / 0.5);
+    flows = []; await readFlows(rpc, from, h); flowsFrom = from; lastLogBlock = h;
+  } else if (h > lastLogBlock) { await readFlows(rpc, lastLogBlock + 1, h); lastLogBlock = h; }
+  lastBlock = h;
+  trim();
+}
+/** Background history: 20 older blocks per call, newest-first, until 1 h (then the 6 h window fills on its own). */
+export async function backfillStep(rpcBatch: (calls: [string, unknown[]][]) => Promise<any[]>): Promise<boolean> {
+  if (!head || !firstBlock) return false;
+  const target = head - Math.round(BACKFILL_S / 0.5);
+  if (firstBlock <= target) { chainStats.backfilled = true; return false; }
+  const from = Math.max(target, firstBlock - 20);
+  await readBlocks(rpcBatch, from, firstBlock - 1);
+  firstBlock = from;
+  return true;
+}
+function trim() {
+  const newest = blocks.get(head)?.ts ?? Math.max(0, ...[...blocks.values()].slice(-1).map((b) => b.ts));
   for (const f of flows) if (!f.ts) f.ts = blocks.get(f.n)?.ts ?? 0;
   for (const [n, b] of blocks) if (b.ts < newest - WINDOW_S) blocks.delete(n);
   flows = flows.filter((f) => !f.ts || f.ts >= newest - WINDOW_S);
@@ -136,7 +173,8 @@ export function chainSummary() {
     at: Date.now(), head: last.n, headTs: last.ts, baseFeeGwei: last.baseFee / 1e9, coveredSeconds: cover,
     m5: win(300), h1: win(3600), h6: cover >= 5 * 3600 ? win(6 * 3600) : null,
     validators, validatorCount: validators.length,
-    cctp: { h1: flowWin(3600), h6: cover >= 5 * 3600 ? flowWin(6 * 3600) : null },
+    cctp: { h1: flowWin(3600), h6: cover >= 5 * 3600 ? flowWin(6 * 3600) : null, fromBlock: flowsFrom },
+    backfilling: !chainStats.backfilled,
     supplies: { ...supplies }, suppliesAt,
   };
 }

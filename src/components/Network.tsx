@@ -19,6 +19,8 @@ export function Network() {
     return () => { alive = false; clearInterval(id); };
   }, []);
   const h1 = c?.h1, m5 = c?.m5, f = c?.cctp.h1;
+  // Label the window we really have: right after a (re)start the follower holds < 1 h of blocks and fills in behind.
+  const hw = c ? (c.coveredSeconds >= 3500 ? '1h' : ago(c.coveredSeconds)) : '1h';
   const net = f ? f.in.usd - f.out.usd : null;
   return (
     <div className="wrap"><section className="section" id="network">
@@ -36,12 +38,12 @@ export function Network() {
 
       {c && <>
         <div className="stats">
-          <div className="stat"><div className="v">{h1 ? `${h1.blockTime.toFixed(2)}s` : '—'}</div><div className="l">Block Time · 1h</div></div>
+          <div className="stat"><div className="v">{h1 ? `${h1.blockTime.toFixed(2)}s` : '—'}</div><div className="l">Block Time · {hw}</div></div>
           <div className="stat"><div className="v">{m5 ? n0(m5.tps, 1) : '—'}</div><div className="l">TPS · 5m</div></div>
-          <div className="stat"><div className="v">{h1 ? n0(h1.txs) : '—'}</div><div className="l">Transactions · 1h</div></div>
-          <div className="stat"><div className="v">{h1 ? usd(h1.feesUsdc) : '—'}</div><div className="l">Base Fees Paid · 1h</div></div>
+          <div className="stat"><div className="v">{h1 ? n0(h1.txs) : '—'}</div><div className="l">Transactions · {hw}</div></div>
+          <div className="stat"><div className="v">{h1 ? usd(h1.feesUsdc) : '—'}</div><div className="l">Base Fees Paid · {hw}</div></div>
           <div className="stat"><div className="v">{n0(c.baseFeeGwei, 0)} gwei</div><div className="l">Base Fee (USDC gas)</div></div>
-          <div className="stat"><div className="v">{c.validatorCount}</div><div className="l">Block Producers · 1h</div></div>
+          <div className="stat"><div className="v">{c.validatorCount}</div><div className="l">Block Producers · {hw}</div></div>
           <div className="stat"><div className="v r">FINAL</div><div className="l">&lt;1s Deterministic</div></div>
         </div>
 
@@ -49,7 +51,7 @@ export function Network() {
           <div className="net-card">
             <div className="net-card-head"><h3>Circle Assets on Arc</h3><span className="side-note">totalSupply() on chain</span></div>
             {(['USDC', 'EURC', 'cirBTC', 'USYC'] as const).map((k) => (
-              <div className="net-row" key={k}><span>{k}</span><span className="num mono">{c.supplies[k] == null ? '—' : n0(c.supplies[k], k === 'cirBTC' ? 2 : 0)}</span></div>
+              <div className="net-row" key={k}><span>{k}</span><span className="num mono">{c.supplies[k] == null ? 'reading…' : n0(c.supplies[k], k === 'cirBTC' ? 2 : 0)}</span></div>
             ))}
           </div>
           <div className="net-card">
@@ -67,7 +69,7 @@ export function Network() {
         </div>
 
         <div className="net-card net-wide">
-          <div className="net-card-head"><h3>Block Producers · last hour</h3><span className="side-note">Permissioned validators take turns proposing blocks (Malachite BFT). Addresses as recorded on each block.</span></div>
+          <div className="net-card-head"><h3>Block Producers · last {hw === '1h' ? 'hour' : hw}</h3><span className="side-note">Permissioned validators take turns proposing blocks (Malachite BFT). Addresses as recorded on each block.</span></div>
           <div className="net-vals">
             <div className="net-val head"><span>#</span><span>Producer</span><span className="num">Blocks</span><span className="num">Share</span><span className="num">Last block</span></div>
             {c.validators.map((v, i) => (
