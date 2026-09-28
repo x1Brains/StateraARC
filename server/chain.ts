@@ -115,13 +115,17 @@ export async function pollChain(rpc: Rpc, rpcBatch: (calls: [string, unknown[]][
   if (Date.now() - suppliesAt > 5 * 60_000) await readSupplies(rpc);
   // A long gap (first start, or a restart after hours) = start from the head; the backfill fills in behind.
   if (!lastBlock || h - lastBlock > 2000) { lastBlock = h - 40; if (!firstBlock || firstBlock > lastBlock) firstBlock = lastBlock + 1; }
-  for (let n = lastBlock + 1; n <= h; n += 40) await readBlocks(rpcBatch, n, Math.min(h, n + 39));
+  // 20 blocks per batch; advance only past what was actually read, so a rate-limited batch is retried next poll
+  // instead of aborting the whole poll with the window frozen (09-28 on the VPS: covered stuck at 2 min).
+  let got = lastBlock;
+  try { for (let n = lastBlock + 1; n <= h; n += 20) { const to = Math.min(h, n + 19); await readBlocks(rpcBatch, n, to); got = to; } }
+  catch { chainStats.errors++; }
   // CCTP: the whole last hour in one call on start (≤ 9,000 blocks), then only what is new.
   if (!lastLogBlock || h - lastLogBlock > 8000) {
     const from = h - Math.round(BACKFILL_S / 0.5);
-    flows = []; await readFlows(rpc, from, h); flowsFrom = from; lastLogBlock = h;
-  } else if (h > lastLogBlock) { await readFlows(rpc, lastLogBlock + 1, h); lastLogBlock = h; }
-  lastBlock = h;
+    try { const keep = flows; flows = []; await readFlows(rpc, from, h).catch((e) => { flows = keep; throw e; }); flowsFrom = from; lastLogBlock = h; } catch { chainStats.errors++; }
+  } else if (h > lastLogBlock) { try { await readFlows(rpc, lastLogBlock + 1, h); lastLogBlock = h; } catch { chainStats.errors++; } }
+  lastBlock = got;
   trim();
 }
 /** Background history: 20 older blocks per call, newest-first, until 1 h (then the 6 h window fills on its own). */

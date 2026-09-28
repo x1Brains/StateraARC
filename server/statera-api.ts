@@ -54,9 +54,13 @@ async function rpc(method: string, params: unknown[], tries = 4): Promise<any> {
 }
 const call: Live.Call = (to, data) => rpc('eth_call', [{ to, data }, 'latest']);
 // A JSON-RPC batch (the chain follower reads ≤ 40 blocks per call); rotates nodes, retries the whole batch.
-async function rpcBatch(calls: [string, unknown[]][], tries = 4): Promise<any[]> {
+// Its own node pool: the VPS IP also carries the grid bot, holdings, sniper and indexer, and tenderly rate-limits it (09-28),
+// so the follower spreads over the four that accept batches from here.
+const BATCH_RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org', 'https://rpc.quicknode.mainnet.arc.io', 'https://rpc.blockdaemon.mainnet.arc.io'];
+let br = 0;
+async function rpcBatch(calls: [string, unknown[]][], tries = 5): Promise<any[]> {
   for (let i = 0; i < tries; i++) {
-    const url = RPCS[(rr++) % RPCS.length];
+    const url = BATCH_RPCS[(br++) % BATCH_RPCS.length];
     try {
       const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(calls.map(([method, params], id) => ({ jsonrpc: '2.0', id, method, params }))), signal: AbortSignal.timeout(10000) });
@@ -218,7 +222,7 @@ let chaining = false;
 const tickChain = async () => { if (chaining) return; chaining = true; try { await pollChain(rpc, rpcBatch); } catch (e) { chainStats.errors++; console.error('[chain]', (e as Error).message); } finally { chaining = false; } };
 loadChain(); tickChain(); setInterval(tickChain, 15_000);
 // History in the background, paced under the public RPC burst limit; state saved every minute (survives deploys).
-const backfill = async () => { try { if (await backfillStep(rpcBatch)) { setTimeout(backfill, 1200); return; } } catch { chainStats.errors++; } setTimeout(backfill, 30_000); };
+const backfill = async () => { try { if (await backfillStep(rpcBatch)) { setTimeout(backfill, 2500); return; } } catch { chainStats.errors++; setTimeout(backfill, 10_000); return; } setTimeout(backfill, 30_000); };
 setTimeout(backfill, 5_000);
 setInterval(saveChain, 60_000);
 for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveChain(); process.exit(0); });
