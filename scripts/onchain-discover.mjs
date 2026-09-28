@@ -11,6 +11,7 @@
 //  - State (cursor + known tokens) lives OUTSIDE the git repo so the snapshot push's hard-reset can't wipe it.
 import fs from 'fs';
 import { keccak_256 } from '@noble/hashes/sha3';
+import { encAggregate3, decAggregate3 } from './lib/multicall.mjs';
 
 const RPCS_BIG = ['https://arc.gateway.tenderly.co', 'https://rpc.blockdaemon.mainnet.arc.io']; // accept 95k ranges
 const RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.gateway.tenderly.co', 'https://rpc.blockdaemon.mainnet.arc.io'];
@@ -95,11 +96,11 @@ const hexToU8 = (h) => { h = h.replace(/^0x/, ''); const a = new Uint8Array(h.le
 const v4StateSlot = (poolId) => '0x' + Buffer.from(keccak_256(hexToU8(poolId.replace(/^0x/, '').padStart(64, '0') + (6).toString(16).padStart(64, '0')))).toString('hex');
 const num = (hex, dec) => { try { return Number(BigInt(hex)) / 10 ** dec; } catch { return 0; } };
 
-let _ri = 0;
+let _ri = 0; const rpcCount = { requests: 0 };
 async function rpc(method, params, big = false) {
   const pool = big ? RPCS_BIG : RPCS;
   for (let i = 0; i < 4; i++) {
-    const url = pool[(_ri++) % pool.length];
+    const url = pool[(_ri++) % pool.length]; rpcCount.requests++;
     try {
       const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 12000);
       const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: ctrl.signal }).finally(() => clearTimeout(to));
@@ -116,7 +117,8 @@ async function runLimited(tasks, limit) { const out = new Array(tasks.length); l
 // Scan a topic on an address across [from,head] in `chunk`-block windows (big-range RPCs), bounded.
 async function scanLogs(address, topics, from, head, chunk = CH) {
   const ranges = []; for (let f = from; f < head; f += chunk) ranges.push([f, f + chunk > head ? head : f + chunk]);
-  const res = await runLimited(ranges.map(([f, t]) => () => rpc('eth_getLogs', [{ address, topics, fromBlock: '0x' + f.toString(16), toBlock: '0x' + t.toString(16) }], true)), 8);
+  // address null = topic-only filter across every contract (the tiering's chain-wide swap scan)
+  const res = await runLimited(ranges.map(([f, t]) => () => rpc('eth_getLogs', [{ ...(address ? { address } : {}), topics, fromBlock: '0x' + f.toString(16), toBlock: '0x' + t.toString(16) }], true)), 8);
   // ⛔ A failed chunk (RPC error / the endpoints' 20k-results cap) returns null and would be SILENTLY dropped
   // → missing logs → undercounted discovery/volume. Count + warn so partial scans are never invisible.
   const out = []; let failed = 0;
@@ -171,10 +173,28 @@ async function updateV4Registry(state, head) {
   return reg;
 }
 
-// Batched parallel eth_call (reliable — no hand-rolled ABI encoding). Returns results aligned to `calls`.
-async function batchCall(calls, limit = 12) {
+// ── Batched eth_call through Multicall3.aggregate3 (09-28, owner: "do the bundling fix") ──────────────────────────────
+// One request carries MC_CHUNK calls instead of one each — a run was ~40k single eth_calls from an IP the public RPCs were
+// already rate-limiting. allowFailure=true per call, so a revert is that call's '0x' (same as a failed single call before).
+// A chunk whose request fails falls back to single calls, so bundling can never lose a result the old path would get.
+// Encoding checked against single calls by scripts/regress/multicall-check.mjs before shipping.
+const MC_CHUNK = Number(process.env.ONCHAIN_MC_CHUNK || 100);
+async function batchCallSingle(calls, limit = 12) {
   return runLimited(calls.map((c) => async () => { const r = await call(c.target, c.data); return { data: r || '0x' }; }), limit);
 }
+async function batchCall(calls, limit = 3) {
+  const chunks = []; for (let i = 0; i < calls.length; i += MC_CHUNK) chunks.push(calls.slice(i, i + MC_CHUNK));
+  const res = await runLimited(chunks.map((ch) => async () => {
+    const r = await call(MULTICALL3, encAggregate3(ch));
+    if (r && r.length > 2) { try { const d = decAggregate3(r); if (d.length === ch.length) { mcStats.bundled += ch.length; return d.map((x) => ({ data: x })); } } catch { /* fall back */ } }
+    mcStats.fallback += ch.length;
+    return batchCallSingle(ch, 12);
+  }), limit);
+  return res.flat();
+}
+const mcStats = { bundled: 0, fallback: 0 };
+// Native USDC balance of an address as a Multicall3 call (getEthBalance) — lets pool USDC balances ride in a bundle.
+const ethBal = (a) => ({ target: MULTICALL3, data: '0x4d2301cc' + pad(a) });
 // Decode a solidity `string`/`bytes32` return into text.
 const decStr = (hex) => {
   try {
@@ -335,19 +355,25 @@ async function main() {
   // UniV2 factory. 09-26: neither was read, so WARP showed $1.77K from a side V4 pool. Both factories are small (54 pairs
   // total), so every pair is enumerated each run. A V2-only token becomes kind 'v2'; a token that also has a V2 pair gets
   // its liquidity + volume added below, and its price from the V2 pair when that pair is its deepest pool.
-  const V2_FACTORIES = { '0x942bd5bfdc5317c5507e326f8eb4bb6058ab5c10': 'V2', '0x32330c2400a6e0830d56661169ebb6c147e3577a': 'WarpV2' };
+  // ⛔ 09-28: 0x942bd5… is DyorSwap (every DyorSwap pool's factory(); DefiLlama's adapter) — it was labelled 'V2'. The REAL
+  // Uniswap V2 factory on Arc is 0x89e5db8b… (Uniswap sdk-core + Sushi config; 825 pairs) and was not read at all.
+  const V2_FACTORIES = { '0x942bd5bfdc5317c5507e326f8eb4bb6058ab5c10': 'DyorSwap', '0x89e5db8b5aa49aa85ac63f691524311aeb649eba': 'UniV2', '0x32330c2400a6e0830d56661169ebb6c147e3577a': 'WarpV2' };
+  const NEW_PAIRS_PER_RUN = Number(process.env.ONCHAIN_NEW_PAIRS || 300); // first enumeration of 825 pairs spreads over ~3 runs
   state.v2pairs = state.v2pairs || {};
   for (const [fac, label] of Object.entries(V2_FACTORIES)) {
     const n = Number(BigInt((await call(fac, '0x574f2ba3')) || '0x0')); // allPairsLength()
     const idx = []; for (let i = 0; i < n; i++) idx.push(i);
     const known = new Set(Object.values(state.v2pairs).filter((p) => p.fac === fac).map((p) => p.i));
-    const need = idx.filter((i) => !known.has(i));
+    const need = idx.filter((i) => !known.has(i)).slice(0, NEW_PAIRS_PER_RUN);
     const addrs = await batchCall(need.map((i) => ({ target: fac, data: '0x1e3dd18b' + padU(i) }))); // allPairs(i)
     const pairs = addrs.map((r) => (r.data && r.data.length >= 66 ? ('0x' + r.data.slice(-40)).toLowerCase() : null));
     const t01 = await batchCall(pairs.flatMap((p) => (p ? [{ target: p, data: '0x0dfe1681' }, { target: p, data: '0xd21220a7' }] : [])));
     let k = 0;
-    need.forEach((i, j) => { const p = pairs[j]; if (!p) return; const t0 = ('0x' + (t01[k++]?.data || '').slice(-40)).toLowerCase(), t1 = ('0x' + (t01[k++]?.data || '').slice(-40)).toLowerCase(); state.v2pairs[p] = { fac, label, i, t0, t1 }; });
+    // Store a pair only when BOTH token reads came back — a rate-limited read used to be stored as token '0x' for good.
+    need.forEach((i, j) => { const p = pairs[j]; if (!p) return; const a = t01[k++]?.data || '', b = t01[k++]?.data || ''; if (a.length < 42 || b.length < 42) return; const t0 = ('0x' + a.slice(-40)).toLowerCase(), t1 = ('0x' + b.slice(-40)).toLowerCase(); state.v2pairs[p] = { fac, label, i, t0, t1 }; });
   }
+  for (const p of Object.values(state.v2pairs)) if (V2_FACTORIES[p.fac]) p.label = V2_FACTORIES[p.fac]; // relabel stored pairs
+  for (const t of Object.values(state.tokens)) if (t.kind === 'v2' && state.v2pairs[t.pool]) t.dex = state.v2pairs[t.pool].label;
   const v2ByToken = new Map(); // token -> [{pair, usdcIsC0, label}]
   for (const [pair, p] of Object.entries(state.v2pairs)) {
     if (p.t0 !== USDC && p.t1 !== USDC) continue;
@@ -365,8 +391,61 @@ async function main() {
   }
   console.log(`[disc] V2 pairs: ${Object.keys(state.v2pairs).length} known, ${[...v2ByToken.values()].flat().length} USDC pairs, ${v2new.length} new V2-only tokens`);
 
-  // ── 5) Re-price EVERY known token on-chain (they move) ────────────────────────────────────────────
-  const entries = Object.entries(state.tokens);
+  // ── 4c) Concentrated-liquidity forks (09-28): Aerodrome Slipstream ("Aero Lite", ~$4.9M/day) and Archery CL (~$1.2M/day)
+  // were not read. Both: Uniswap-V3 Swap event (same topic), slot0() word 0 = sqrtPriceX96 (6 words, no feeProtocol), pools
+  // enumerated by allPoolsLength()/allPools(i). Verified on chain: 35 + 4 pools, every pool's factory() matches. Their pools
+  // join the V3 path: price from slot0, liquidity = USDC side + token side (capped 3x, v3Side), volume from Swap logs.
+  const CL_FACTORIES = { '0xb89df768af2cfe637ceb352c587fe8edaf491d03': 'Aero', '0xc481038c013fe96f38ce7a2dc417b2b1b78b16a4': 'Archery' };
+  state.clpools = state.clpools || {};
+  for (const [fac, label] of Object.entries(CL_FACTORIES)) {
+    const n = Number(BigInt((await call(fac, '0xefde4e64')) || '0x0')); // allPoolsLength()
+    const known = new Set(Object.values(state.clpools).filter((p) => p.fac === fac).map((p) => p.i));
+    const need = []; for (let i = 0; i < n; i++) if (!known.has(i)) need.push(i);
+    const addrs = await batchCall(need.map((i) => ({ target: fac, data: '0x41d1de97' + padU(i) }))); // allPools(i)
+    const pools = addrs.map((r) => (r.data && r.data.length >= 66 ? ('0x' + r.data.slice(-40)).toLowerCase() : null));
+    const t01 = await batchCall(pools.flatMap((p) => (p ? [{ target: p, data: '0x0dfe1681' }, { target: p, data: '0xd21220a7' }] : [])));
+    let k = 0;
+    need.forEach((i, j) => { const p = pools[j]; if (!p) return; const a = t01[k++]?.data || '', b = t01[k++]?.data || ''; if (a.length < 42 || b.length < 42) return; state.clpools[p] = { fac, label, i, t0: ('0x' + a.slice(-40)).toLowerCase(), t1: ('0x' + b.slice(-40)).toLowerCase() }; });
+  }
+  const clByToken = new Map(); // token -> [{pool, usdcIsC0, label}]
+  for (const [pool, p] of Object.entries(state.clpools)) {
+    if (p.t0 !== USDC && p.t1 !== USDC) continue;
+    const tok = p.t0 === USDC ? p.t1 : p.t0;
+    (clByToken.get(tok) || clByToken.set(tok, []).get(tok)).push({ pool, usdcIsC0: p.t0 === USDC, label: p.label });
+  }
+  // CL-only tokens → kind 'v3' rows on their CL pool (the V3 price/liquidity path reads slot0 word 0 — identical for these).
+  const clnew = [...clByToken.entries()].filter(([tok]) => !state.tokens[tok]);
+  if (clnew.length) {
+    const md = await batchCall(clnew.flatMap(([tok]) => [{ target: tok, data: '0x95d89b41' }, { target: tok, data: '0x06fdde03' }, { target: tok, data: '0x313ce567' }, { target: tok, data: '0x18160ddd' }]));
+    clnew.forEach(([tok, ps], i) => {
+      const dh = md[i * 4 + 2]?.data; if (!dh || dh === '0x') return; // unknown decimals = no row (never a guessed 18 for a new token)
+      const sym = decStr(md[i * 4]?.data) || '?', nm = decStr(md[i * 4 + 1]?.data) || sym, dec = parseInt(dh.slice(0, 66), 16);
+      state.tokens[tok] = { symbol: sym, name: nm, decimals: Number.isFinite(dec) && dec <= 36 ? dec : 18, kind: 'v3', pool: ps[0].pool, poolId: null, usdcIsC0: ps[0].usdcIsC0, supplyRaw: md[i * 4 + 3]?.data || null, created: null, cnt: null, hooks: null, iconUrl: null, firstSeen: Date.now(), dex: ps[0].label };
+    });
+  }
+  console.log(`[disc] CL pools: ${Object.keys(state.clpools).length} known, ${[...clByToken.values()].flat().length} USDC pools, ${clnew.length} new CL-only tokens`);
+
+  // ── 5) Re-price the tokens that can have MOVED (09-28 tiering, owner: "only make rpc calls on the active tokens") ─────────
+  // A pool's price only changes when someone swaps in it; depth only when someone adds/removes liquidity. So every run reads
+  // the HOT tokens — traded in the last 24h, a swap seen since the last run (chain-wide V2/V3/CL + V4 scans), deep (≥ $5K),
+  // new (< 48h), or on the small V2/CL venues — and the COLD rest in 6 rotating slices (each ≈ once an hour), keeping their
+  // last values in between. ~7,000 tokens → typically a few hundred reads per run.
+  const COLD_SLICES = Number(process.env.ONCHAIN_COLD_SLICES || 6);
+  state.runN = (state.runN || 0) + 1;
+  const swappedPools = new Set();
+  {
+    const since = state.cursor ? BigInt(state.cursor) : BigInt(head) - 3000n;
+    const logs = await scanLogs(null, [[T_V3_SWAP, T_V2_SWAP]], since, BigInt(head), 2000n); // topic-only: every V2/V3-style pool
+    for (const l of logs) swappedPools.add(l.address.toLowerCase());
+  }
+  const isHot = (addr, t) => (t.lastVol || 0) >= 50 || (t.lastLiq || 0) >= 5000 || (t.pool && swappedPools.has(t.pool)) ||
+    (t.poolId && v4active.has(t.poolId)) || (Date.now() - (t.firstSeen || 0) < 48 * 3600e3) || t.kind === 'v2' || !!t.dex ||
+    clByToken.has(addr) || v2ByToken.has(addr) || t.lastPrice == null;
+  const slice = (addr) => parseInt(addr.slice(-6), 16) % COLD_SLICES;
+  const refresh = new Set(Object.entries(state.tokens).filter(([a, t]) => isHot(a, t) || slice(a) === state.runN % COLD_SLICES).map(([a]) => a));
+  console.log(`[disc] tiering: ${refresh.size} of ${Object.keys(state.tokens).length} tokens read this run (hot + cold slice ${state.runN % COLD_SLICES}/${COLD_SLICES}); ${swappedPools.size} V2/V3 pools swapped since last run`);
+  const entries = Object.entries(state.tokens).filter(([a]) => refresh.has(a));
+  const kept = Object.entries(state.tokens).filter(([a]) => !refresh.has(a));
   const priceCalls = [];
   for (const [addr, t] of entries) {
     if (t.kind === 'v3') priceCalls.push({ target: t.pool, data: '0x3850c7bd', _a: addr, _k: 'slot0' });
@@ -398,6 +477,8 @@ async function main() {
     if ((price == null || !isFinite(price) || price <= 0 || price >= 1e6) && t.lastPrice) price = t.lastPrice; // keep last-good on a transient RPC miss so tokens don't flicker out
     return { addr, t, price };
   }).filter((x) => x.price != null && isFinite(x.price) && x.price > 0 && x.price < 1e6);
+  // Cold tokens outside this run's slice: their last read values (no swap = no price change), liquidity below.
+  const keptRows = kept.map(([addr, t]) => ({ addr, t, price: t.lastPrice, kept: true })).filter((x) => x.price != null && isFinite(x.price) && x.price > 0 && x.price < 1e6);
 
   // ⛔ 09-25: V3 pools were valued by their USDC side ONLY — cirBTC's main pool holds $6.06M USDC AND 64.5 cirBTC ($5.44M),
   // so the screener said $6.2M where the chain (and the token page) say $11.6M. Liquidity = BOTH sides now. The token
@@ -406,31 +487,48 @@ async function main() {
   // Same cap on the token page's pools card (arc.ts fetchAllOnchainPools), so both pages agree.
   const V3_TOKEN_SIDE_MAX = 3;
   const v3Side = (tokUsd, usdc) => (isFinite(tokUsd) && tokUsd > 0 ? Math.min(tokUsd, usdc * V3_TOKEN_SIDE_MAX) : 0);
-  const liqs = await runLimited(rows.map((x) => async () => {
+  // Liquidity, bundled: per row the same reads as before (V3: pool USDC + token side + V4 side; V2: pool USDC; V4: token
+  // held by the PoolManager), now as Multicall3 calls. '0x' = a failed read → keeps last-good (see below).
+  const liqPlan = rows.map((x) => x.t.kind === 'v3' ? [ethBal(x.t.pool), { target: x.addr, data: '0x70a08231' + pad(PM_V4) }, { target: x.addr, data: '0x70a08231' + pad(x.t.pool) }]
+    : x.t.kind === 'v2' ? [ethBal(x.t.pool)] : [{ target: x.addr, data: '0x70a08231' + pad(PM_V4) }]);
+  const liqRes = await batchCall(liqPlan.flat());
+  let li = 0;
+  const big = (h) => (h && h !== '0x' ? BigInt(h.slice(0, 66)) : null);
+  const liqs = rows.map((x, ix) => {
+    const r = liqPlan[ix].map(() => liqRes[li++]?.data);
+    if (r.some((h) => !h || h === '0x')) return null;
     if (x.t.kind === 'v3') {
-      // A V3-primary token can ALSO have a V4 pool (ARGUS = $744K V3 + ~$355K V4). Read BOTH: the V3 pool's
-      // native USDC AND the token side the V4 singleton holds (priced), so the aggregate is the TRUE total
-      // locked across the token's pools, not just its biggest one. (V4-primary tokens already count this via
-      // their own balanceOf(PM) read below.) balanceOf(PM_V4)==0 for a V3-only token, so this adds nothing.
-      const [b, vb, pb] = await Promise.all([
-        rpc('eth_getBalance', [x.t.pool, 'latest']),
-        call(x.addr, '0x70a08231' + pad(PM_V4)).catch(() => null),
-        call(x.addr, '0x70a08231' + pad(x.t.pool)).catch(() => null), // the V3 pool's TOKEN side
-      ]);
-      if (b == null || vb == null || pb == null) return null; // a FAILED read is not $0 (see below)
-      const v3usdc = Number(BigInt(b)) / 1e18;
-      const v3tok = pb !== '0x' ? Number(BigInt(pb)) / 10 ** x.t.decimals : 0;
-      const v4tok = vb !== '0x' ? Number(BigInt(vb)) / 10 ** x.t.decimals : 0;
+      const v3usdc = Number(big(r[0])) / 1e18, v4tok = Number(big(r[1])) / 10 ** x.t.decimals, v3tok = Number(big(r[2])) / 10 ** x.t.decimals;
       return v3usdc + v3Side(v3tok * x.price, v3usdc) + v4tok * x.price;
     }
-    if (x.t.kind === 'v2') { const b = await rpc('eth_getBalance', [x.t.pool, 'latest']); if (b == null) return null; return 2 * Number(BigInt(b)) / 1e18; } // constant product: both sides equal
-    const b = await call(x.addr, '0x70a08231' + pad(PM_V4)); if (b == null) return null;
-    const tok = b !== '0x' ? Number(BigInt(b)) / 10 ** x.t.decimals : 0; return tok * x.price; // V4: token side value (all its V4 pools)
-  }), 12);
+    if (x.t.kind === 'v2') return 2 * Number(big(r[0])) / 1e18; // constant product: both sides equal
+    return Number(big(r[0])) / 10 ** x.t.decimals * x.price; // V4: token side value (all its V4 pools)
+  });
   // ⛔ A rate-limited read used to count as $0 liquidity → under the $100 floor → the token vanished from the
   // screener for a cycle (09-25 A/B: 91 tokens incl. the real ARGUS dropped on a busy run). Same rule as price:
   // a failed read keeps the last good value.
   rows.forEach((x, i) => { x.liq = liqs[i] != null ? liqs[i] : (x.t.lastLiq ?? 0); });
+  for (const x of keptRows) { x.liq = x.t.lastLiq ?? 0; rows.push(x); } // cold, not in this slice: last read values
+  // CL pools (Aero / Archery) of tokens whose primary pool is elsewhere: add their depth (USDC side + token side, capped like
+  // V3); when a CL pool is the DEEPEST market it also sets the price (slot0 word 0), same rule as the V2 block below.
+  {
+    const extra = rows.filter((x) => clByToken.has(x.addr));
+    for (const x of extra) {
+      let add = 0, bestU = 0, bestPx = null;
+      for (const p of clByToken.get(x.addr)) {
+        if (p.pool === x.t.pool) continue; // it IS the primary pool (a CL-only token) — already counted
+        const [b, tb, s0] = await Promise.all([rpc('eth_getBalance', [p.pool, 'latest']).catch(() => null), call(x.addr, '0x70a08231' + pad(p.pool)).catch(() => null), call(p.pool, '0x3850c7bd').catch(() => null)]);
+        if (b == null || tb == null || !s0 || s0.length < 66) continue;
+        const u = Number(BigInt(b)) / 1e18, k = tb !== '0x' ? Number(BigInt(tb)) / 10 ** x.t.decimals : 0;
+        if (u < MIN_USDC) continue;
+        const sq = BigInt(s0.slice(0, 66)); const ra = (Number(sq) / 2 ** 96) ** 2;
+        const px = sq > 0n ? (p.usdcIsC0 ? 1 / ra : ra) * 10 ** (x.t.decimals - 6) : null;
+        add += u + v3Side(k * (px || x.price), u);
+        if (u > bestU && px && isFinite(px) && px > 0 && px < 1e6) { bestU = u; bestPx = px; }
+      }
+      if (add > 0) { if (bestU * 2 > x.liq && bestPx) x.price = bestPx; x.liq += add; x.cl = true; }
+    }
+  }
   // V2 / WarpV2 pairs of tokens whose primary pool is elsewhere: add their depth (2 × USDC reserve); when a V2 pair is the
   // DEEPEST market, it also sets the price (WARP: WarpV2 $25.9K vs a $1.8K side V4 pool).
   {
@@ -471,7 +569,7 @@ async function main() {
   // $43M where live supply × price is ~$398M (supply grew ~9x), WETH 7x low. Re-read it every run for every token we output.
   // Names stored before the UTF-8 fix are repaired once (any Latin-1 mojibake character).
   {
-    const outRows = rows.filter((x) => x.liq >= MIN_LIQ);
+    const outRows = rows.filter((x) => x.liq >= MIN_LIQ && !x.kept); // cold rows outside the slice keep their supply
     const sup = await batchCall(outRows.map((x) => ({ target: x.addr, data: '0x18160ddd' })));
     outRows.forEach((x, i) => { const h = sup[i]?.data; if (h && h !== '0x' && h.length >= 66) state.tokens[x.addr].supplyRaw = h.slice(0, 66); });
     const moji = outRows.filter((x) => /[\u0080-\u00ff]/.test((x.t.name || '') + (x.t.symbol || '')) && !x.t.nameFixed);
@@ -490,7 +588,8 @@ async function main() {
   const byLiq = [...withLiq].sort((a, b) => b.liq - a.liq).slice(0, TOP_VOL);
   const active = withLiq.filter((x) => (x.t.cnt || 0) >= 50); // active launchpad coins (GLITCH cnt 880) even if liq-rank is lower
   const withV2 = withLiq.filter((x) => x.v2 || x.t.kind === 'v2'); // V2/WarpV2 markets (54 pairs total — always scanned)
-  const liquid = [...new Map([...byLiq, ...active, ...withV2].map((x) => [x.addr, x])).values()];
+  const withCL = withLiq.filter((x) => x.cl || clByToken.has(x.addr)); // Aero / Archery markets (39 pools — always scanned)
+  const liquid = [...new Map([...byLiq, ...active, ...withV2, ...withCL].map((x) => [x.addr, x])).values()];
   const ranges = []; for (let f = BigInt(head) - BigInt(blocks24); f < BigInt(head); f += CH) ranges.push([f, f + CH > BigInt(head) ? BigInt(head) : f + CH]);
   // AGGREGATE a token's 24h volume across ALL its USDC pools (V3 fee tiers + its V4 pool), not just the
   // deepest — a token split across pools was undercounting. (V2 is absent on Arc.) Both V3 & V4 Swaps put
@@ -511,6 +610,8 @@ async function main() {
       const r = reg.pools[pid]; pools.push({ kind: 'v4', poolId: pid, usdcIsC0: r[0] === USDC, primary: false });
     }
     for (const p of v2ByToken.get(x.addr) || []) if (!pools.some((q) => q.address === p.pair)) pools.push({ kind: 'v2', address: p.pair, usdcIsC0: p.usdcIsC0, primary: x.t.kind === 'v2' && x.t.pool === p.pair });
+    // CL pools: V3 Swap layout, volume only (their depth was added above, never via extraUsdc — no double count).
+    for (const p of clByToken.get(x.addr) || []) if (!pools.some((q) => q.address === p.pool)) pools.push({ kind: 'v3', address: p.pool, usdcIsC0: p.usdcIsC0, primary: false });
     const seen = new Set(pools.filter((p) => p.address).map((p) => p.address));
     const cand = await Promise.all([100, 500, 3000, 10000].map((fee) => call(V3_FACTORY, '0x1698ee82' + pad(x.addr) + pad(USDC) + fee.toString(16).padStart(64, '0')).catch(() => null)));
     for (const r of cand) {
@@ -607,12 +708,13 @@ async function main() {
       pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: !!t.usdcIsC0, decimals: dec,
       v4fee: t.poolId && t.v4fee != null ? t.v4fee : null, v4tick: t.poolId && t.v4tick != null ? t.v4tick : null, hooks: t.poolId && t.hooks ? t.hooks : null,
       hooked: !!(t.hooks && t.hooks !== ZERO && /[1-9a-f]/.test(t.hooks.slice(2))),
-      source: t.kind === 'v2' ? (t.dex || 'V2') : t.kind.toUpperCase(), launchpad: null }); // ⛔ was 'onchain' on every V4 row — a source, not a launchpad (09-26); the snapshot tags real pads
+      source: t.kind === 'v2' ? (t.dex || 'V2') : t.kind === 'v3' && t.dex ? t.dex : t.kind.toUpperCase(), launchpad: null }); // ⛔ was 'onchain' on every V4 row — a source, not a launchpad (09-26); the snapshot tags real pads
   }
   console.log(`[disc] priced ${out.length}, liquid (vol/chg scanned) ${liquid.length}`);
 
   for (const x of rows) { const st = state.tokens[x.addr]; if (st && x.liq > 0) st.lastLiq = x.liq; } // remember last-good liquidity
-  for (const o of out) { const st = state.tokens[o.address]; if (st) st.lastPrice = o.price; } // remember last-good price
+  for (const o of out) { const st = state.tokens[o.address]; if (st) { st.lastPrice = o.price; if (o.volume24h != null) st.lastVol = o.volume24h; } } // last-good price; last volume (hot test)
+  console.log(`[disc] multicall: ${mcStats.bundled} calls bundled, ${mcStats.fallback} fell back to single calls; ${rpcCount.requests} RPC requests this run`);
   state.cursor = head;
   fs.writeFileSync(STATE_FILE, JSON.stringify(state));
   fs.writeFileSync(OUT_FILE, JSON.stringify({ generatedAt: new Date().toISOString(), count: out.length, tokens: out }));
