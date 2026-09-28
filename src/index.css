@@ -1848,3 +1848,11 @@ footer .wrap { padding: 16px 20px; }
   .hero-trust { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; }
   .hero-cta { flex-wrap: wrap; }
 }
+/* 09-28 owner: "the badges on the right are a little too big and bleeding out" — the 13 columns summed past the table
+   width, so the Tags cell ended ~27px outside it, and the badges were chunky. Columns trimmed to fit; badges smaller;
+   tags stay on one line inside their cell (a long launchpad name ellipsizes, full name on hover). */
+.trow.sc { grid-template-columns: 40px 30px minmax(130px, 1.4fr) 84px 56px 60px 92px 98px 98px 70px 44px 76px 118px; }
+.trow.sc .flags { flex-wrap: nowrap; gap: 4px; min-width: 0; overflow: hidden; align-items: center; }
+.trow.sc .flags .badge { font-size: 7.5px; padding: 1px 5px; line-height: 1.5; border-radius: 3px; }
+.trow.sc .flags .badge.conf { font-size: 9px; padding: 1px 4px; flex: none; }
+.trow.sc .flags .b-lp { min-width: 0; max-width: 84px; overflow: hidden; text-overflow: ellipsis; }

@@ -576,7 +576,7 @@ export default function App() {
                     <span className="num spark-cell" data-l="Last 24h"><Sparkline data={t.spark} price={t.price} change24h={t.change24h} /></span>
                     <span className="flags">
                       {(() => { const c = confScore(t); return c != null ? <span className={`badge conf ${c >= 70 ? 'good' : c >= 40 ? 'mid' : 'bad'}`} title="Confidence — liquidity depth, holders, stability">{c}</span> : null; })()}
-                      {t.launchpad && <span className="badge b-lp">{t.launchpad}</span>}
+                      {t.launchpad && <span className="badge b-lp" title={t.launchpad}>{t.launchpad}</span>}
                       {t.isEcosystem && <span className="badge b-gray">ECO</span>}
                     </span>
                   </div>
