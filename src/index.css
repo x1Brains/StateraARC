@@ -1956,3 +1956,6 @@ footer .wrap { padding: 16px 20px; }
   .nx-share .asof { font-size: 10.5px; white-space: nowrap; }
   .nx-btn { padding: 6px 10px; font-size: 9.5px; letter-spacing: 1px; white-space: nowrap; }
 }
+/* 09-28: on phones the banner's bottom touched the Full-board card (0 px gap) and read as overlapping */
+.alb { margin-bottom: 18px; }
+@media (max-width: 640px) { .alb { margin: 14px 0 16px; } }
