@@ -31,7 +31,11 @@ async function multicall(rpc: Rpc, calls: { target: string; data: string }[]): P
 }
 const n = (h: string | undefined, dec: number) => (h && h.length >= 66 ? Number(BigInt(h.slice(0, 66))) / 10 ** dec : 0);
 
+// Persisted (like the chain follower): a restart used to leave /v2/where empty (503) for ~1-2 min until the first rebuild.
+import fs from 'node:fs';
+const STATE = process.env.WHERE_STATE || '/root/statera-api-state/where.json';
 let snap: any = null;
+try { snap = JSON.parse(fs.readFileSync(STATE, 'utf8')); } catch { /* first run */ }
 export const whereSummary = () => snap;
 export const whereStats = { runs: 0, errors: 0 };
 const poolCache = new Map<string, boolean>(); // address → is a DEX pool (answers token0()); contracts only
@@ -78,5 +82,6 @@ export async function refreshWhere(rpc: Rpc, poolAddrs: string[], priceOf: (a: s
     result.push({ sym: as.sym, supply, price: px, buckets: b, lendingBy: lendBy });
   }
   snap = { at: Date.now(), assets: result };
+  try { fs.mkdirSync(STATE.replace(/\/[^/]+$/, ''), { recursive: true }); fs.writeFileSync(STATE + '.tmp', JSON.stringify(snap)); fs.renameSync(STATE + '.tmp', STATE); } catch { /* next run */ }
   whereStats.runs++;
 }

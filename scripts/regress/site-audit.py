@@ -12,7 +12,10 @@ import os; os.makedirs(OUT, exist_ok=True)
 WALLET = '0x398c96b846966eaa7fdf56f89a028de9e8c9598a'  # the lab wallet (public address; read-only portfolio view)
 TOKENS = {'cirBTC': '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', 'ARGUS': '0xece5ca8bf9220718e5727754026757512212cb3c',
           'WETH': '0x128cc466b61f542da60c70e3aa11c10e19b84edb', 'EURC': '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1'}
-JUNK = re.compile(r'NaN|Infinity|undefined|null|\d[eE][+-]?\d{2,}|\$\d{1,3}(,\d{3}){4,}')
+# scientific notation only as a standalone number (not inside a 0x… address / hash, which caused false positives)
+JUNK = re.compile(r'NaN|Infinity|undefined|\bnull\b|(?<![0-9a-fA-Fx])\d(\.\d+)?[eE][+-]?\d{2,}(?![0-9a-fA-F])|\$\d{1,3}(,\d{3}){4,}')
+# expected fallbacks: a token with no cached logo, or one RadarDEX / Warp don't index → the page tries the next source
+EXPECTED = re.compile(r'^404 .*/api/(logo|radar/token|warp/tokens)/')
 findings, numbers = [], {}
 
 OVERFLOW_JS = """(() => {
@@ -49,7 +52,9 @@ def audit(ctx, name, path, wait=9000, act=None):
     if ov['sticking']: issues.append(f"elements past the right edge: {ov['sticking']}")
     if imgs: issues.append(f'{len(imgs)} broken images')
     if perr: issues.append(f'page errors: {perr[:2]}')
-    if bad: issues.append(f'{len(set(bad))} failed requests')
+    real = [x for x in set(bad) if not EXPECTED.match(x)]
+    if real: issues.append(f'{len(real)} failed requests: {sorted(real)[:3]}')
+    rec['expected_misses'] = len(set(bad)) - len(real)
     if junk: issues.append(f'junk text: {junk}')
     rec['issues'] = issues; findings.append(rec)
     print(f"{name:28} {rec['load_s']:>5}s  issues: {issues or 'none'}", flush=True)

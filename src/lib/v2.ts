@@ -23,7 +23,14 @@ export const v2Enabled = (() => {
 })();
 
 async function get<T>(path: string, ms = 8000): Promise<T> {
-  const r = await fetch(`/api/v2/${path}`, { signal: AbortSignal.timeout(ms) });
+  // One retry on a network error or a 5xx before giving up (09-28 audit: a single 502 during a server restart switched the
+  // tab to the heavy v1 path for good — App.tsx falls back on the first failure).
+  let r: Response | null = null;
+  for (let i = 0; i < 2 && !r; i++) {
+    try { const x = await fetch(`/api/v2/${path}`, { signal: AbortSignal.timeout(ms) }); if (x.status >= 500 && i === 0) { await new Promise((ok) => setTimeout(ok, 1200)); continue; } r = x; }
+    catch (e) { if (i === 1) throw e; await new Promise((ok) => setTimeout(ok, 1200)); }
+  }
+  if (!r) throw new Error(`v2 ${path} unavailable`);
   if (!r.ok && r.status !== 404) throw new Error(`v2 ${path} ${r.status}`);
   const j = await r.json();
   if (!r.ok) throw Object.assign(new Error(j?.error || 'not found'), { notFound: true });
