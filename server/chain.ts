@@ -15,8 +15,13 @@ const TOPIC_DEPOSIT_FOR_BURN = '0x0c8c1cbdc5190613ebd485511d4e2812cfa45eecb79d84
 const TOPIC_MINT_AND_WITHDRAW = '0x50c55e915134d457debfa58eb6f4342956f8b0616d51a89a3659360178e1ab63'; // USDC into Arc
 const MESSAGE_TRANSMITTER = '0x81d40f21f12a8f0e3252bccb954d722d4c464b64';
 const TOPIC_MESSAGE_RECEIVED = '0xff48c13eda96b1cceacc6b9edeedc9e9db9d6226afbc30146b720c19d3addb1c'; // carries sourceDomain
-// Circle CCTP domain ids we are sure of; anything else is shown as "domain N".
-const DOMAINS: Record<number, string> = { 0: 'Ethereum', 1: 'Avalanche', 2: 'OP Mainnet', 3: 'Arbitrum', 5: 'Solana', 6: 'Base', 7: 'Polygon PoS', 10: 'Unichain', 11: 'Linea' };
+// Circle CCTP mainnet domain ids — the official list, developers.circle.com/cctp/concepts/supported-chains-and-domains (read
+// 2026-09-28; owner saw an unnamed "domain 33" = Plasma). A domain added later still shows as "domain N" until added here.
+const DOMAINS: Record<number, string> = {
+  0: 'Ethereum', 1: 'Avalanche', 2: 'OP Mainnet', 3: 'Arbitrum', 5: 'Solana', 6: 'Base', 7: 'Polygon PoS', 9: 'Aptos', 10: 'Unichain',
+  11: 'Linea', 12: 'Codex', 13: 'Sonic', 14: 'World Chain', 15: 'Monad', 16: 'Sei', 17: 'BNB Chain', 18: 'XDC', 19: 'HyperEVM', 21: 'Ink',
+  22: 'Plume', 25: 'Starknet', 26: 'Arc', 27: 'Stellar', 28: 'EDGE', 29: 'Injective', 30: 'Morph', 31: 'Pharos', 32: 'Cronos', 33: 'Plasma', 37: 'X Layer',
+};
 const SUPPLY: { sym: string; addr: string; dec: number }[] = [
   { sym: 'USDC', addr: '0x3600000000000000000000000000000000000000', dec: 6 },
   { sym: 'EURC', addr: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', dec: 6 },
