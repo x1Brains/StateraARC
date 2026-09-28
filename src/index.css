@@ -1786,3 +1786,29 @@ footer .wrap { padding: 16px 20px; }
 .tx-hero::after { box-shadow: 0 0 8px rgba(255,122,30,.35); opacity: .8; }
 .tx-price { text-shadow: none; }
 .tx-logo { box-shadow: 0 0 10px rgba(255,122,30,.25); }
+/* 09-28 owner: "on mobile the first section is super big compared to the transaction sections" — phone sizes for the hero,
+   stat bar and chart header now match the compact panels below (11–15 px, tight grids). */
+@media (max-width: 640px) {
+  .tx-hero { padding: 12px; gap: 10px; border-radius: 14px; }
+  .tx-hero-id { gap: 10px; }
+  .tx-logo .tlogo, .tx-logo .tmono { width: 36px; height: 36px; }
+  .tx-name { font-size: 17px; }
+  .tx-chips { margin-top: 5px; gap: 4px; }
+  .tx-chip, .tx-icon { font-size: 9.5px; padding: 3px 7px; height: auto; }
+  .tx-hero-px { gap: 6px; flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .tx-price { font-size: 20px; margin-right: 4px; }
+  .tx-chg-row { gap: 4px; }
+  .tx-chg { font-size: 10px; padding: 2px 6px; }
+  .tx-trade { padding: 5px 11px; font-size: 10px; margin-left: auto; }
+  .tx-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); border-radius: 12px; }
+  .tx-stats > div { padding: 8px 10px; }
+  .tx-stats > div::before { display: none; }
+  .tx-stats > div:last-child { grid-column: auto; }
+  .tx-stats span { font-size: 8px; letter-spacing: 1px; }
+  .tx-stats b { font-size: 13.5px; margin-top: 2px; }
+  .tdx .chart-card { padding: 10px 10px 6px; }
+  .tdx .chart-box { height: 280px; }
+  .chart-title { font-size: 13px; }
+  .chart-ohlc { flex-wrap: nowrap; overflow: hidden; white-space: nowrap; max-width: calc(100% - 70px); font-size: 9.5px; gap: 6px; }
+  .chart-ohlc span:nth-child(5) { display: none; } /* pool volume: shown on desktop, too wide for a phone line */
+}
