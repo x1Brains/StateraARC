@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Board from './lib/board';
 import * as Live from './lib/live';
-import { v2Enabled, v2Home, v2Board, v2Search, v2Token, v2SwapTokens, v2List, type V2Home, type V2Board } from './lib/v2';
+import { v2Enabled, v2Home, v2Board, v2Search, v2Token, v2SwapTokens, v2List, v2Chain, v2Lending, type V2Home, type V2Board } from './lib/v2';
 import type { Filter, SortKey } from './lib/board';
 import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, shareStamp, PINNED, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
@@ -140,6 +140,20 @@ export default function App() {
   const [home, setHome] = useState<V2Home | null>(null);
   const [board, setBoard] = useState<V2Board | null>(null);
   const [swapList, setSwapList] = useState<Token[]>([]);
+  // Hero: Arc-wide numbers from the Network page's data (money on Arc, lent, tx/s), refreshed every 30 s on the home page.
+  const [netHero, setNetHero] = useState<{ money: number | null; lent: number | null; tps: number | null } | null>(null);
+  useEffect(() => {
+    if (page !== 'home') return;
+    let alive = true;
+    const load = () => Promise.all([v2Chain().catch(() => null), v2Lending().catch(() => null)]).then(([c, l]) => {
+      if (!alive || (!c && !l)) return;
+      const money = c?.supplyUsd ? ['USDC', 'EURC', 'cirBTC'].reduce((a, k) => a + (c.supplyUsd?.[k] ?? 0), 0) : null;
+      const lent = l ? l.aave.supplyUsd + (l.morpho.complete ? l.morpho.supplyUsd : 0) : null;
+      setNetHero({ money, lent, tps: c?.m5?.tps ?? null });
+    });
+    load(); const id = setInterval(load, 30_000);
+    return () => { alive = false; clearInterval(id); };
+  }, [page]);
   const fallBack = (why: unknown) => { console.warn('[statera] v2 data unavailable, using v1:', (why as any)?.message || why); setMode('v1'); };
 
   // v1: StateraArc is mainnet-only (Arc chain 5042). Tokens = the VPS indexer snapshot, re-priced live in the tab.
@@ -372,9 +386,10 @@ export default function App() {
                 <div className="hero-copy">
                   <span className="eyebrow"><span className="dot" /> Arc Hub · Web3 GameFi</span>
                   <h1>Track any <span className="r">launch</span><br />on Arc.</h1>
-                  <p className="lede">The Statera hub for Circle's Arc chain — screener, portfolio &amp; swap. And the studio building <span className="r">X1 City</span>: web3 <span className="r">GameFi</span> in Unreal Engine 5 — the first EVM-SVM game on Arc.</p>
+                  <p className="lede">The Statera hub for Circle's Arc chain — screener, live network stats, portfolio &amp; swap. And the studio building <span className="r">X1 City</span>: web3 <span className="r">GameFi</span> in Unreal Engine 5 — the first EVM-SVM game on Arc.</p>
                   <div className="hero-cta">
                     <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <IconArrowRight className="arw" /></button>
+                    <button className="btn ghost" onClick={() => go('network')}>Arc Network</button>
                     <button className="btn ghost" onClick={() => goScreener('new')}>New Launches</button>
                   </div>
                   <form className="hero-search" onSubmit={(e) => { e.preventDefault(); heroSearch(); }}>
@@ -398,15 +413,18 @@ export default function App() {
                     <button type="submit" className="hs-go" aria-label="Search">Search <IconArrowRight className="arw" /></button>
                   </form>
                   <div className="hero-trust">
-                    <div className="ht"><b>{dashStats.tracked ? dashStats.tracked.toLocaleString() : '—'}</b><span>Tokens Tracked</span></div>
+                    {/* Arc itself (the Network page's numbers) + the token market — owner 09-28: "update the new network page and stats in the hero" */}
+                    <div className="ht ht-link" onClick={() => go('network')} title="Circle assets on Arc — see the Network page"><b className="r">{netHero?.money ? usd(netHero.money) : '—'}</b><span>Money on Arc</span></div>
+                    <div className="div" />
+                    <div className="ht ht-link" onClick={() => go('network')} title="Lent on Morpho + Aave"><b>{netHero?.lent ? usd(netHero.lent) : '—'}</b><span>Lent</span></div>
                     <div className="div" />
                     <div className="ht"><b>{dashStats.tvl > 0 ? usd(dashStats.tvl) : '—'}</b><span>DEX Liquidity</span></div>
                     <div className="div" />
                     <div className="ht"><b>{dashStats.vol24 > 0 ? usd(dashStats.vol24) : '—'}</b><span>24h Volume</span></div>
                     <div className="div" />
-                    <div className="ht"><b>{dashStats.count || '—'}</b><span>Active 24h</span></div>
+                    <div className="ht"><b>{dashStats.tracked ? dashStats.tracked.toLocaleString() : '—'}</b><span>Tokens Tracked</span></div>
                     <div className="div" />
-                    <div className="ht"><b className="r">Live</b><span>Arc Mainnet</span></div>
+                    <div className="ht ht-link" onClick={() => go('network')} title="Transactions per second, last 5 minutes"><b>{netHero?.tps != null ? `${Math.round(netHero.tps)}/s` : '—'}</b><span><span className="live-dot" /> Live TX</span></div>
                   </div>
                 </div>
               </div>

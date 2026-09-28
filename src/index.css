@@ -1835,3 +1835,6 @@ footer .wrap { padding: 16px 20px; }
 .nx-share { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .nx-btn { padding: 7px 14px; font-size: 11px; }
 @media (max-width: 640px) { .nx-share { justify-content: flex-start; } }
+.hero-trust { flex-wrap: wrap; row-gap: 14px; }
+.hero-trust .ht-link { cursor: pointer; } .hero-trust .ht-link:hover b { text-decoration: underline; text-decoration-color: rgba(255,122,30,.5); text-underline-offset: 4px; }
+.hero-trust .ht span .live-dot { display: inline-block; margin-right: 4px; vertical-align: middle; }
