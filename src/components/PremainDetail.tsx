@@ -72,16 +72,19 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
         const v = await v2TokenDetail(address).catch(() => null);
         if (!alive) return;
         if (v) {
-          // A copy older than 25 s was served while the server refreshes it in the background — take the fresh one a few
-          // seconds later, so an active token's newest trades are seconds old, not minutes.
-          if (Date.now() - v.at > 25_000) setTimeout(() => {
+          // Stay current while the page is open: re-read every 15 s and take any newer copy (the server recomputes a token at
+          // most every 20 s, and a stale copy it served triggers that refresh). v1 froze these panels at page-open time.
+          let lastAt = v.at;
+          const poll = setInterval(() => {
+            if (!alive) { clearInterval(poll); return; }
             v2TokenDetail(address).then((f) => {
-              if (!alive || f.at <= v.at) return;
+              if (!alive || f.at <= lastAt) return;
+              lastAt = f.at;
               setOcPool(f.ocPool); setOcPools(f.ocPools); setDayStats(f.dayStats); setBurn(f.burn); setTxs(f.txs ?? []);
               if (f.holders && f.holders.length) setHolders(f.holders);
               if (f.swaps && f.swaps.length) setSwaps(f.swaps);
             }).catch(() => {});
-          }, 7000);
+          }, 15_000);
           setDec(v.dec);
           rdP.then((detail) => { if (alive) setRd(detail); });
           setOcPool(v.ocPool); setOcPools(v.ocPools); setDayStats(v.dayStats); setBurn(v.burn); setTxs(v.txs ?? []);
