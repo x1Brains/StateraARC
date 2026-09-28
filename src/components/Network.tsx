@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { usd } from '../lib/arc';
-import { v2Chain, v2Lending, type V2Chain, type V2Lending } from '../lib/v2';
+import { v2Chain, v2Lending, v2Where, type V2Chain, type V2Lending, type V2Where } from '../lib/v2';
 
 // ARC NETWORK — the chain itself, in plain words. Everything is read live from Arc by our follower on the VPS
 // (server/chain.ts, server/lending.ts): every block, Circle's asset supplies, CCTP bridge flows, Morpho + Aave lending.
@@ -10,6 +10,18 @@ import { v2Chain, v2Lending, type V2Chain, type V2Lending } from '../lib/v2';
 const n0 = (v: number | null | undefined, d = 0) => (v == null || !isFinite(v) ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
 const short = (a: string) => a.slice(0, 8) + '…' + a.slice(-6);
 const span = (s: number) => (s < 90 ? `${Math.round(s)} seconds` : s < 5400 ? `${Math.round(s / 60)} minutes` : `${(s / 3600).toFixed(1)} hours`);
+// Arc's founding validators as Circle announced them at mainnet launch (Decrypt, CryptoRank, Blockhead, 09-16/17). Icons are
+// each institution's own site icon, stored in /public/validators; SBI and Sumitomo returned only a generic placeholder, so they
+// get a letter badge rather than a made-up logo. Which producer address belongs to which institution is NOT published.
+const VALIDATORS: { name: string; logo?: string }[] = [
+  { name: 'Circle', logo: 'circle' }, { name: 'BlackRock', logo: 'blackrock' }, { name: 'DTCC', logo: 'dtcc' }, { name: 'Galaxy', logo: 'galaxy' },
+  { name: 'Global Payments', logo: 'globalpayments' }, { name: 'ICE', logo: 'ice' }, { name: 'Mastercard', logo: 'mastercard' }, { name: 'MoneyGram', logo: 'moneygram' },
+  { name: 'SBI Group' }, { name: 'Standard Chartered', logo: 'standardchartered' }, { name: 'Sumitomo' }, { name: 'Visa', logo: 'visa' },
+];
+const WHERE_KEYS: { k: 'lending' | 'dex' | 'bridge' | 'contracts' | 'wallets'; label: string; cls: string }[] = [
+  { k: 'lending', label: 'Lending', cls: 'lend' }, { k: 'dex', label: 'DEX pools', cls: 'dex' }, { k: 'bridge', label: 'Circle Gateway', cls: 'bridge' },
+  { k: 'contracts', label: 'Other contracts', cls: 'ctr' }, { k: 'wallets', label: 'Wallets', cls: 'wal' },
+];
 const ASSET_NAME: Record<string, string> = { USDC: 'US dollars (USDC)', EURC: 'Euros (EURC)', cirBTC: 'Bitcoin (cirBTC)', USYC: 'Yield dollars (USYC)' };
 
 export function Network() {
@@ -17,6 +29,13 @@ export function Network() {
   const [err, setErr] = useState(false);
   const [lend, setLend] = useState<V2Lending | null>(null);
   const [showVals, setShowVals] = useState(false);
+  const [where, setWhere] = useState<V2Where | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => v2Where().then((x) => { if (alive) setWhere(x); }).catch(() => {});
+    load(); const id = setInterval(load, 120_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
   useEffect(() => {
     let alive = true;
     const load = () => v2Lending().then((x) => { if (alive) setLend(x); }).catch(() => {});
@@ -70,12 +89,29 @@ export function Network() {
         <div className="nx-card">
           <div className="nx-head"><h3>Money on Arc</h3>{assetsUsd != null && assetsUsd > 0 && <span className="nx-total">{usd(assetsUsd)}</span>}</div>
           <p className="nx-sub">Circle's own digital money that exists on Arc today.</p>
-          {assets.map((k) => (
-            <div className="nx-row" key={k}>
-              <span>{ASSET_NAME[k]}</span>
-              <span className="num mono">{c.supplyUsd?.[k] != null ? usd(c.supplyUsd[k]!) : '—'}<small className="sub">{n0(c.supplies[k], k === 'cirBTC' ? 2 : 0)} {k}</small></span>
-            </div>
-          ))}
+          {assets.map((k) => {
+            const w = where?.assets.find((a) => a.sym === k);
+            const val = (v: number) => (w?.price != null ? usd(v * w.price) : `${n0(v, k === 'cirBTC' ? 2 : 0)} ${k}`);
+            return (
+              <div className="nx-asset" key={k}>
+                <div className="nx-row">
+                  <span>{ASSET_NAME[k]}</span>
+                  <span className="num mono">{c.supplyUsd?.[k] != null ? usd(c.supplyUsd[k]!) : '—'}<small className="sub">{n0(c.supplies[k], k === 'cirBTC' ? 2 : 0)} {k}</small></span>
+                </div>
+                {w && w.supply > 0 && <>
+                  <div className="nx-split" title="Where this supply sits right now">
+                    {WHERE_KEYS.map((b) => { const pct = (w.buckets[b.k] / w.supply) * 100; return pct >= 0.3 ? <span key={b.k} className={`nx-seg ${b.cls}`} style={{ width: `${pct}%` }} /> : null; })}
+                  </div>
+                  <div className="nx-split-legend">
+                    {WHERE_KEYS.filter((b) => w.buckets[b.k] / w.supply >= 0.001).map((b) => (
+                      <span key={b.k}><i className={`nx-dot ${b.cls}`} />{b.label} <b>{((w.buckets[b.k] / w.supply) * 100).toFixed(1)}%</b> <em>{val(w.buckets[b.k])}</em></span>
+                    ))}
+                  </div>
+                </>}
+              </div>
+            );
+          })}
+          {where && <div className="nx-note">Where it sits = live balances of the lending contracts (Morpho, Aave), every DEX pool we index and Circle's Gateway; "Wallets" is the rest of the supply. Market cap is everything above — trading <b>liquidity</b> is only the DEX-pool slice (plus the USDC on the other side of those pools).</div>}
         </div>
 
         {/* 3 · Money moving */}
@@ -109,7 +145,16 @@ export function Network() {
         {/* 5 · Who runs it */}
         <div className="nx-card">
           <div className="nx-head"><h3>Who runs the chain</h3><button className="btn ghost nx-toggle" onClick={() => setShowVals((v) => !v)}>{showVals ? 'Hide' : 'Show'} the {vals.length}</button></div>
-          <p className="nx-sub">Arc is run by {vals.length} approved validators — Circle and regulated institutions. They take turns producing blocks{even ? `, each about ${(100 / vals.length).toFixed(1)}% of them` : ''}. The chain records each one's address; it doesn't publish which institution runs which.</p>
+          <p className="nx-sub">Arc is run by permissioned validators — Circle and regulated institutions. These are the founding validators Circle named at launch:</p>
+          <div className="nx-vals">
+            {VALIDATORS.map((v) => (
+              <div className="nx-val" key={v.name}>
+                {v.logo ? <img src={`/validators/${v.logo}.png`} alt="" /> : <span className="nx-mono">{v.name.split(' ').map((w) => w[0]).join('').slice(0, 2)}</span>}
+                <span>{v.name}</span>
+              </div>
+            ))}
+          </div>
+          <p className="nx-sub">On chain right now: {vals.length} block-producing addresses taking turns{even ? `, each about ${(100 / Math.max(1, vals.length)).toFixed(1)}% of blocks` : ''}. The chain records addresses only — which institution runs which address isn't published, so we don't pair them up.</p>
           {showVals && <div className="net-vals">
             <div className="net-val head"><span>#</span><span>Validator address</span><span className="num">Blocks</span><span className="num">Share</span><span className="num">Last block</span></div>
             {vals.map((v, i) => (

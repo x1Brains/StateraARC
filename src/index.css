@@ -1812,3 +1812,18 @@ footer .wrap { padding: 16px 20px; }
   .chart-ohlc { flex-wrap: nowrap; overflow: hidden; white-space: nowrap; max-width: calc(100% - 70px); font-size: 9.5px; gap: 6px; }
   .chart-ohlc span:nth-child(5) { display: none; } /* pool volume: shown on desktop, too wide for a phone line */
 }
+/* Network: where each asset sits + validator tiles (09-28) */
+.nx-asset { border-top: 1px solid var(--line-soft); padding-bottom: 10px; } .nx-asset .nx-row { border-top: 0; }
+.nx-split { display: flex; height: 8px; border-radius: 99px; overflow: hidden; background: rgba(255,255,255,.05); }
+.nx-seg { display: block; height: 100%; } .nx-seg + .nx-seg { box-shadow: -1px 0 0 rgba(0,0,0,.6); }
+.lend { background: #ff7a1e; } .dex { background: #4ecb71; } .bridge { background: #5aa9ff; } .ctr { background: #a58bff; } .wal { background: #6b6d75; }
+.nx-split-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 7px; font-size: 11.5px; color: var(--gray); }
+.nx-split-legend b { color: var(--white); font-weight: 600; } .nx-split-legend em { font-style: normal; color: var(--gray-2); }
+.nx-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+.nx-vals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 4px 0 12px; }
+.nx-val { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.02); font-size: 12.5px; min-width: 0; }
+.nx-val span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nx-val img, .nx-mono { flex: none; width: 26px; height: 26px; border-radius: 7px; background: #fff; object-fit: contain; padding: 3px; }
+.nx-mono { display: inline-flex; align-items: center; justify-content: center; padding: 0; background: rgba(255,122,30,.14); color: #ffc24a; font: 700 10px var(--disp); letter-spacing: .5px; border: 1px solid rgba(255,122,30,.3); }
+@media (max-width: 900px) { .nx-vals { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .nx-vals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

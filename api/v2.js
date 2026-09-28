@@ -2,7 +2,7 @@
 // Same upstream + key as /api/snapshot (HOLDINGS_UPSTREAM / HOLDINGS_KEY). The API computes the board ONCE for all
 // visitors; the browser gets KBs instead of the 1.14 MB list + ~130 RPC calls per page (v1). On any failure this answers
 // 502 and the page falls back to the v1 path by itself (src/lib/v2.ts → App.tsx).
-const ALLOWED = /^(health|home|board|search|list|swap-tokens|tokens|chain|lending|token\/0x[0-9a-fA-F]{40}(\/(detail|candles))?)$/;
+const ALLOWED = /^(health|home|board|search|list|swap-tokens|tokens|chain|lending|where|token\/0x[0-9a-fA-F]{40}(\/(detail|candles))?)$/;
 export default async function handler(req, res) {
   const UP = process.env.HOLDINGS_UPSTREAM, KEY = process.env.HOLDINGS_KEY;
   const path = String(req.query.path || '').replace(/^\/+|\/+$/g, '');

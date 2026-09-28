@@ -66,3 +66,6 @@ export interface V2Lending {
   aave: { hub: string; supplyUsd: number; borrowUsd: number; assets: (V2LendRow & { assetId: number; token: string; symbol: string | null })[] };
 }
 export const v2Lending = () => get<V2Lending>('lending', 8000).then((l) => { if (!l || !l.morpho || !l.aave) throw new Error('v2 lending: bad shape'); return l; });
+// Where each Circle asset's supply sits (server/where.ts).
+export interface V2Where { at: number; assets: { sym: string; supply: number; price: number | null; buckets: { lending: number; dex: number; bridge: number; contracts: number; wallets: number }; lendingBy: Record<string, number> }[] }
+export const v2Where = () => get<V2Where>('where', 8000).then((w) => { if (!w || !Array.isArray(w.assets)) throw new Error('v2 where: bad shape'); return w; });

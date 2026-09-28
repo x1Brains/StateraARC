@@ -15,6 +15,7 @@
 //   /v2/swap-tokens                   the swap picker list
 //   /v2/chain                         Arc network: block time, TPS, fees, validators (block producers), CCTP flows, supplies
 //   /v2/lending                       Morpho Blue markets + Aave V4 Hub assets (supplied / borrowed), read on chain
+//   /v2/where                         where USDC / EURC / cirBTC supply sits: lending, DEX pools, Gateway, contracts, wallets
 //   /v2/list                          the whole live list (v1-compatible shape: { generatedAt, tokens })
 import http from 'node:http';
 import fs from 'node:fs';
@@ -25,6 +26,7 @@ import * as Board from '../src/lib/board.ts';
 import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
+import { refreshWhere, whereSummary, whereStats } from './where.ts';
 
 const PORT = Number(process.env.PORT || 8790);
 const SNAP = process.env.SNAPSHOT_FILE || '/root/statera-live/tokens-snapshot.json';
@@ -163,11 +165,12 @@ http.createServer((req, res) => {
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: detailStats, chain: chainStats, lending: lendingStats }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: detailStats, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
     if (path === '/home') { send(req, res, 200, v.homeJson, v.homeGz); return; }
+    if (path === '/where') { const w = whereSummary(); send(req, res, w ? 200 : 503, JSON.stringify(w ?? { error: 'warming up' }), undefined, w ? 60 : 0); return; }
     if (path === '/lending') { const l = lendingSummary(); send(req, res, l ? 200 : 503, JSON.stringify(l ?? { error: 'warming up' }), undefined, l ? 30 : 0); return; }
     if (path === '/chain') {
       const c = chainSummary();
@@ -260,5 +263,11 @@ const tickLending = async () => { if (lending) return; lending = true; try { awa
 // Every minute until Morpho's one-time market count is complete, then every 5 min.
 setTimeout(tickLending, 30_000);
 setInterval(() => { const l = lendingSummary(); if (!l || !l.morpho?.complete || Date.now() - l.at > 5 * 60_000) tickLending(); }, 60_000);
+// Where each Circle asset sits (Network page): every 10 min. Pools = every pool address the live token list knows.
+let whereBusy = false;
+const tickWhere = async () => { if (whereBusy || !view) return; whereBusy = true;
+  try { await refreshWhere(rpc, view.tokens.map((t) => t.pool).filter((p): p is string => !!p), priceOf); }
+  catch (e) { whereStats.errors++; console.error('[where]', (e as Error).message); } finally { whereBusy = false; } };
+setTimeout(tickWhere, 45_000); setInterval(tickWhere, 10 * 60_000);
 for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveChain(); process.exit(0); });
 setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(); } catch { /* keep serving the last good list */ } }, 5000);
