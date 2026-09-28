@@ -257,6 +257,8 @@ async function getLogsBig(params: any): Promise<any[] | null> {
 const symbolOf = (t: string) => { const a = t.toLowerCase(); if (a === USDC_ADDR) return 'USDC'; return view?.byAddr.get(a)?.symbol ?? null; };
 let lending = false;
 const tickLending = async () => { if (lending) return; lending = true; try { await refreshLending(rpc, call, getLogsBig, priceOf, symbolOf); } catch (e) { lendingStats.errors++; console.error('[lending]', (e as Error).message); } finally { lending = false; } };
-setTimeout(tickLending, 30_000); setInterval(tickLending, 5 * 60_000);
+// Every minute until Morpho's one-time market count is complete, then every 5 min.
+setTimeout(tickLending, 30_000);
+setInterval(() => { const l = lendingSummary(); if (!l || !l.morpho?.complete || Date.now() - l.at > 5 * 60_000) tickLending(); }, 60_000);
 for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveChain(); process.exit(0); });
 setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(); } catch { /* keep serving the last good list */ } }, 5000);

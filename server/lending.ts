@@ -40,10 +40,12 @@ export const lendingSummary = () => snapshot;
 /** One refresh: extend the CreateMarket sweep (a few ranges per call so it never floods), then read every market + the Hub. */
 export async function refreshLending(rpc: Rpc, call: Call, getLogsBig: (p: any) => Promise<any[] | null>, priceOf: (token: string) => number | null, symbolOf: (token: string) => string | null) {
   const head = parseInt(await rpc('eth_blockNumber', []), 16);
+  let fails = 0;
   for (let k = 0; k < 60 && st.scannedTo < head; k++) {
     const from = st.scannedTo + 1, to = Math.min(head, from + RANGE - 1);
     const logs = await getLogsBig({ address: MORPHO, topics: [T_CREATE_MARKET], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) });
-    if (!Array.isArray(logs)) { lendingStats.errors++; break; } // resumes from here next refresh (persisted)
+    // a failed range is retried (up to 5 per round) instead of ending the round — it resumes from here next round anyway
+    if (!Array.isArray(logs)) { lendingStats.errors++; if (++fails >= 5) break; await new Promise((r) => setTimeout(r, 1500)); k--; continue; }
     for (const l of logs) {
       const id = l.topics[1];
       if (st.markets.some((m) => m.id === id)) continue;
