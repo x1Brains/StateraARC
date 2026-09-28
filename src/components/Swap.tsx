@@ -9,7 +9,7 @@ import {
   setSwapMainnet, activeScan, MAINNET_CHAIN_ID, quoteCurveBuy, buildCurveBuyTx,
   quoteCurveSell, buildCurveSellTx, quoteV3, buildV3SwapTx, v3PoolFor, V3_ROUTER,
   quoteV4, buildV4SwapTx, v4Permit2Status, buildPermit2ApproveTx, PERMIT2,
-  findV3Pool, findV4Route, type V4Cfg,
+  findV3Pool, findV4Route, type V4Cfg, findCLPools, quoteCL, buildCLSwapTx, type CLRoute,
 } from '../lib/swap';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenPicker } from './TokenPicker';
@@ -189,14 +189,14 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   }, [warpTokenAddr]);
   // Uniswap V3 / V4 pools for the traded token, found on-chain for ANY token (09-25 — before, only 11 hardcoded V3
   // pools and 2 V4 tokens could trade here). The V4 key comes from the screener row and is checked against the poolId.
-  const [route, setRoute] = useState<{ addr: string; v3: string | null; v4: V4Cfg | null } | null>(null);
+  const [route, setRoute] = useState<{ addr: string; v3: string | null; v4: V4Cfg | null; cl: CLRoute[] } | null>(null);
   useEffect(() => {
     if (!warpTokenAddr) { setRoute(null); return; }
     const k = warpTokenAddr.toLowerCase(); let alive = true;
     // Pool hint from the SCREENER row (it carries poolId + PoolKey); a token loaded via Trade/paste is a bare stub.
     const hint = tokens.find((t) => t.address.toLowerCase() === k) || universe.find((t) => t.address.toLowerCase() === k);
-    Promise.all([findV3Pool(k).catch(() => null), findV4Route(k, hint).catch(() => null)])
-      .then(([v3, v4]) => { if (alive) setRoute({ addr: k, v3, v4 }); });
+    Promise.all([findV3Pool(k).catch(() => null), findV4Route(k, hint).catch(() => null), findCLPools(k).catch(() => [] as CLRoute[])])
+      .then(([v3, v4, cl]) => { if (alive) setRoute({ addr: k, v3, v4, cl }); });
     return () => { alive = false; };
   }, [warpTokenAddr, tokens.length]); // eslint-disable-line
   const routeFor = (a?: string) => (route && a && route.addr === a.toLowerCase() ? route : null);
@@ -204,6 +204,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   const [curveSellOut, setCurveSellOut] = useState<bigint | null>(null); // curve-sell expected USDC (6-dec)
   const [v3q, setV3q] = useState<{ outRaw: bigint; fee: number; tokenIn: string; tokenOut: string } | null>(null); // Uni V3 quote
   const [v4q, setV4q] = useState<{ outRaw: bigint; zeroForOne: boolean } | null>(null); // Uni V4 quote
+  const [clq, setClq] = useState<{ outRaw: bigint; route: CLRoute } | null>(null); // Aerodrome / Archery (CL) quote
   // Curve BUY = paying USDC into a non-graduated curve token's curve contract (no WarpV2 route needed).
   const curveBuyable = !!(warpMode && warpMeta && !warpMeta.migrated && warpMeta.curve
     && fromA.toLowerCase() === usdcK && to && to.address.toLowerCase() === warpMeta.addr);
@@ -217,6 +218,8 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   const tradeToken = from && fromA.toLowerCase() !== usdcK ? from.address : to?.address;
   const v3PoolSel = v3Trade ? (v3PoolFor(tradeToken || '') || routeFor(tradeToken)?.v3 || null) : null;
   const v4CfgSel = v4Trade ? (routeFor(tradeToken)?.v4 || null) : null;
+  // Aerodrome / Archery (concentrated-liquidity forks) = one side USDC, the other a token with a CL pool on either venue.
+  const clRoutes = warpMode && from && to && (fromA.toLowerCase() === usdcK || toA.toLowerCase() === usdcK) ? (routeFor(tradeToken)?.cl || []) : [];
   // Auto-refresh the live quote every 12s (mainnet pools move fast — keeps the shown amount current).
   const [refreshTick, setRefreshTick] = useState(0);
   useEffect(() => {
@@ -227,7 +230,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
 
   useEffect(() => {
     const n = parseFloat(amt);
-    setQuote(null); setQErr(null); setEstimate(null); setCurveOut(null); setCurveSellOut(null); setV3q(null); setV4q(null);
+    setQuote(null); setQErr(null); setEstimate(null); setCurveOut(null); setCurveSellOut(null); setV3q(null); setV4q(null); setClq(null);
     if (!from || !to || !n || n <= 0) return;
 
     // ── Warp / mainnet token → real WarpV2 quote, with a price-estimate fallback ──
@@ -239,19 +242,21 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
         const amountInRaw = toRawStr(amt, decIn);
         // Every venue the token trades on, quoted together — the best fill wins (a token can have WarpV2 AND V3 AND
         // V4 pools; the first one that answered used to win even when another paid more).
-        const [q, r3, r4] = await Promise.all([
+        const [q, r3, r4, rc] = await Promise.all([
           bestQuote(from.address, to.address, amountInRaw).catch(() => null), // engine is on mainnet (see flip effect)
           v3Trade ? quoteV3(from.address, to.address, amountInRaw, v3PoolSel).catch(() => null) : Promise.resolve(null),
           v4Trade ? quoteV4(from.address, to.address, amountInRaw, v4CfgSel).catch(() => null) : Promise.resolve(null),
+          clRoutes.length ? quoteCL(from.address, to.address, amountInRaw, clRoutes).catch(() => null) : Promise.resolve(null),
         ]);
         if (seq !== qSeq.current) return;
-        const outs = [q?.amountOutRaw ?? -1n, r3?.outRaw ?? -1n, r4?.outRaw ?? -1n];
+        const outs = [q?.amountOutRaw ?? -1n, r3?.outRaw ?? -1n, r4?.outRaw ?? -1n, rc?.outRaw ?? -1n];
         const best = outs.reduce((bi, v, i) => (v > outs[bi] ? i : bi), 0);
         if (outs[best] > 0n) {
           setQuoting(false);
           if (best === 0) setQuote(q);
           else if (best === 1) setV3q({ outRaw: r3!.outRaw, fee: r3!.fee, tokenIn: from.address, tokenOut: to.address });
-          else setV4q(r4);
+          else if (best === 2) setV4q(r4);
+          else setClq(rc);
           return;
         }
         // Curve BUY: USDC → a non-graduated Warp curve token, quoted live from the curve contract.
@@ -289,15 +294,17 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setQuote(q);
     }, 450);
     return () => clearTimeout(id);
-  }, [amt, fromA, toA, decIn, decOut, warpMode, warpMeta, wallet, v3Trade, v4Trade, v3PoolSel, v4CfgSel, refreshTick]); // eslint-disable-line
+  }, [amt, fromA, toA, decIn, decOut, warpMode, warpMeta, wallet, v3Trade, v4Trade, v3PoolSel, v4CfgSel, clRoutes.length, refreshTick]); // eslint-disable-line
 
-  const outHuman = v3q != null && decOut != null ? fromRaw(v3q.outRaw, decOut)
+  const outHuman = clq != null && decOut != null ? fromRaw(clq.outRaw, decOut)
+    : v3q != null && decOut != null ? fromRaw(v3q.outRaw, decOut)
     : v4q != null && decOut != null ? fromRaw(v4q.outRaw, decOut)
     : curveOut != null && decOut != null ? fromRaw(curveOut, decOut)
     : curveSellOut != null && decOut != null ? fromRaw(curveSellOut, decOut)
     : estimate ? estimate.out
     : (quote && decOut != null ? fromRaw(quote.amountOutRaw, decOut) : null);
   const minRecv = quote && decOut != null ? fromRaw(minOut(quote.amountOutRaw, slip), decOut)
+    : clq != null && decOut != null ? fromRaw(minOut(clq.outRaw, slip), decOut)
     : v3q != null && decOut != null ? fromRaw(minOut(v3q.outRaw, slip), decOut)
     : v4q != null && decOut != null ? fromRaw(minOut(v4q.outRaw, slip), decOut)
     : curveOut != null && decOut != null ? fromRaw(minOut(curveOut, slip), decOut)
@@ -444,6 +451,36 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       const sh = await sendTx(tx); setHash(sh);
       if (!(await waitReceipt(sh))) { setPhase('error'); setMsg('Swap transaction failed.'); return; }
       setPhase('done'); setMsg(`Swapped ${amt} ${from.symbol} to ${to.symbol}.`);
+      setAmt(''); setPhaseTick((t) => t + 1);
+    } catch (e: any) { setPhase('error'); setMsg(e?.message?.slice(0, 120) || 'Transaction rejected.'); }
+  };
+
+  // In-app Aerodrome / Archery swap (CL forks) — approve tokenIn to that venue's router → exactInputSingle(tickSpacing).
+  const executeCL = async () => {
+    if (!wallet || !clq || !from || !to || decIn == null) return;
+    setPhase('idle'); setMsg(null); setHash(null);
+    try {
+      setMsg('Switch your wallet to Arc mainnet…');
+      if (!(await ensureChain(MAINNET_CHAIN_ID))) { setPhase('error'); setMsg('Please switch your wallet to Arc mainnet (chain 5042) to trade.'); return; }
+      setMsg(null);
+      const amountInRaw = toRawStr(amt, decIn);
+      const bal = await balanceOf(from.address, wallet);
+      if (bal < amountInRaw) { setPhase('error'); setMsg(`Insufficient ${from.symbol} balance.`); return; }
+      const router = clq.route.venue.router;
+      if ((await allowance(from.address, wallet, router)) < amountInRaw) {
+        setPhase('approving'); setMsg(`One-time approval for ${from.symbol} on ${clq.route.venue.name}…`);
+        if (!(await waitReceipt(await sendTx(buildApproveTx(from.address, router, MAX_UINT256, wallet))))) { setPhase('error'); setMsg('Approval failed.'); return; }
+      }
+      // Re-quote at execution (same pool) so min-out reflects the CURRENT price.
+      const fresh = await quoteCL(from.address, to.address, amountInRaw, [clq.route]);
+      if (!fresh) { setPhase('error'); setMsg('Could not refresh the quote — try again.'); return; }
+      const tx = buildCLSwapTx(fresh.route, from.address, to.address, amountInRaw, minOut(fresh.outRaw, slip), wallet);
+      const rev = await simulate(tx);
+      if (rev) { setPhase('error'); setMsg(`Swap would revert: ${rev}. Try a higher slippage.`); return; }
+      setPhase('swapping'); setMsg('Confirm the swap in your wallet…');
+      const sh = await sendTx(tx); setHash(sh);
+      if (!(await waitReceipt(sh))) { setPhase('error'); setMsg('Swap transaction failed.'); return; }
+      setPhase('done'); setMsg(`Swapped ${amt} ${from.symbol} to ${to.symbol} on ${fresh.route.venue.name}.`);
       setAmt(''); setPhaseTick((t) => t + 1);
     } catch (e: any) { setPhase('error'); setMsg(e?.message?.slice(0, 120) || 'Transaction rejected.'); }
   };
@@ -624,6 +661,14 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               {mktRow}
             </div>
           )}
+          {clq != null && rate != null && (
+            <div className="swap-quote">
+              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? amtFmt(minRecv) : '—'} {to?.symbol}</span></div>
+              <div className="sq-row"><span>Route</span><span className="mono">{clq.route.venue.name} · tick spacing {clq.route.tickSpacing}</span></div>
+              {mktRow}
+            </div>
+          )}
           {v4q != null && rate != null && (
             <div className="swap-quote">
               <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
@@ -651,6 +696,10 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
 
           {!wallet
             ? <button className="btn solid swap-cta" onClick={onConnect}>Connect Wallet</button>
+            : (clq != null)
+              ? <button className="btn solid swap-cta" onClick={executeCL} disabled={busy}>
+                  {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : `Swap ${from?.symbol} to ${to?.symbol}`}
+                </button>
             : (v3q != null)
               ? <button className="btn solid swap-cta" onClick={executeV3} disabled={busy}>
                   {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : `Swap ${from?.symbol} to ${to?.symbol}`}

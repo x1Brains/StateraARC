@@ -15,7 +15,7 @@
 //
 // Proven end-to-end 2026-09-14: approve 0x2911…, swap 0x3857… (0.02 USDC → 103.66 NRLIF,
 // received == quoted). See swap-proof in the repo notes.
-import { NET, RPCS, CHAIN, req, findV4Pool } from './arc';
+import { NET, RPCS, CHAIN, req, findV4Pool } from './arc.ts';
 import { keccak_256 } from '@noble/hashes/sha3';
 
 export const NATIVE_USDC = '0x3600000000000000000000000000000000000000';
@@ -42,7 +42,10 @@ const CFG: Record<string, { bases: string[]; routers: { addr: string; name: stri
   // Mainnet routers unknown until launch — reported as "no route" rather than guessing.
   // Arc mainnet (5042, live). WarpV2 = Warp's own UniV2-style DEX (WARP + graduated tokens).
   // ⛔ Uniswap-v4 tokens (ARGUS/CRCL/etc.) need a separate v4 router — not covered by this aggregator yet.
-  mainnet: { bases: [USDC], routers: [{ addr: '0xd24227d7cf4b1ad9fba6ea6ae28392690ece47ae', name: 'WarpV2' }] },
+  // Uniswap V2 Router02 on Arc (09-28): Uniswap's SDK address file (V2_ROUTER_ADDRESSES[ARC]); factory() = 0x89e5db8b… (825
+  // pairs); getAmountsOut matched the pair's reserves at 0.3%. ⛔ Its WETH() is a dead placeholder — never an *ETH* function or
+  // WETH in a path; native USDC trades as the ERC-20 0x3600 (swapExactTokensForTokens). DyorSwap has no router on Arc.
+  mainnet: { bases: [USDC], routers: [{ addr: '0xd24227d7cf4b1ad9fba6ea6ae28392690ece47ae', name: 'WarpV2' }, { addr: '0x1f7d7550b1b028f7571e69a784071f0205fd2efa', name: 'Uniswap V2' }] },
 };
 
 export const SWAP_CFG = CFG[NET] || CFG.testnet;
@@ -68,7 +71,7 @@ export const UNI_ROUTER = UNI_ROUTER_BY_NET[NET] || '';
 // Blockscout-compatible yet). When the user trades a Warp/mainnet token, Swap.tsx flips this ON so
 // quotes/reads/simulations/txs target mainnet (rpc.mainnet.arc.io + WarpV2 router + chain 5042)
 // WITHOUT a global flip. Safe because ONLY Swap.tsx imports this module — no other reads are affected.
-const MAINNET_RPC = (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://rpc.mainnet.arc.io';
+const MAINNET_RPC = (((import.meta as any).env ?? {}).VITE_ARC_MAINNET_RPC as string) || 'https://rpc.mainnet.arc.io'; // Node-safe (tests)
 export const MAINNET_CHAIN_ID = 5042;
 export const MAINNET_SCAN = 'https://arc-scan.org';
 let ACTIVE_MAINNET = false;
@@ -740,3 +743,56 @@ export const fromRaw = (raw: bigint, decimals: number): number => {
   const s = raw.toString().padStart(decimals + 1, '0');
   return Number(s.slice(0, -decimals) + '.' + s.slice(-decimals));
 };
+
+// ── Concentrated-liquidity forks: Aerodrome Slipstream + Archery CL (09-28) ─────────────────────────────────────────────
+// Same pool math as Uniswap V3, but a pool is identified by tickSpacing (not fee): factory.getPool(a, b, int24 tickSpacing),
+// router exactInputSingle((tokenIn, tokenOut, tickSpacing, recipient, deadline, amountIn, amountOutMin, sqrtPriceLimit)),
+// quoter quoteExactInputSingle((tokenIn, tokenOut, amountIn, tickSpacing, sqrtPriceLimit)). ⛔ A venue is listed here ONLY
+// with router + quoter addresses and selectors verified on chain (router.factory() == factory, a real quote returns a sane
+// amount, the selector matches a real router tx). An unverified venue is simply not routed — never a guessed contract.
+export interface CLVenue { name: string; factory: string; router: string; quoter: string; selSwap: string; selQuote: string; quoteByPool?: boolean; spacings: number[] }
+// Verified 09-28 (router.factory() == factory; selector 0xa026383e = the calldata of real router txs on both; USDC→WETH 1 USDC:
+// Aero 0.00037394 vs Archery 0.00037419 WETH, 0.07% apart). Both routers have WETH9() = 0: pay native USDC as the ERC-20 0x3600,
+// value 0. Aero's quoter is NOT the standard QuoterV2: quoteExactInputSingleV3(pool, tokenIn, amountIn, sqrtPriceLimit), amountOut
+// in word 0 — so it is asked by POOL address. Addresses found in the factories' deployer histories (no official Arc list exists).
+export const CL_VENUES: CLVenue[] = [
+  { name: 'Aerodrome', factory: '0xb89df768af2cfe637ceb352c587fe8edaf491d03', router: '0xb4702e1375f712da2e0d5f534c30c0c1513edb2b',
+    quoter: '0x61d0aa4a814a68f3119019f9f17aca517fea6d49', selSwap: '0xa026383e', selQuote: '0x0a674142', quoteByPool: true, spacings: [1, 10, 50, 100, 200, 2000] },
+  { name: 'Archery', factory: '0xc481038c013fe96f38ce7a2dc417b2b1b78b16a4', router: '0x3b37e67c973683f7fe8a0f304dedfaf475fec138',
+    quoter: '0xc6b5c6056c4be2de1c014695a7ccb75087a1c574', selSwap: '0xa026383e', selQuote: '0x9e7defe6', spacings: [1, 10, 50, 100, 200, 2000] },
+];
+const SEL_CL_GETPOOL = '0x28af8d0b'; // getPool(address,address,int24)
+export interface CLRoute { venue: CLVenue; pool: string; tickSpacing: number }
+const clPoolCache = new Map<string, CLRoute[]>();
+/** Every CL pool (all venues, every common tick spacing) pairing `token` with native USDC. */
+export async function findCLPools(token: string): Promise<CLRoute[]> {
+  const k = token.toLowerCase();
+  if (clPoolCache.has(k)) return clPoolCache.get(k)!;
+  const out: CLRoute[] = [];
+  await Promise.all(CL_VENUES.flatMap((v) => v.spacings.map(async (ts) => {
+    const r = await ethCall(v.factory, SEL_CL_GETPOOL + padA(k) + padA(NATIVE_USDC) + padI(ts)).catch(() => null);
+    const pool = r && r.length >= 66 ? '0x' + r.slice(-40).toLowerCase() : null;
+    if (pool && pool !== ZERO) out.push({ venue: v, pool, tickSpacing: ts });
+  })));
+  clPoolCache.set(k, out);
+  return out;
+}
+/** Best exact-input quote across the token's CL pools (quoter eth_call). */
+export async function quoteCL(tokenIn: string, tokenOut: string, amountInRaw: bigint, routes: CLRoute[]): Promise<{ outRaw: bigint; route: CLRoute } | null> {
+  let best: { outRaw: bigint; route: CLRoute } | null = null;
+  await Promise.all(routes.map(async (rt) => {
+    const data = rt.venue.quoteByPool
+      ? rt.venue.selQuote + padA(rt.pool) + padA(tokenIn) + padU(amountInRaw) + padU(0n)
+      : rt.venue.selQuote + padA(tokenIn) + padA(tokenOut) + padU(amountInRaw) + padI(rt.tickSpacing) + padU(0n);
+    const r = await ethCall(rt.venue.quoter, data).catch(() => null);
+    if (!r || r.length < 66) return;
+    const out = BigInt(r.slice(0, 66));
+    if (out > 0n && (!best || out > best.outRaw)) best = { outRaw: out, route: rt };
+  }));
+  return best;
+}
+export function buildCLSwapTx(rt: CLRoute, tokenIn: string, tokenOut: string, amountInRaw: bigint, amountOutMinRaw: bigint, recipient: string): TxReq {
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+  const data = rt.venue.selSwap + padA(tokenIn) + padA(tokenOut) + padI(rt.tickSpacing) + padA(recipient) + padU(deadline) + padU(amountInRaw) + padU(amountOutMinRaw) + padU(0n);
+  return { to: rt.venue.router, from: recipient, data, value: '0x0' };
+}
