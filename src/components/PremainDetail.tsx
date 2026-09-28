@@ -379,46 +379,49 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
       {/* DASHBOARD (09-28 redesign): chart + trades on the left, every metric in one sticky column on the right */}
       <div className="tdx">
         <div className="tdx-main">
-          <div className="td-head" style={{ marginTop: 14 }}>
-            <TokenLogo symbol={sym} seed={address} url={warp?.image ?? seed?.iconUrl ?? null} />
-            <div className="td-id">
-              <div className="td-name">{name || sym}
-                {d?.lookalike && <span className="wl-note" style={{ marginLeft: 8 }}>Lookalike</span>}
-                {d?.reservedName && <span className="wl-note" style={{ marginLeft: 8 }}>Reserved-name</span>}
-              </div>
-              <div className="td-sym">{sym} · {d?.standard?.toUpperCase() || 'ERC-20'}{seed?.hooked && <span className="wl-note" style={{ marginLeft: 8 }} title="This token trades on a Uniswap V4 pool with a hook, which can charge a swap tax (buy/sell fee). Verify before trading.">Hooked · may tax</span>}</div>
-              <div className="td-share">
-                <button className="addr" onClick={copy} title="copy address"><span className="addr-hex">{address.slice(0, 10)}…{address.slice(-8)}</span>{copied ? <><IconCheck className="i" /> Copied</> : <IconCopy className="i" />}</button>
-                <button className="addr td-sh" onClick={copyLink} title="Copy a share link — unfurls into a live-price card on X, Telegram and Discord">{linkCopied ? <><IconCheck className="i" /> Link copied</> : <>Copy link</>}</button>
-                <button className="addr td-sh" onClick={postToX} title="Post this token on X with its live card"><IconX className="i" /> Post</button>
+          {/* HERO (09-28 v2, owner: "the banner is kinda ugly… the huge trade button is too much"): the token's own logo, blurred,
+              tints the strip; identity left, price + changes right, a compact Trade button. */}
+          <div className="tx-hero">
+            {(() => { const u = warp?.image ?? seed?.iconUrl ?? null; return u ? <div className="tx-hero-tint" style={{ backgroundImage: `url("${u}")` }} /> : null; })()}
+            <div className="tx-hero-id">
+              <div className="tx-logo"><TokenLogo symbol={sym} seed={address} url={warp?.image ?? seed?.iconUrl ?? null} /></div>
+              <div className="tx-names">
+                <div className="tx-name">{name || sym}
+                  {d?.lookalike && <span className="wl-note">Lookalike</span>}
+                  {d?.reservedName && <span className="wl-note">Reserved-name</span>}
+                </div>
+                <div className="tx-chips">
+                  <span className="tx-chip sym">{sym}</span>
+                  <span className="tx-chip">{d?.standard?.toUpperCase() || 'ERC-20'}</span>
+                  {seed?.source && <span className="tx-chip">{seed.source}</span>}
+                  {seed?.hooked && <span className="tx-chip warn" title="This token trades on a Uniswap V4 pool with a hook, which can charge a swap tax (buy/sell fee).">Hooked pool</span>}
+                  <button className="tx-chip addr" onClick={copy} title="Copy the contract address">{address.slice(0, 6)}…{address.slice(-4)} {copied ? <IconCheck className="i" /> : <IconCopy className="i" />}</button>
+                  <button className="tx-icon" onClick={copyLink} title="Copy a share link (live-price card on X, Telegram, Discord)">{linkCopied ? <IconCheck className="i" /> : 'Link'}</button>
+                  <button className="tx-icon" onClick={postToX} title="Post this token on X with its live card"><IconX className="i" /></button>
+                </div>
               </div>
             </div>
-            {onTrade && (
-              <button className="btn solid td-trade" onClick={() => onTrade({ address, symbol: sym, name, price: px })}>
-                Trade<span className="td-trade-sym"> {sym}</span> <IconArrowRight className="arw" />
-              </button>
-            )}
-          </div>
-
-          {err && !d && <div className="side-note" style={{ marginTop: 12 }}>Some extended contract details (creator, size) are temporarily unavailable — the price and market data below are unaffected.</div>}
-
-          <div className="stats td-stats" style={{ marginTop: 12 }}>
-            <div className="stat"><div className="v r">{px != null ? tprice(px) : '—'}</div><div className="l">Price</div></div>
-            <div className="stat"><div className={`v chg ${chgClass(chg)}`}>{chgTxt(chg)}</div><div className="l">24h</div></div>
-            <div className="stat"><div className="v">{mc != null ? usd(mc) : '—'}</div><div className="l">Market Cap</div></div>
-            <div className="stat"><div className="v">{tvl != null ? usd(tvl) : '—'}</div><div className="l">Liquidity</div></div>
-            <div className="stat"><div className="v">{vol != null ? usd(vol) : '—'}</div><div className="l">Vol 24h</div></div>
-            <div className="stat"><div className="v">{fmtNum(holdersTotal)}</div><div className="l">Holders</div></div>
-          </div>
-
-          {/* Change over multiple timeframes (DEX-style) */}
-          {Object.values(chgBar).some((v) => v != null) && (
-            <div className="chg-bar">
-              {(Object.entries(chgBar) as [string, number | null][]).map(([l, v]) => (
-                <div className="chg-cell" key={l}><span className="chg-l">{l}</span><span className={`chg-v chg ${chgClass(v)}`}>{chgTxt(v)}</span></div>
-              ))}
+            <div className="tx-hero-px">
+              <div className="tx-price">{px != null ? tprice(px) : '—'}</div>
+              <div className="tx-chg-row">
+                {(Object.entries(chgBar) as [string, number | null][]).map(([l, v]) => (
+                  <span key={l} className={`tx-chg ${chgClass(v)}`}><i>{l}</i>{chgTxt(v)}</span>
+                ))}
+              </div>
+              {onTrade && <button className="tx-trade" onClick={() => onTrade({ address, symbol: sym, name, price: px })}>Trade <IconArrowRight className="arw" /></button>}
             </div>
-          )}
+          </div>
+
+          {err && !d && <div className="side-note">Some extended contract details (creator, size) are temporarily unavailable — the price and market data below are unaffected.</div>}
+
+          {/* one connected stat bar (price + changes now live in the hero) */}
+          <div className="tx-stats">
+            <div><span>Market cap</span><b>{mc != null ? usd(mc) : '—'}</b></div>
+            <div><span>Liquidity</span><b>{tvl != null ? usd(tvl) : '—'}</b></div>
+            <div><span>Volume 24h</span><b>{vol != null ? usd(vol) : '—'}</b></div>
+            <div><span>Holders</span><b>{fmtNum(holdersTotal)}</b></div>
+            <div><span>FDV</span><b>{fdv != null ? usd(fdv) : '—'}</b></div>
+          </div>
 
           <div style={{ marginTop: 12 }}>
             {dec != null && <PriceChart address={address} symbol={sym} decimals={dec} priceScale={chartScale} change24h={chg} trades={mine} />}

@@ -1701,3 +1701,82 @@ footer .wrap { padding: 16px 20px; }
 /* 09-28 owner: "why a scroller on the right side when u have all that blank space underneath?" — the sticky, height-capped
    sidebar scrolled inside itself next to empty space. It now flows with the page at full height; no inner scrollbar. */
 .tdx-side { position: static; max-height: none; overflow: visible; }
+
+/* ══ TOKEN PAGE v2 LOOK (09-28, owner: "looks plain… banner ugly… trade button too much… backgrounds empty") ════════════
+   Shell: two fire glows + an ember glow at the bottom, a fine dot grid, a vignette. Panels: translucent glass over it, so
+   the texture reads through instead of flat black. Hero: the token's own logo, blurred huge, tints the strip. */
+.tdx {
+  background:
+    radial-gradient(60% 50% at 8% -8%, rgba(255,122,30,.20), transparent 60%),
+    radial-gradient(45% 40% at 105% 5%, rgba(255,47,20,.14), transparent 60%),
+    radial-gradient(70% 45% at 50% 115%, rgba(255,160,60,.08), transparent 70%),
+    radial-gradient(rgba(255,255,255,.07) 1px, transparent 1.4px) 0 0 / 18px 18px,
+    linear-gradient(180deg, rgba(14,12,12,.92), rgba(6,6,8,.96));
+  border: 1px solid rgba(255,140,60,.22);
+  box-shadow: inset 0 0 120px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.03), 0 0 0 6px rgba(255,122,30,.035), 0 40px 100px rgba(0,0,0,.6);
+}
+.tdx .panel, .tdx .stat {
+  background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012) 38%, rgba(255,255,255,.02)), rgba(16,14,14,.62);
+  backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,.08);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 0 0 5px rgba(255,255,255,.015), inset 0 1px 0 rgba(255,255,255,.07), 0 16px 40px rgba(0,0,0,.4);
+}
+.tdx .panel:hover { border-color: rgba(255,150,70,.18); }
+
+/* hero strip */
+.tx-hero { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+  padding: 18px 20px; border-radius: 18px; border: 1px solid rgba(255,255,255,.09);
+  background: linear-gradient(110deg, rgba(255,122,30,.14), rgba(20,16,16,.55) 45%, rgba(12,10,12,.7)), rgba(12,10,10,.6);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 0 0 5px rgba(255,255,255,.015), 0 18px 44px rgba(0,0,0,.45); }
+.tx-hero::after { content: ''; position: absolute; left: 0; top: 14%; bottom: 14%; width: 3px; border-radius: 0 3px 3px 0; background: var(--fire); box-shadow: 0 0 18px rgba(255,122,30,.7); }
+.tx-hero-tint { position: absolute; inset: -40%; background-size: 55% auto; background-repeat: no-repeat; background-position: 12% 50%;
+  filter: blur(60px) saturate(1.6); opacity: .28; pointer-events: none; }
+.tx-hero-id, .tx-hero-px { position: relative; z-index: 1; }
+.tx-hero-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.tx-logo { flex: none; padding: 3px; border-radius: 50%; background: conic-gradient(from 200deg, #ffc24a, #ff7a1e, #ff2f14, #ffc24a); box-shadow: 0 0 22px rgba(255,122,30,.45); }
+.tx-logo .tlogo, .tx-logo .tmono { width: 52px; height: 52px; border-radius: 50%; display: block; background: #0b0b0d; border: 2px solid #0b0b0d; }
+.tx-names { min-width: 0; }
+.tx-name { font-family: var(--disp); font-weight: 700; font-size: 26px; line-height: 1.1; color: var(--white); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tx-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.tx-chip { font: 600 10.5px var(--mono); letter-spacing: .5px; padding: 4px 9px; border-radius: 999px; color: var(--gray); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09); }
+.tx-chip.sym { color: #ffc24a; border-color: rgba(255,194,74,.35); background: rgba(255,194,74,.08); }
+.tx-chip.warn { color: #ffb14a; border-color: rgba(255,177,74,.35); }
+.tx-chip.addr { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.tx-chip.addr:hover, .tx-icon:hover { border-color: rgba(255,150,70,.45); color: var(--white); }
+.tx-chip .i, .tx-icon .i { width: 12px; height: 12px; }
+.tx-icon { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 24px; padding: 0 8px; border-radius: 999px;
+  font: 600 10.5px var(--mono); color: var(--gray); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09); }
+.tx-hero-px { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.tx-price { font-family: var(--disp); font-weight: 700; font-size: 32px; line-height: 1; color: var(--white); text-shadow: 0 0 24px rgba(255,160,60,.25); }
+.tx-chg-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tx-chg { font: 600 11.5px var(--mono); padding: 3px 8px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); color: var(--gray); }
+.tx-chg i { font-style: normal; font-size: 9.5px; color: var(--gray-2); margin-right: 5px; text-transform: uppercase; }
+.tx-chg.up { color: #5ad18a; background: rgba(90,209,138,.08); border-color: rgba(90,209,138,.2); }
+.tx-chg.down { color: #ff6a55; background: rgba(255,90,70,.08); border-color: rgba(255,90,70,.2); }
+.tx-trade { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font: 700 11px var(--disp); letter-spacing: 1.5px; text-transform: uppercase;
+  padding: 7px 14px; border-radius: 999px; color: #ffd08a; background: rgba(255,122,30,.10); border: 1px solid rgba(255,122,30,.45); transition: background .15s, box-shadow .15s; }
+.tx-trade:hover { background: rgba(255,122,30,.22); box-shadow: 0 0 18px rgba(255,122,30,.35); color: #fff; }
+.tx-trade .arw { width: 12px; height: 12px; }
+
+/* connected stat bar */
+.tx-stats { display: grid; grid-template-columns: repeat(5, 1fr); border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,.08);
+  background: rgba(16,14,14,.62); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 0 0 5px rgba(255,255,255,.015), inset 0 1px 0 rgba(255,255,255,.06); }
+.tx-stats > div { padding: 12px 16px; position: relative; }
+.tx-stats > div + div::before { content: ''; position: absolute; left: 0; top: 22%; bottom: 22%; width: 1px; background: linear-gradient(transparent, rgba(255,255,255,.12), transparent); }
+.tx-stats span { display: block; font: 600 9.5px var(--disp); letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray-2); }
+.tx-stats b { display: block; font-family: var(--disp); font-size: 18px; color: var(--white); margin-top: 3px; }
+@media (max-width: 640px) {
+  .tx-hero { padding: 14px; }
+  .tx-hero-px { align-items: flex-start; width: 100%; }
+  .tx-chg-row { justify-content: flex-start; }
+  .tx-name { font-size: 21px; } .tx-price { font-size: 26px; }
+  .tx-logo .tlogo, .tx-logo .tmono { width: 42px; height: 42px; }
+  .tx-stats { grid-template-columns: repeat(2, 1fr); }
+  .tx-stats > div:nth-child(odd)::before { display: none; }
+  .tx-stats > div:last-child { grid-column: 1 / -1; }
+}
+@media (min-width: 641px) {
+  .tx-hero { flex-wrap: nowrap; }
+  .tx-hero-id { flex: 1 1 auto; }
+  .tx-hero-px { flex: none; }
+}
