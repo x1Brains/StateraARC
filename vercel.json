@@ -5,9 +5,16 @@
     },
     "api/snapshot.js": {
       "maxDuration": 30
+    },
+    "api/v2.js": {
+      "maxDuration": 15
     }
   },
   "rewrites": [
+    {
+      "source": "/api/v2/:path*",
+      "destination": "/api/v2?path=:path*"
+    },
     {
       "source": "/api/xdex/:path*",
       "destination": "https://api.xdex.xyz/:path*"

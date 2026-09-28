@@ -1,0 +1,37 @@
+// Client for the v2 data API (/api/v2/* → server/statera-api.ts on the VPS). Every call has a short deadline and THROWS
+// on any failure, so App.tsx can drop back to the v1 path (the full list + in-browser re-pricing) — the site never
+// depends on v2 alone. Force v1 with ?data=v1 (sticky for the tab) to compare the two.
+import type { Token } from './rules';
+import type { DashStats } from './board';
+
+export interface V2Home {
+  asOf: number | null; generatedAt: string | null; tracked: number; stats: DashStats;
+  counts: { eco: number; launchpad: number; dup: number };
+  legend: { label: string; desc: string }[];
+  trending: Token[]; launches: Token[]; movers: Token[];
+}
+export interface V2Board { asOf: number | null; total: number; page: number; pages: number; per: number; rows: Token[] }
+
+export const v2Enabled = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search).get('data');
+    if (q === 'v1' || q === 'v2') sessionStorage.setItem('statera-data', q);
+    return (sessionStorage.getItem('statera-data') || 'v2') === 'v2';
+  } catch { return true; }
+})();
+
+async function get<T>(path: string, ms = 8000): Promise<T> {
+  const r = await fetch(`/api/v2/${path}`, { signal: AbortSignal.timeout(ms) });
+  if (!r.ok && r.status !== 404) throw new Error(`v2 ${path} ${r.status}`);
+  const j = await r.json();
+  if (!r.ok) throw Object.assign(new Error(j?.error || 'not found'), { notFound: true });
+  return j as T;
+}
+export const v2Home = () => get<V2Home>('home').then((h) => { if (!h || !h.stats || !Array.isArray(h.trending)) throw new Error('v2 home: bad shape'); return h; });
+export const v2Board = (o: { filter: string; q: string; sort: string; dir: string; hideDupes: boolean; showInactive: boolean; page: number; per: number }) =>
+  get<V2Board>(`board?${new URLSearchParams({ filter: o.filter, q: o.q, sort: o.sort, dir: o.dir, dups: o.hideDupes ? '0' : '1', inactive: o.showInactive ? '1' : '0', page: String(o.page), per: String(o.per) })}`)
+    .then((b) => { if (!b || !Array.isArray(b.rows)) throw new Error('v2 board: bad shape'); return b; });
+export const v2Search = (q: string, limit = 7) => get<{ rows: Token[] }>(`search?${new URLSearchParams({ q, limit: String(limit) })}`, 5000).then((j) => j.rows || []);
+export const v2Token = (addr: string) => get<{ token: Token }>(`token/${addr.toLowerCase()}`, 6000).then((j) => j.token).catch((e) => { if (e?.notFound) return null; throw e; });
+export const v2SwapTokens = () => get<{ tokens: Token[] }>('swap-tokens', 10000).then((j) => j.tokens || []);
+export const v2List = () => get<{ tokens: Token[]; asOf: number | null }>('list', 20000);

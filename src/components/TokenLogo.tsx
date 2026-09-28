@@ -29,6 +29,7 @@ const tollyImg = (addr: string) => `https://api.tollylabs.com/token-image/${addr
 export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string; url?: string | null }) {
   const [primaryBroke, setPrimaryBroke] = useState(false);
   const [ipfsBroke, setIpfsBroke] = useState(false);
+  const [cacheBroke, setCacheBroke] = useState(false);
   const [onchain, setOnchain] = useState<string | null>(null);
   const [onchainBroke, setOnchainBroke] = useState(false);
   const [tollyBroke, setTollyBroke] = useState(false);
@@ -43,11 +44,14 @@ export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string;
   const primary = (rawPrimary || '').replace(/https?:\/\/[a-z0-9-]+\.mypinata\.cloud\/ipfs\//i, 'https://gateway.pinata.cloud/ipfs/');
   const ipfsCid = (() => { const m = (primary || '').match(/\/ipfs\/([A-Za-z0-9]+)/); return m ? m[1] : null; })();
   // Reset failure state when the token (url/seed) changes — the component is reused across list rows.
-  useEffect(() => { setPrimaryBroke(false); setIpfsBroke(false); setOnchainBroke(false); setTollyBroke(false); }, [primary, seed]);
+  useEffect(() => { setPrimaryBroke(false); setIpfsBroke(false); setCacheBroke(false); setOnchainBroke(false); setTollyBroke(false); }, [primary, seed]);
   // Resolve the on-chain logo when we have no primary OR the primary image failed to load (flaky IPFS
   // gateways 429 on bursts, e.g. the swap picker opening 10+ icons at once). This is the real fallback:
   // url → on-chain → letter, so a dead/rate-limited icon URL still shows the token's logo.
-  const needFallback = (!primary || (primaryBroke && (!ipfsCid || ipfsBroke))) && isAddr;
+  const noPrimary = !primary || (primaryBroke && (!ipfsCid || ipfsBroke));
+  // The VPS logo cache (/api/logo/<addr>, a 192px PNG made by scripts/logo-cache.mjs, edge-cached a day) comes BEFORE the
+  // on-chain lookup: that lookup is 2 eth_calls per token in every visitor's browser (~275 RPC calls on one screener page).
+  const needFallback = noPrimary && isAddr && cacheBroke;
   useEffect(() => {
     if (!needFallback) return;
     let alive = true;
@@ -60,6 +64,9 @@ export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string;
   }
   if (ipfsCid && !ipfsBroke) {
     return <img className="tlogo" src={`https://ipfs.io/ipfs/${ipfsCid}`} alt={symbol} loading="lazy" onError={() => setIpfsBroke(true)} />;
+  }
+  if (noPrimary && isAddr && !cacheBroke) {
+    return <img className="tlogo" src={`/api/logo/${seed.toLowerCase()}`} alt={symbol} loading="lazy" onError={() => setCacheBroke(true)} />;
   }
   if (onchain && !onchainBroke) {
     return <img className="tlogo" src={onchain} alt={symbol} loading="lazy" onError={() => setOnchainBroke(true)} />;

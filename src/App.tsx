@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Board from './lib/board';
 import * as Live from './lib/live';
+import { v2Enabled, v2Home, v2Board, v2Search, v2Token, v2SwapTokens, v2List, type V2Home, type V2Board } from './lib/v2';
 import type { Filter, SortKey } from './lib/board';
 import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, shareStamp, PINNED, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
@@ -128,12 +129,21 @@ export default function App() {
   // Cinematic hero: one of the four lava scenes, chosen at random on each fresh load.
   const [heroVariant] = useState<number>(() => 1 + Math.floor(Math.random() * 4));
 
-  // StateraArc is mainnet-only (Arc chain 5042). Tokens = tracked deep pools (real on-chain price +
-  // liquidity) merged with live Warp launchpad tokens.
-  async function load(silent = false) {
+  // ── DATA: v2 (default) = the VPS API computes the board once for every visitor (server/statera-api.ts): the home page
+  // reads ~10 KB, a screener page ~1 KB per 100 rows, and the browser makes no RPC calls for the lists. v1 = the old path
+  // (the whole 1.14 MB list every 60 s + in-browser re-pricing), kept intact: ANY v2 failure drops this tab to v1 for good,
+  // and ?data=v1 forces it (to compare). Same rules either way — src/lib/board.ts runs on both sides.
+  const [mode, setMode] = useState<'v2' | 'v1'>(v2Enabled ? 'v2' : 'v1');
+  const v2 = mode === 'v2';
+  const [home, setHome] = useState<V2Home | null>(null);
+  const [board, setBoard] = useState<V2Board | null>(null);
+  const [swapList, setSwapList] = useState<Token[]>([]);
+  const fallBack = (why: unknown) => { console.warn('[statera] v2 data unavailable, using v1:', (why as any)?.message || why); setMode('v1'); };
+
+  // v1: StateraArc is mainnet-only (Arc chain 5042). Tokens = the VPS indexer snapshot, re-priced live in the tab.
+  async function loadV1(silent = false) {
     if (!silent) setLoading(true);
     setErr(null);
-    fetchMarket().then(setMarket).catch(() => {});
     try {
       const { tokens: list, asOf: ts } = await fetchScreenerTokens();
       setTokens(list); setAsOf(ts);
@@ -150,11 +160,8 @@ export default function App() {
     } catch (e: any) { if (!silent) setErr(e.message || 'failed to load'); }
     finally { if (!silent) setLoading(false); }
   }
-  useEffect(() => { load(); }, []); // eslint-disable-line
-  // LIVE FEED: the snapshot gives the full list instantly; then we overlay fresh RadarDEX price/change/
-  // volume/liq (via the relay — live, not the 30-min bake) every ~40s and merge in place by address, so
-  // the active tokens update near-live and "Updated" reflects the live pull. Deep pools not on RadarDEX
-  // keep their snapshot values until the next bake.
+  // v1 LIVE FEED: the snapshot gives the full list instantly; then fresh RadarDEX price/change/volume/liq (via the relay)
+  // every ~40s, merged in place by address; deep pools get their on-chain slot0 price.
   const refreshLive = async () => {
     try {
       // RadarDEX (~500 active tokens) + on-chain slot0 prices for the deep pools RadarDEX doesn't list.
@@ -164,27 +171,81 @@ export default function App() {
       setAsOf(Date.now());
     } catch { /* keep snapshot values */ }
   };
-  useEffect(() => { const id = setInterval(refreshLive, 40000); refreshLive(); return () => clearInterval(id); }, []); // eslint-disable-line
-  // Live-ish: silently refresh prices/mcap/liquidity every 60s (no loading flicker).
-  useEffect(() => { const id = setInterval(() => load(true), 60000); return () => clearInterval(id); }, []); // eslint-disable-line
+  async function loadV2(silent = false) {
+    if (!silent) setLoading(true);
+    try { const h = await v2Home(); setHome(h); setAsOf(h.asOf); setErr(null); }
+    catch (e) { fallBack(e); }
+    finally { if (!silent) setLoading(false); }
+  }
+  const load = (silent = false) => { fetchMarket().then(setMarket).catch(() => {}); return mode === 'v2' ? loadV2(silent) : loadV1(silent); };
+  useEffect(() => {
+    load();
+    if (mode === 'v1') {
+      const a = setInterval(refreshLive, 40000); refreshLive();
+      const b = setInterval(() => load(true), 60000); // silently refresh prices/mcap/liquidity (no loading flicker)
+      return () => { clearInterval(a); clearInterval(b); };
+    }
+    // v2: the server re-prices every 40-60 s; the tab just re-reads the small summary.
+    const c = setInterval(() => loadV2(true), 20000);
+    const d = setInterval(() => fetchMarket().then(setMarket).catch(() => {}), 60000);
+    return () => { clearInterval(c); clearInterval(d); };
+  }, [mode]); // eslint-disable-line
 
-  // Everything below is src/lib/board.ts (A/B-proven identical to the v1 inline code: scripts/regress/board-ab.ts).
+  // v2 screener page: the server filters/sorts/paginates; a sequence number drops stale answers (fast typing, paging).
+  const boardSeq = useRef(0);
+  const onScreener = page === 'screener' && !selected;
+  useEffect(() => {
+    if (!v2 || !onScreener) return;
+    const fetchPage = () => {
+      const seq = ++boardSeq.current;
+      v2Board({ filter, q, sort, dir, hideDupes, showInactive, page: pageNum, per: perPage })
+        .then((b) => { if (seq === boardSeq.current) { setBoard(b); if (b.asOf) setAsOf(b.asOf); } })
+        .catch((e) => { if (seq === boardSeq.current) fallBack(e); });
+    };
+    const t = setTimeout(fetchPage, q ? 250 : 0); // debounce typing
+    const id = setInterval(fetchPage, 20000);
+    return () => { clearTimeout(t); clearInterval(id); };
+  }, [v2, onScreener, filter, q, sort, dir, hideDupes, showInactive, pageNum, perPage]); // eslint-disable-line
+  // v2 swap picker + portfolio pricing: fetched when those pages open.
+  useEffect(() => { if (v2 && page === 'swap') v2SwapTokens().then(setSwapList).catch(fallBack); }, [v2, page]); // eslint-disable-line
+  useEffect(() => { if (v2 && page === 'portfolio' && !tokens.length) v2List().then((l) => setTokens(l.tokens)).catch(fallBack); }, [v2, page]); // eslint-disable-line
+  // v2 token page: its screener row (carries the pool keys so the page skips pool discovery).
+  const [seedRow, setSeedRow] = useState<{ addr: string; row: Token | null } | null>(null);
+  useEffect(() => {
+    if (!v2 || !selected) return;
+    const a = selected.toLowerCase(); let alive = true;
+    v2Token(a).then((row) => { if (alive) setSeedRow({ addr: a, row }); }).catch((e) => { if (alive) { setSeedRow({ addr: a, row: null }); fallBack(e); } });
+    return () => { alive = false; };
+  }, [v2, selected]); // eslint-disable-line
+
+  // Everything below is src/lib/board.ts (A/B-proven identical to the v1 inline code: scripts/regress/board-ab.ts) —
+  // computed here in v1, read from the server (same code) in v2.
   const ix = useMemo(() => Board.buildIndex(tokens, PINNED), [tokens]);
-  const dupCount = useMemo(() => Board.dupCount(tokens, ix), [tokens, ix]);
-  const rows = useMemo(() => Board.boardRows(tokens, ix, { filter, q, sort, dir, hideDupes, showInactive }), [tokens, ix, filter, q, sort, dir, hideDupes, showInactive]);
+  const rowsV1 = useMemo(() => (v2 ? [] : Board.boardRows(tokens, ix, { filter, q, sort, dir, hideDupes, showInactive })), [v2, tokens, ix, filter, q, sort, dir, hideDupes, showInactive]);
 
   useEffect(() => { setPageNum(1); }, [filter, q, sort, dir, perPage, hideDupes]);
-  const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
-  const pageRows = rows.slice((pageNum - 1) * perPage, pageNum * perPage);
+  const rowsTotal = v2 ? (board?.total ?? 0) : rowsV1.length;
+  const totalPages = v2 ? Math.max(1, board?.pages ?? 1) : Math.max(1, Math.ceil(rowsV1.length / perPage));
+  const pageRows = v2 ? (board?.rows ?? []) : rowsV1.slice((pageNum - 1) * perPage, pageNum * perPage);
 
-  const ecoCount = Board.ecoCount(tokens);
-  const launchpadCount = useMemo(() => Board.launchpadCount(tokens, ix), [tokens, ix]);
-  const launchpadLegend = useMemo(() => Board.launchpadLegend(tokens, ix), [tokens, ix]);
-  const swapTokens = useMemo(() => Board.swapTokens(tokens, ix), [tokens, ix]);
-  const trending = useMemo(() => Board.trending(tokens, ix), [tokens, ix]);
-  const launches = useMemo(() => Board.launches(tokens, ix), [tokens, ix]);
-  const movers = useMemo(() => Board.movers(tokens, ix), [tokens, ix]);
-  const dashStats = useMemo(() => Board.dashStats(tokens, ix), [tokens, ix]);
+  const v1 = useMemo(() => (v2 ? null : {
+    dupCount: Board.dupCount(tokens, ix), ecoCount: Board.ecoCount(tokens), launchpadCount: Board.launchpadCount(tokens, ix),
+    launchpadLegend: Board.launchpadLegend(tokens, ix), trending: Board.trending(tokens, ix), launches: Board.launches(tokens, ix),
+    movers: Board.movers(tokens, ix), dashStats: Board.dashStats(tokens, ix),
+  }), [v2, tokens, ix]);
+  const NO_STATS: Board.DashStats = { count: 0, vol24: 0, newToday: 0, tracked: 0, tvl: 0 };
+  const dupCount = v1 ? v1.dupCount : home?.counts.dup ?? 0;
+  const ecoCount = v1 ? v1.ecoCount : home?.counts.eco ?? 0;
+  const launchpadCount = v1 ? v1.launchpadCount : home?.counts.launchpad ?? 0;
+  const launchpadLegend = v1 ? v1.launchpadLegend : home?.legend ?? [];
+  const trending = v1 ? v1.trending : home?.trending ?? [];
+  const launches = v1 ? v1.launches : home?.launches ?? [];
+  const movers = v1 ? v1.movers : home?.movers ?? [];
+  const dashStats = v1 ? v1.dashStats : home?.stats ?? NO_STATS;
+  const swapTokens = useMemo(() => (v2 ? swapList : Board.swapTokens(tokens, ix)), [v2, swapList, tokens, ix]);
+  const seed = v2 ? (seedRow && seedRow.addr === (selected || '').toLowerCase() ? seedRow.row ?? undefined : undefined)
+    : tokens.find((t) => t.address.toLowerCase() === (selected || '').toLowerCase());
+  const seedReady = v2 ? (!!seedRow && seedRow.addr === (selected || '').toLowerCase()) || !!err : tokens.length > 0 || !!err;
 
   const go = (p: Page) => { setPage(p); setSelected(null); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const openToken = (addr: string) => { setSelected(addr); setPage('screener'); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -196,14 +257,22 @@ export default function App() {
   const [heroFocus, setHeroFocus] = useState(false);
   // Live typeahead: match the query against ticker/name (or address), prefer the REAL token per ticker,
   // rank exact > startsWith > contains, then by liquidity. Shows logo + price in the dropdown.
-  const heroMatches = useMemo(() => Board.heroMatches(tokens, ix, heroQ), [heroQ, tokens, ix]);
+  const [heroV2, setHeroV2] = useState<{ q: string; rows: Token[] }>({ q: '', rows: [] });
+  useEffect(() => {
+    if (!v2) return;
+    const s = heroQ.trim(); if (!s) { setHeroV2({ q: '', rows: [] }); return; }
+    const t = setTimeout(() => v2Search(s).then((rows) => setHeroV2({ q: heroQ, rows })).catch(() => {}), 150);
+    return () => clearTimeout(t);
+  }, [v2, heroQ]);
+  const heroMatches = useMemo(() => (v2 ? (heroQ.trim() ? heroV2.rows : []) : Board.heroMatches(tokens, ix, heroQ)), [v2, heroV2, heroQ, tokens, ix]);
   const heroSearch = () => {
     const s = heroQ.trim();
     if (!s) return;
     if (/^0x[0-9a-fA-F]{40}$/.test(s)) { openToken(s.toLowerCase()); return; }
     const low = s.toLowerCase();
-    const hit = tokens.find((t) => (t.symbol || '').toLowerCase() === low)
-      || tokens.find((t) => (t.symbol || '').toLowerCase().startsWith(low) || (t.name || '').toLowerCase().startsWith(low));
+    const pool = v2 ? heroMatches : tokens; // v2: the server's ranked matches (real token per ticker first)
+    const hit = pool.find((t) => (t.symbol || '').toLowerCase() === low)
+      || pool.find((t) => (t.symbol || '').toLowerCase().startsWith(low) || (t.name || '').toLowerCase().startsWith(low));
     if (hit) { openToken(hit.address); return; }
     setQ(s); goScreener('all');
   };
@@ -350,7 +419,7 @@ export default function App() {
                 <div>
                   <div className="kicker">The full board</div>
                   <h2>Every token on Arc, ranked.</h2>
-                  <p>Sort {tokens.length || 500}+ tokens by liquidity or market cap, filter launchpads &amp; ecosystem, and dive into per-token trades, holders &amp; pools.</p>
+                  <p>Sort {dashStats.tracked || 500}+ tokens by liquidity or market cap, filter launchpads &amp; ecosystem, and dive into per-token trades, holders &amp; pools.</p>
                 </div>
                 <button className="btn solid" onClick={() => goScreener('all')}>Open Screener <IconArrowRight className="arw" /></button>
               </div>
@@ -381,8 +450,8 @@ export default function App() {
         {page === 'screener' && selected && (
           <PremainDetail
             address={selected}
-            seed={tokens.find((t) => t.address.toLowerCase() === (selected || "").toLowerCase())}
-            ready={tokens.length > 0 || !!err}
+            seed={seed}
+            ready={seedReady}
             onBack={() => setSelected(null)}
             onTrade={(t) => tradeToken(t)}
           />
@@ -451,7 +520,7 @@ export default function App() {
             </div>
 
             {err && <div className="msg err">Error: {err}</div>}
-            {loading && !tokens.length && <div className="msg">Loading Arc tokens…</div>}
+            {loading && !pageRows.length && <div className="msg">Loading Arc tokens…</div>}
 
             {!!pageRows.length && (
               <div className="table-scroll">
@@ -493,7 +562,7 @@ export default function App() {
               </div>
               </div>
             )}
-            {!loading && !!tokens.length && !rows.length && (
+            {!loading && (v2 ? !!board : !!tokens.length) && !rowsTotal && (
               /^0x[0-9a-fA-F]{40}$/.test(q.trim())
                 ? <div className="msg" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
                     <span>Not in the indexed list — open it directly from chain:</span>
@@ -502,10 +571,10 @@ export default function App() {
                 : <div className="msg">No tokens match{q ? ` "${q}"` : ' this filter'}.</div>
             )}
 
-            {rows.length > perPage && (
+            {rowsTotal > perPage && (
               <div className="pager">
                 <div className="pager-info">
-                  Showing <b>{(pageNum - 1) * perPage + 1}–{Math.min(pageNum * perPage, rows.length)}</b> of {rows.length}
+                  Showing <b>{(pageNum - 1) * perPage + 1}–{Math.min(pageNum * perPage, rowsTotal)}</b> of {rowsTotal}
                 </div>
                 <div className="pager-ctrls">
                   <button disabled={pageNum <= 1} onClick={() => { setPageNum((p) => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><IconArrowLeft className="i" /> Prev</button>
