@@ -1,6 +1,6 @@
 // Token page data, computed on the VPS with the SAME functions the page ran in each visitor's browser (src/lib/arc.ts):
 // pool stats, every pool, 24h stats + makers, burn, holders, trades (+ real wallets), transfers. One computation serves
-// every visitor: fresh for 20 s, then served stale (up to 10 min) while a background refresh runs. v1 made each visitor's
+// every visitor: fresh for 20 s, then served stale (up to 2 min) while a background refresh runs. v1 made each visitor's
 // tab do all of this itself: ~450–650 RPC calls and up to 15 MB of logs per token page.
 import type { Token } from '../src/lib/rules.ts';
 import {
@@ -20,7 +20,8 @@ export interface TokenDetail {
   txs: Awaited<ReturnType<typeof fetchTokenTransfers>> | null;
 }
 
-const FRESH_MS = 20_000, STALE_MS = 10 * 60_000, MAX_CACHED = 300;
+// Stale copies are served for at most 2 min (the page re-asks ~7 s later and gets the refreshed one); older = compute now.
+const FRESH_MS = 20_000, STALE_MS = 2 * 60_000, MAX_CACHED = 300;
 const cache = new Map<string, TokenDetail>();
 const inflight = new Map<string, Promise<TokenDetail>>();
 let running = 0; const queue: (() => void)[] = [];

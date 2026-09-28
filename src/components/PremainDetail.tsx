@@ -72,6 +72,16 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
         const v = await v2TokenDetail(address).catch(() => null);
         if (!alive) return;
         if (v) {
+          // A copy older than 25 s was served while the server refreshes it in the background — take the fresh one a few
+          // seconds later, so an active token's newest trades are seconds old, not minutes.
+          if (Date.now() - v.at > 25_000) setTimeout(() => {
+            v2TokenDetail(address).then((f) => {
+              if (!alive || f.at <= v.at) return;
+              setOcPool(f.ocPool); setOcPools(f.ocPools); setDayStats(f.dayStats); setBurn(f.burn); setTxs(f.txs ?? []);
+              if (f.holders && f.holders.length) setHolders(f.holders);
+              if (f.swaps && f.swaps.length) setSwaps(f.swaps);
+            }).catch(() => {});
+          }, 7000);
           setDec(v.dec);
           rdP.then((detail) => { if (alive) setRd(detail); });
           setOcPool(v.ocPool); setOcPools(v.ocPools); setDayStats(v.dayStats); setBurn(v.burn); setTxs(v.txs ?? []);
