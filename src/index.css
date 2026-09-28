@@ -1842,8 +1842,10 @@ footer .wrap { padding: 16px 20px; }
 .hero-trust { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; column-gap: 34px; row-gap: 16px; }
 .hero-trust .div { display: none; }
 .hero-trust .ht b.r { background: var(--fire); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-.hero-cta { flex-wrap: nowrap; }
+/* one row only where it fits (09-28: nowrap cut 'NEW LAUNCHES' and the search button off in a ~520 px window) */
+.hero-cta { flex-wrap: wrap; }
 .hero-cta .btn { padding-left: 20px; padding-right: 20px; white-space: nowrap; }
+@media (min-width: 1000px) { .hero-cta { flex-wrap: nowrap; } }
 @media (max-width: 640px) {
   .hero-trust { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; }
   .hero-cta { flex-wrap: wrap; }

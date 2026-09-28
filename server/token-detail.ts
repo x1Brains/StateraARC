@@ -73,11 +73,14 @@ export async function tokenDetail(address: string, seed: Token | undefined): Pro
 }
 /** Keep the busiest token pages warm so their first visitor never waits. */
 export function prewarm(rows: Token[]) {
-  for (const t of rows) {
+  rows.forEach((t, i) => {
     refresh(t.address.toLowerCase(), t, false).catch(() => {});
+    // ⛔ 09-28: pre-building ALL for 8 tokens OOM-killed the API (a ~12-day pool scan holds its raw logs in memory) — top 3
+    // only; any other token's full history is built on first view and cached 5 min.
+    if (i >= 3) return;
     // the heavy ALL view (the one that 502'd cold), so the busiest tokens' full-history charts open instantly
     buildCandles(t.address.toLowerCase(), t, 43200, 3650 * 86400, `${t.address.toLowerCase()}:43200:${3650 * 86400}`).catch(() => {});
-  }
+  });
 }
 
 // ── Chart candles: the page's own fetchPoolCandles, run here. The chart's timeframes only (sec → max lookback), so a

@@ -34,7 +34,10 @@ const save = () => { try { fs.mkdirSync(path.dirname(STATE_FILE), { recursive: t
 const decimalsCache = new Map<string, number>();
 export const lendingStats = { sweeps: 0, errors: 0, lastOk: 0 };
 
+// Persisted: after a restart the last good numbers are served at once (the landing 'Lent' showed '—' during rebuilds).
+const SNAP_FILE = process.env.LENDING_SNAP || '/root/statera-api-state/lending-snap.json';
 let snapshot: any = null;
+try { snapshot = JSON.parse(fs.readFileSync(SNAP_FILE, 'utf8')); } catch { /* first run */ }
 export const lendingSummary = () => snapshot;
 
 /** One refresh: extend the CreateMarket sweep (a few ranges per call so it never floods), then read every market + the Hub. */
@@ -90,4 +93,5 @@ export async function refreshLending(rpc: Rpc, call: Call, getLogsBig: (p: any) 
     aave: { hub: AAVE_HUB, assets: aave, supplyUsd: sum(aave, 'supplyUsd'), borrowUsd: sum(aave, 'borrowUsd') },
   };
   lendingStats.lastOk = Date.now();
+  try { fs.writeFileSync(SNAP_FILE + '.tmp', JSON.stringify(snapshot)); fs.renameSync(SNAP_FILE + '.tmp', SNAP_FILE); } catch { /* next time */ }
 }

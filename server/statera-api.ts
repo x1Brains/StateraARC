@@ -261,7 +261,7 @@ const symbolOf = (t: string) => { const a = t.toLowerCase(); if (a === USDC_ADDR
 let lending = false;
 const tickLending = async () => { if (lending) return; lending = true; try { await refreshLending(rpc, call, getLogsBig, priceOf, symbolOf); } catch (e) { lendingStats.errors++; console.error('[lending]', (e as Error).message); } finally { lending = false; } };
 // Every minute until Morpho's one-time market count is complete, then every 5 min.
-setTimeout(tickLending, 30_000);
+setTimeout(tickLending, 5_000);
 setInterval(() => { const l = lendingSummary(); if (!l || !l.morpho?.complete || Date.now() - l.at > 5 * 60_000) tickLending(); }, 60_000);
 // Where each Circle asset sits (Network page): every 10 min. Pools = every pool address the live token list knows.
 let whereBusy = false;

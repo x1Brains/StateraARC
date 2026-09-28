@@ -1,17 +1,18 @@
 # /etc/systemd/system/statera-api.service — the v2 data API (see server/statera-api.ts, docs/UPGRADE_PLAN.md).
 # Runs from its OWN clone (/root/statera-api-repo) so the v1 timers' `git reset` of /root/statera-repo never swaps code
 # under it; server/deploy-api.sh updates it deliberately. MemoryMax keeps it from ever starving the grid bot on this box.
+# 09-28: 300M OOM-killed it 5× (chart pre-builds); 700M cap, and V8's heap capped just under it so it GCs before the kill.
 [Unit]
 Description=StateraArc v2 data API (board/home/search/token, live re-price once for all visitors)
 After=network-online.target
 
 [Service]
 WorkingDirectory=/root/statera-api-repo
-ExecStart=/usr/bin/node server/statera-api.ts
+ExecStart=/usr/bin/node --max-old-space-size=600 server/statera-api.ts
 Restart=always
 RestartSec=5
 Nice=5
-MemoryMax=300M
+MemoryMax=700M
 Environment=NODE_ENV=production
 
 [Install]
