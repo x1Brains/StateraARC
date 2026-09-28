@@ -88,7 +88,7 @@ export function Network() {
         {/* 1 · The pulse */}
         <div className="nx-pulse">
           <div className="nx-big"><div className="v">{h1 ? `${h1.blockTime.toFixed(2)}s` : '—'}</div><div className="t">New block</div><div className="d">A new block of transactions every half second. Once in a block, a payment is final — it can't be reversed.</div></div>
-          <div className="nx-big"><div className="v">{m5 ? n0(m5.tps, 0) : '—'}</div><div className="t">Transactions per second</div><div className="d">{h1 ? `${n0(h1.txs)} transactions in the ${hourLabel}.` : 'Counting…'}</div></div>
+          <div className="nx-big"><div className="v">{m5 ? n0(m5.tps, 0) : '—'}</div><div className="t">TX per second</div><div className="d">{h1 ? `${n0(h1.txs)} transactions in the ${hourLabel}.` : 'Counting…'}</div></div>
           <div className="nx-big"><div className="v">{transferFee == null ? '—' : transferFee < 0.01 ? `$${transferFee.toFixed(4)}` : usd(transferFee)}</div><div className="t">To send money</div><div className="d">Typical fee for a transfer. Fees on Arc are paid in dollars (USDC), not a separate gas coin.</div></div>
           <div className="nx-big"><div className="v">{vals.length || '—'}</div><div className="t">Validators</div><div className="d">Approved institutions take turns confirming blocks{even ? ', each an equal share' : ''}.</div></div>
         </div>

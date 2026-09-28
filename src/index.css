@@ -1913,3 +1913,44 @@ footer .wrap { padding: 16px 20px; }
   .pager-ctrls button { padding: 8px 10px; font-size: 11px; }
   .per { margin-left: 0; }
 }
+
+/* ══ LANDING: slim "Arc, live" banner (replaces the big section, 09-28) ══ */
+.alb { width: 100%; margin-top: 16px; display: flex; align-items: center; gap: 18px; padding: 12px 18px; cursor: pointer; text-align: left; color: inherit; font: inherit;
+  border-radius: 14px; border: 1px solid rgba(255,140,60,.22); background: linear-gradient(100deg, rgba(255,122,30,.10), rgba(16,14,14,.7) 45%), rgba(12,10,10,.7);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05); transition: border-color .15s; }
+.alb:hover { border-color: rgba(255,150,70,.5); }
+.alb-tag { flex: none; display: inline-flex; align-items: center; gap: 6px; font-family: var(--disp); font-size: 10.5px; letter-spacing: 2px; text-transform: uppercase; color: var(--red); }
+.alb-stats { flex: 1; display: flex; gap: 26px; flex-wrap: wrap; min-width: 0; }
+.alb-stats > span { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.alb-stats b { font-family: var(--disp); font-weight: 700; font-size: 17px; color: var(--white); }
+.alb-stats b.f { background: var(--fire); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.alb-stats i { font-style: normal; font-size: 11.5px; color: var(--gray-2); }
+.alb-go { flex: none; display: inline-flex; align-items: center; gap: 6px; font-family: var(--disp); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #ffc24a; }
+.alb-go .arw { width: 13px; height: 13px; }
+@media (max-width: 640px) {
+  .alb { flex-wrap: wrap; gap: 8px 12px; padding: 11px 13px; }
+  .alb-tag { order: 1; } .alb-go { order: 2; margin-left: auto; }
+  .alb-stats { order: 3; flex-basis: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+  .alb-stats b { font-size: 15px; } .alb-stats i { font-size: 10.5px; }
+}
+/* Network page, phones (owner 09-28: "on mobile make the top one full dashboard instead of 4 big sections"): the four
+   pulse cards become ONE panel — a 2×2 grid of compact numbers, explanations hidden (they stay on desktop). */
+@media (max-width: 640px) {
+  .nx-pulse { grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0) 40%), var(--panel); margin-bottom: 12px; }
+  .nx-big { background: none; border: 0; border-radius: 0; padding: 11px 14px; }
+  .nx-big::before { display: none; }
+  .nx-big:nth-child(odd) { border-right: 1px solid var(--line-soft); }
+  .nx-big:nth-child(-n+2) { border-bottom: 1px solid var(--line-soft); }
+  .nx-big .v { font-size: 19px; }
+  .nx-big .t { font-size: 9px; margin-top: 3px; letter-spacing: 1.2px; }
+  .nx-big .d { display: none; }
+  .nx-card { padding: 14px; }
+  .nx-head h3 { font-size: 14px; } .nx-total { font-size: 18px; }
+  .nx-sub { font-size: 12px; }
+}
+@media (max-width: 640px) {
+  .nx-share { flex-wrap: nowrap; gap: 6px; justify-content: center; width: 100%; }
+  .nx-share .asof { font-size: 10.5px; white-space: nowrap; }
+  .nx-btn { padding: 6px 10px; font-size: 9.5px; letter-spacing: 1px; white-space: nowrap; }
+}
