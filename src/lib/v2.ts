@@ -58,3 +58,11 @@ export interface V2Chain {
   supplies: Record<string, number | null>; suppliesAt: number;
 }
 export const v2Chain = () => get<V2Chain>('chain', 8000).then((c) => { if (!c || typeof c.head !== 'number') throw new Error('v2 chain: bad shape'); return c; });
+// Lending on Arc (server/lending.ts): Morpho Blue markets + Aave V4 Hub assets, read on chain.
+export interface V2LendRow { supply: number; borrow: number; supplyUsd: number | null; borrowUsd: number | null; utilization: number | null }
+export interface V2Lending {
+  at: number;
+  morpho: { address: string; supplyUsd: number; borrowUsd: number; markets: (V2LendRow & { id: string; loan: string; loanSymbol: string | null; collateral: string; collateralSymbol: string | null; lltv: number })[] };
+  aave: { hub: string; supplyUsd: number; borrowUsd: number; assets: (V2LendRow & { assetId: number; token: string; symbol: string | null })[] };
+}
+export const v2Lending = () => get<V2Lending>('lending', 8000).then((l) => { if (!l || !l.morpho || !l.aave) throw new Error('v2 lending: bad shape'); return l; });

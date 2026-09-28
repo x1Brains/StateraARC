@@ -14,6 +14,7 @@
 //   /v2/tokens?addrs=a,b,…            rows for a set of addresses (portfolio pricing)
 //   /v2/swap-tokens                   the swap picker list
 //   /v2/chain                         Arc network: block time, TPS, fees, validators (block producers), CCTP flows, supplies
+//   /v2/lending                       Morpho Blue markets + Aave V4 Hub assets (supplied / borrowed), read on chain
 //   /v2/list                          the whole live list (v1-compatible shape: { generatedAt, tokens })
 import http from 'node:http';
 import fs from 'node:fs';
@@ -23,6 +24,7 @@ import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
 import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, saveChain, loadChain } from './chain.ts';
+import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
 
 const PORT = Number(process.env.PORT || 8790);
 const SNAP = process.env.SNAPSHOT_FILE || '/root/statera-live/tokens-snapshot.json';
@@ -156,11 +158,12 @@ http.createServer((req, res) => {
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: detailStats, chain: chainStats }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: detailStats, chain: chainStats, lending: lendingStats }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
     if (path === '/home') { send(req, res, 200, v.homeJson, v.homeGz); return; }
+    if (path === '/lending') { const l = lendingSummary(); send(req, res, l ? 200 : 503, JSON.stringify(l ?? { error: 'warming up' }), undefined, l ? 30 : 0); return; }
     if (path === '/chain') { const c = chainSummary(); send(req, res, c ? 200 : 503, JSON.stringify(c ?? { error: 'warming up' }), undefined, c ? 10 : 0); return; }
     if (path === '/list') { send(req, res, 200, v.list, v.listGz); return; }
     if (path === '/swap-tokens') { send(req, res, 200, v.swap, v.swapGz, 30); return; }
@@ -225,5 +228,25 @@ loadChain(); tickChain(); setInterval(tickChain, 15_000);
 const backfill = async () => { try { if (await backfillStep(rpcBatch)) { setTimeout(backfill, 2500); return; } } catch { chainStats.errors++; setTimeout(backfill, 10_000); return; } setTimeout(backfill, 30_000); };
 setTimeout(backfill, 5_000);
 setInterval(saveChain, 60_000);
+// Lending (Network page): every 5 min. getLogs over ~95k blocks needs the nodes that allow it (address-filtered, few results).
+const BIG_RPCS = ['https://rpc.blockdaemon.mainnet.arc.io', 'https://arc.gateway.tenderly.co'];
+let bg = 0;
+async function getLogsBig(params: any): Promise<any[] | null> {
+  for (let i = 0; i < 4; i++) {
+    try {
+      const r = await fetch(BIG_RPCS[(bg++) % BIG_RPCS.length], { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getLogs', params: [params] }), signal: AbortSignal.timeout(12000) });
+      const j: any = await r.json(); if (Array.isArray(j.result)) return j.result;
+    } catch { /* next node */ }
+    await sleep(500 * (i + 1));
+  }
+  return null;
+}
+const USDC_ADDR = '0x3600000000000000000000000000000000000000';
+const priceOf = (t: string) => { const a = t.toLowerCase(); if (a === USDC_ADDR) return 1; const r = view?.byAddr.get(a); return r && r.price != null && isFinite(r.price) ? r.price : null; };
+const symbolOf = (t: string) => { const a = t.toLowerCase(); if (a === USDC_ADDR) return 'USDC'; return view?.byAddr.get(a)?.symbol ?? null; };
+let lending = false;
+const tickLending = async () => { if (lending) return; lending = true; try { await refreshLending(rpc, call, getLogsBig, priceOf, symbolOf); } catch (e) { lendingStats.errors++; console.error('[lending]', (e as Error).message); } finally { lending = false; } };
+setTimeout(tickLending, 30_000); setInterval(tickLending, 5 * 60_000);
 for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveChain(); process.exit(0); });
 setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(); } catch { /* keep serving the last good list */ } }, 5000);

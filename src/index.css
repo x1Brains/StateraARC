@@ -1592,3 +1592,7 @@ footer .wrap { padding: 16px 20px; }
   .net-val > :nth-child(5) { display: none; }
   .net-bar { display: none; }
 }
+.net-lend { display: grid; grid-template-columns: 1fr 96px 96px 52px; gap: 8px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: 12.5px; }
+.net-lend.head { border-top: 0; font-family: var(--disp); font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray-2); }
+.net-lend .num { text-align: right; }
+@media (max-width: 640px) { .net-lend { grid-template-columns: 1fr 80px 80px; } .net-lend > :nth-child(4) { display: none; } }
