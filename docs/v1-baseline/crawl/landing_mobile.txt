@@ -1,0 +1,148 @@
+BTC
+$83.2K
+ETH
+$2.7K
+SOL
+$118.48
+XNT
+$0.2481
+XRP
+$1.49
+SUI
+$1.15
+DOGE
+$0.0931
+AVAX
+$10.34
+LINK
+$14.35
+GOLD
+$4.1K
+USDC
+$1.00
+EURC
+$1.08
+ARC
+GAS = USDC
+BTC
+$83.2K
+ETH
+$2.7K
+SOL
+$118.48
+XNT
+$0.2481
+XRP
+$1.49
+SUI
+$1.15
+DOGE
+$0.0931
+AVAX
+$10.34
+LINK
+$14.35
+GOLD
+$4.1K
+USDC
+$1.00
+EURC
+$1.08
+ARC
+GAS = USDC
+HOME
+SCREENER
+PORTFOLIO
+SWAP
+ARC MAINNET
+ARC HUB · WEB3 GAMEFI
+TRACK ANY LAUNCH
+ON ARC.
+
+The Statera hub for Circle's Arc chain — screener, portfolio & swap. And the studio building X1 City: web3 GameFi in Unreal Engine 5 — the first EVM-SVM game on Arc.
+
+OPEN SCREENER
+NEW LAUNCHES
+Search
+6,658
+TOKENS TRACKED
+$18.09M
+DEX LIQUIDITY
+$9.90M
+24H VOLUME
+102
+ACTIVE 24H
+Live
+ARC MAINNET
+LIVE ON ARC
+DASHBOARD
+102 tokens
+$9.90M 24h vol
+69 new today
+TOP LIQUIDITY
+NEW
+MOVERS
+ALL
+#
+TOKEN
+PRICE
+24H
+1
+Circle Wrapped Bitcoin
+CIRBTC
+$83.2K
+-1.6%
+2
+Argus
+ARGUS · ARGUS PAD
+$0.0192
+-14.3%
+3
+Tolly
+TOLLY · LAUNCHPAD
+$0.0053
+-16.9%
+4
+usdc is cool
+COOL · LAUNCHPAD
+$0.0013
++7.1%
+5
+LONG
+LONG · LAUNCHPAD
+$0.0015
+-0.7%
+6
+Circle Internet Group • Arc Token
+CRCL
+$85.60
+-3.5%
+7
+EURC
+EURC
+$1.14
+-0.1%
+8
+Arc-man
+ARCMAN · LAUNCHPAD
+$0.0105
++0.3%
+THE FULL BOARD
+EVERY TOKEN ON ARC, RANKED.
+OPEN SCREENER
+UNREAL ENGINE 5 · WEB3 GAMEFI · IN DEVELOPMENT
+We’re building X1 City — the first EVM-SVM game.
+
+A full open world in Unreal Engine 5, bridging Circle’s Arc (EVM) with X1 (SVM) in web3 gaming — the first to connect both. $STR is the token tied into X1 City — more than a chart, it’s your link to the world we’re building.
+
+Open World
+An explorable UE5 city
+EVM-SVM
+First to bridge both
+Web3 GameFi
+An on-chain economy
+EXPLORE X1 CITY
+THE $STR TOKEN
+STATERA · ARC
+Read on-chain from Arc Mainnet (chain 5042) · own V3/V4 indexer + Uniswap V4 · arc-scan · Warp · RadarDEX
+@StateraArc on X · The $STR token · Not financial advice · early launches are high-risk

@@ -1,0 +1,71 @@
+BTC
+$83.2K
+ETH
+$2.7K
+SOL
+$118.33
+XNT
+$0.2481
+XRP
+$1.49
+SUI
+$1.14
+DOGE
+$0.0930
+AVAX
+$10.32
+LINK
+$14.31
+GOLD
+$4.1K
+USDC
+$1.00
+EURC
+$1.08
+ARC
+GAS = USDC
+BTC
+$83.2K
+ETH
+$2.7K
+SOL
+$118.33
+XNT
+$0.2481
+XRP
+$1.49
+SUI
+$1.14
+DOGE
+$0.0930
+AVAX
+$10.32
+LINK
+$14.31
+GOLD
+$4.1K
+USDC
+$1.00
+EURC
+$1.08
+ARC
+GAS = USDC
+HOME
+SCREENER
+PORTFOLIO
+SWAP
+1,493
+visits
+ARC MAINNET
+CONNECT WALLET
+PORTFOLIO
+TRACK HOLDINGS
+
+Connect a wallet or paste any Arc address to see its tokens, valued live.
+
+TRACK
+CONNECT WALLET
+Paste an address or connect a wallet to begin.
+STATERA · ARC
+Read on-chain from Arc Mainnet (chain 5042) · own V3/V4 indexer + Uniswap V4 · arc-scan · Warp · RadarDEX
+@StateraArc on X · The $STR token · Not financial advice · early launches are high-risk

@@ -1,0 +1,139 @@
+BTC
+$83.2K
+ETH
+$2.7K
+SOL
+$118.35
+XNT
+$0.2481
+XRP
+$1.49
+SUI
+$1.14
+DOGE
+$0.0930
+AVAX
+$10.32
+LINK
+$14.31
+GOLD
+$4.1K
+USDC
+$1.00
+EURC
+$1.08
+ARC
+GAS = USDC
+BTC
+$83.2K
+ETH
+$2.7K
+SOL
+$118.35
+XNT
+$0.2481
+XRP
+$1.49
+SUI
+$1.14
+DOGE
+$0.0930
+AVAX
+$10.32
+LINK
+$14.31
+GOLD
+$4.1K
+USDC
+$1.00
+EURC
+$1.08
+ARC
+GAS = USDC
+HOME
+SCREENER
+PORTFOLIO
+SWAP
+1,490
+visits
+ARC MAINNET
+NOT LIVE
+$STR is not launched yet
+
+There is no STR token, no contract, and no presale right now. Anything claiming to be “$STR” or a Statera presale today is a scam. The official launch and the real contract address will be announced here on StateraArc — nowhere else.
+
+$STR
+
+The token of Statera — tied into X1 City, a web3 GameFi world in Unreal Engine 5.
+
+A sealed ERC-20 with no one at the wheel — no owner, no admin keys, nothing anyone (us included) can change once it ships: 21,000,000 fixed supply, no mint, burnable. Hold it on Arc and you plug into X1 City — the open world we’re building.
+
+21,000,000
+FIXED SUPPLY
+0
+MINT · EVER
+Arc
+USDC-GAS L1
+THE TOKEN
+BUILT TO BE BULLETPROOF
+
+STR is deliberately minimal. The smaller the money, the less there is to ever go wrong — and it’s immutable by construction.
+
+21,000,000
+FIXED SUPPLY
+
+Minted once, forever. There is no mint function — the supply can never grow.
+
+No mint
+INFLATION IMPOSSIBLE
+
+Nothing to renounce; new STR can never be created by anyone, including us.
+
+Burnable
+REAL DEFLATION
+
+Holders can burn STR to permanently remove it from supply — tracked on-chain (totalBurned).
+
+Permit
+GASLESS APPROVALS
+
+EIP-2612 — one signature instead of an extra approval transaction.
+
+Ownerless
+NO ADMIN, NO KEYS
+
+No pause, no blacklist, no fees, no upgrade switch. Sealed the moment it ships.
+
+Arc-native
+USDC GAS
+
+A standard ERC-20 on Circle’s Arc L1 — cheap, instant, USDC-denominated fees.
+
+ROADMAP
+THE TOKEN NOW — THE REACH NEXT
+
+STR ships sealed and complete. Everything after is a separate system layered on top that never touches the token itself.
+
+PHASE 1
+SHIPS FIRST
+STR goes live on Arc
+
+The sealed 21M token ships on Arc — instantly tradeable and auto-listed on the StateraArc screener + swap. That’s the whole token: hold it, send it, burn it.
+
+PHASE 2
+Tied into X1 City
+
+X1 City is a full open world being built in Unreal Engine 5 — web3 GameFi, the first EVM-SVM game on Arc. STR is the token tied into it.
+
+The bigger picture · Web3 GameFi
+$STR, tied into X1 City.
+
+X1 City is a full open world being built in Unreal Engine 5 — web3 GameFi, and the first game to bridge EVM and SVM, on Arc. $STR is the token woven into it — more than a chart, it’s your link to the world we’re building.
+
+X1 City — in-engine footage (Unreal Engine 5)
+UNREAL ENGINE 5 · WEB3 GAMEFI · IN ACTIVE DEVELOPMENT
+EXPLORE X1 CITY
+Heads up — STR is not live yet. There is no contract address, no presale, and nothing to buy right now. Anything claiming to be “STR” or a “Statera presale” today is a scam. The official launch and the real address will be announced here on StateraArc. Not financial advice — DYOR.
+STATERA · ARC
+Read on-chain from Arc Mainnet (chain 5042) · own V3/V4 indexer + Uniswap V4 · arc-scan · Warp · RadarDEX
+@StateraArc on X · The $STR token · Not financial advice · early launches are high-risk

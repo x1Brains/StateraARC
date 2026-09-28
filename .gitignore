@@ -7,3 +7,7 @@ dist
 /*.png
 scripts/intel-wide.json
 STATERA_ARCHITECTURE.md
+
+# regression crawl screenshots (kept outside git; baseline copy in ~/bt/statera-baseline-2026-09-28/crawl)
+docs/**/crawl/*.png
+regress-out/

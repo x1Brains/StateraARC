@@ -1,0 +1,517 @@
+{
+ "landing": {
+  "path": "/",
+  "t_content": 4.92,
+  "requests": 139,
+  "images": 25,
+  "bytes_total": 5089067,
+  "bytes_data": 1278738,
+  "rpc_calls": 124,
+  "rpc_by_method": {
+   "eth_call": 124
+  },
+  "status_429": 22,
+  "by_host": {
+   "rpc.mainnet.arc.io": 95,
+   "arc.drpc.org": 26,
+   "api.coinbase.com": 9,
+   "www.stateraarc.com": 5,
+   "arc.gateway.tenderly.co": 3,
+   "abacus.jasoncameron.dev": 1
+  },
+  "api_paths": [
+   "/api/radar/tokens",
+   "/api/snapshot",
+   "/api/xdex/api/token-price/price"
+  ],
+  "largest": [
+   "1.14MB https://www.stateraarc.com/api/snapshot",
+   "1.14MB https://gateway.pinata.cloud/ipfs/QmSr2vA6tXKKRQHBhqa5BCCfrs6NuWkojzz65BzG5LD1ww",
+   "0.66MB https://www.stateraarc.com/statera-lockup.png",
+   "0.61MB https://i.ibb.co/TD7yjQfX/coollogo.png",
+   "0.32MB https://www.stateraarc.com/hero-lava-3.jpg",
+   "0.31MB https://www.stateraarc.com/hero-lava-2.jpg",
+   "0.27MB https://gateway.pinata.cloud/ipfs/bafybeibbuz5ajmixrb7j7w6wnqjnl7zv5i6d7vle7mbobce3wzugepbosq",
+   "0.16MB https://www.stateraarc.com/assets/index-B-Q8nNe6.js"
+  ],
+  "console_errors": 26,
+  "failed_loads": 3,
+  "console_sample": [
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()"
+  ],
+  "failed_sample": [
+   "ipfs://QmSr2vA6tXKKRQHBhqa5BCCfrs6NuWkojzz65BzG5LD1ww net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafybeibbuz5ajmixrb7j7w6wnqjnl7zv5i6d7vle7mbobce3wzugepbosq net::ERR_UNKNOWN_URL_SCHEME",
+   "https://api.tollylabs.com/token-image/0x5849fd68a097b3ee7d87ce88a0fcbb76857648ff.png net::ERR_BLOCKED_BY_ORB"
+  ]
+ },
+ "screener": {
+  "path": "/screener",
+  "t_content": 0.39,
+  "requests": 287,
+  "images": 218,
+  "bytes_total": 26255632,
+  "bytes_data": 107761,
+  "rpc_calls": 270,
+  "rpc_by_method": {
+   "eth_call": 270
+  },
+  "status_429": 67,
+  "by_host": {
+   "rpc.mainnet.arc.io": 172,
+   "arc.drpc.org": 83,
+   "arc.gateway.tenderly.co": 15,
+   "api.coinbase.com": 9,
+   "www.stateraarc.com": 5,
+   "gateway.pinata.cloud": 2,
+   "abacus.jasoncameron.dev": 1
+  },
+  "api_paths": [
+   "/api/radar/tokens",
+   "/api/snapshot",
+   "/api/xdex/api/token-price/price"
+  ],
+  "largest": [
+   "2.69MB https://i.ibb.co/PvhzL9vK/mascot.png",
+   "2.09MB https://gateway.pinata.cloud/ipfs/bafybeidz6ov53fvzbuu4db54okzzazoskv5erd6yccj2uthx5cwotsrclu",
+   "2.08MB https://gateway.pinata.cloud/ipfs/bafybeido5265kchjdnypd7ojzofnboh4zcbbicjh5sos3rquztnwrk6vpy",
+   "1.56MB https://gateway.pinata.cloud/ipfs/bafybeicwxlaljmclsurybtz456y6ihxbtoczwcrv3fkc42xxcbxcmmjut4",
+   "1.47MB https://gateway.pinata.cloud/ipfs/bafybeif7mwt4mpow63wphhky52yxv7elglb44pxy6ibs2isjxadnuorghe",
+   "1.43MB https://gateway.pinata.cloud/ipfs/bafybeidni6o2lk6fhu5if2fjfq5hr6h5w7ngltdanvavgfe5t6q3ali264",
+   "1.03MB https://gateway.pinata.cloud/ipfs/bafybeigkc46nu4brdq6fvxzovd2txrdlbppxhnnecgka2jxbooovkgujvq",
+   "1.02MB https://gateway.pinata.cloud/ipfs/bafybeigzjrtjinajxgg2q6x3vkijzrpvsflxkix4pumehjjb3fdlkl3ju4"
+  ],
+  "console_errors": 129,
+  "failed_loads": 86,
+  "console_sample": [
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME"
+  ],
+  "failed_sample": [
+   "ipfs://QmSr2vA6tXKKRQHBhqa5BCCfrs6NuWkojzz65BzG5LD1ww net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafybeibbuz5ajmixrb7j7w6wnqjnl7zv5i6d7vle7mbobce3wzugepbosq net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafybeiecv2b5gkrr5q4cesftgirntp4roqixhcily6ynfjitgdcunxm3x4 net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafkreif4sumwwlbna2yte56rbjelacul6mi4azpk2bisk7btr2mjh3hzzq net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafybeidni6o2lk6fhu5if2fjfq5hr6h5w7ngltdanvavgfe5t6q3ali264 net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://Qme4E3zbuE2MTQe1wvyqCQ2PhSfBG6EAVThfafXxRguHgh net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://QmdsrmZVoFJNpEgMcTW8Mnws9bb3MW6YqWNaTnsghJAfGw net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafkreihnq3bxchufwzd6ytfcsmmgjc7zazx6c6nybzzlngea3txzfwpzh4 net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafkreieqbi3s3ym5mnmlsy5akjav4qiwio4ljptic6wkwyz43ulief2wgu net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafybeigx2pgnnhipza7ewy2mnjkj2dc7pnlx2es44k4yi6fcol6qloywnu net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://QmZ7KEJbEYKgf3GnwtJeqkSJgLudGykpVsVNXczEueECGR net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafkreibap26wwgafmlab7umrcf3a7sjtalaqghqewou5hx7jewzfqvz2ji net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafybeif7mwt4mpow63wphhky52yxv7elglb44pxy6ibs2isjxadnuorghe net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafkreidihwpjdhvttc6psjvi4vro3d3je2asitwg34e2fhu67a3yayz36q net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafybeigzjrtjinajxgg2q6x3vkijzrpvsflxkix4pumehjjb3fdlkl3ju4 net::ERR_UNKNOWN_URL_SCHEME"
+  ]
+ },
+ "token1": {
+  "path": "/token/0x171a4217b86a807a64eb94757db6849fb4bdbaa0",
+  "t_content": 0.39,
+  "requests": 451,
+  "images": 14,
+  "bytes_total": 15012135,
+  "bytes_data": 14917097,
+  "rpc_calls": 601,
+  "rpc_by_method": {
+   "eth_getTransactionByHash": 324,
+   "eth_call": 221,
+   "eth_getLogs": 26,
+   "eth_getBalance": 14,
+   "eth_getBlockByNumber": 10,
+   "eth_blockNumber": 6
+  },
+  "status_429": 98,
+  "by_host": {
+   "rpc.mainnet.arc.io": 211,
+   "arc.drpc.org": 149,
+   "arc.gateway.tenderly.co": 58,
+   "www.stateraarc.com": 11,
+   "rpc.blockdaemon.mainnet.arc.io": 11,
+   "api.coinbase.com": 9,
+   "abacus.jasoncameron.dev": 1,
+   "api.arc-scan.org": 1
+  },
+  "api_paths": [
+   "/api/radar/token/0x171a4217b86a807a64eb94757db6849fb4bdbaa0",
+   "/api/radar/token/0x171a4217b86a807a64eb94757db6849fb4bdbaa0/holders",
+   "/api/radar/tokens",
+   "/api/snapshot",
+   "/api/warp/tokens/0x171a4217b86a807a64eb94757db6849fb4bdbaa0",
+   "/api/warp/tokens/0x171a4217b86a807a64eb94757db6849fb4bdbaa0/candles",
+   "/api/xdex/api/token-price/price"
+  ],
+  "largest": [
+   "1.53MB https://arc.gateway.tenderly.co/",
+   "1.25MB https://rpc.blockdaemon.mainnet.arc.io/",
+   "1.07MB https://arc.gateway.tenderly.co/",
+   "1.04MB https://arc.gateway.tenderly.co/",
+   "1.04MB https://arc.gateway.tenderly.co/",
+   "1.03MB https://arc.gateway.tenderly.co/",
+   "1.02MB https://arc.gateway.tenderly.co/",
+   "0.91MB https://arc.gateway.tenderly.co/"
+  ],
+  "console_errors": 111,
+  "failed_loads": 2,
+  "console_sample": [
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()"
+  ],
+  "failed_sample": [
+   "https://rpc.blockdaemon.mainnet.arc.io/ net::ERR_ABORTED",
+   "https://rpc.blockdaemon.mainnet.arc.io/ net::ERR_ABORTED"
+  ]
+ },
+ "token2": {
+  "path": "/token/0xece5ca8bf9220718e5727754026757512212cb3c",
+  "t_content": 0.3,
+  "requests": 504,
+  "images": 17,
+  "bytes_total": 4063647,
+  "bytes_data": 3966607,
+  "rpc_calls": 655,
+  "rpc_by_method": {
+   "eth_getTransactionByHash": 381,
+   "eth_call": 191,
+   "eth_getLogs": 60,
+   "eth_getBlockByNumber": 10,
+   "eth_blockNumber": 7,
+   "eth_getBalance": 6
+  },
+  "status_429": 79,
+  "by_host": {
+   "rpc.mainnet.arc.io": 225,
+   "arc.drpc.org": 138,
+   "arc.gateway.tenderly.co": 96,
+   "rpc.blockdaemon.mainnet.arc.io": 24,
+   "www.stateraarc.com": 10,
+   "api.coinbase.com": 9,
+   "abacus.jasoncameron.dev": 1,
+   "api.arc-scan.org": 1
+  },
+  "api_paths": [
+   "/api/radar/token/0xece5ca8bf9220718e5727754026757512212cb3c",
+   "/api/radar/token/0xece5ca8bf9220718e5727754026757512212cb3c/holders",
+   "/api/radar/tokens",
+   "/api/snapshot",
+   "/api/warp/tokens/0xece5ca8bf9220718e5727754026757512212cb3c",
+   "/api/warp/tokens/0xece5ca8bf9220718e5727754026757512212cb3c/candles",
+   "/api/xdex/api/token-price/price"
+  ],
+  "largest": [
+   "0.37MB https://rpc.blockdaemon.mainnet.arc.io/",
+   "0.31MB https://arc.gateway.tenderly.co/",
+   "0.28MB https://arc.gateway.tenderly.co/",
+   "0.28MB https://rpc.blockdaemon.mainnet.arc.io/",
+   "0.28MB https://arc.gateway.tenderly.co/",
+   "0.28MB https://arc.gateway.tenderly.co/",
+   "0.27MB https://arc.gateway.tenderly.co/",
+   "0.26MB https://arc.gateway.tenderly.co/"
+  ],
+  "console_errors": 96,
+  "failed_loads": 9,
+  "console_sample": [
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()"
+  ],
+  "failed_sample": [
+   "https://api.tollylabs.com/token-image/0xece5ca8bf9220718e5727754026757512212cb3c.png net::ERR_ABORTED",
+   "ipfs://QmSr2vA6tXKKRQHBhqa5BCCfrs6NuWkojzz65BzG5LD1ww net::ERR_UNKNOWN_URL_SCHEME",
+   "https://rpc.blockdaemon.mainnet.arc.io/ net::ERR_ABORTED",
+   "https://rpc.blockdaemon.mainnet.arc.io/ net::ERR_ABORTED",
+   "https://rpc.blockdaemon.mainnet.arc.io/ net::ERR_ABORTED",
+   "https://rpc.blockdaemon.mainnet.arc.io/ net::ERR_ABORTED",
+   "https://rpc.blockdaemon.mainnet.arc.io/ net::ERR_ABORTED",
+   "https://rpc.blockdaemon.mainnet.arc.io/ net::ERR_ABORTED",
+   "https://rpc.blockdaemon.mainnet.arc.io/ net::ERR_ABORTED"
+  ]
+ },
+ "str": {
+  "path": "/str",
+  "t_content": 0.32,
+  "requests": 132,
+  "images": 16,
+  "bytes_total": 387494,
+  "bytes_data": 55727,
+  "rpc_calls": 117,
+  "rpc_by_method": {
+   "eth_call": 117
+  },
+  "status_429": 17,
+  "by_host": {
+   "rpc.mainnet.arc.io": 93,
+   "arc.drpc.org": 21,
+   "api.coinbase.com": 9,
+   "www.stateraarc.com": 5,
+   "arc.gateway.tenderly.co": 3,
+   "abacus.jasoncameron.dev": 1
+  },
+  "api_paths": [
+   "/api/radar/tokens",
+   "/api/snapshot",
+   "/api/xdex/api/token-price/price"
+  ],
+  "largest": [
+   "0.17MB https://www.stateraarc.com/str-logo.jpg",
+   "0.16MB https://www.stateraarc.com/hero-lava-4.jpg",
+   "0.01MB https://www.stateraarc.com/x1city-rain.mp4",
+   "0.00MB https://api.coinbase.com/v2/prices/SUI-USD/spot",
+   "0.00MB https://api.coinbase.com/v2/prices/SOL-USD/spot",
+   "0.00MB https://api.coinbase.com/v2/prices/AVAX-USD/spot",
+   "0.00MB https://www.stateraarc.com/str",
+   "0.00MB https://rpc.mainnet.arc.io/"
+  ],
+  "console_errors": 18,
+  "failed_loads": 2,
+  "console_sample": [
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()"
+  ],
+  "failed_sample": [
+   "https://www.stateraarc.com/x1city-rain.mp4 net::ERR_ABORTED",
+   "https://www.stateraarc.com/x1city-rain.mp4 net::ERR_ABORTED"
+  ]
+ },
+ "portfolio": {
+  "path": "/portfolio",
+  "t_content": null,
+  "requests": 154,
+  "images": 13,
+  "bytes_total": 137956,
+  "bytes_data": 140607,
+  "rpc_calls": 139,
+  "rpc_by_method": {
+   "eth_call": 139
+  },
+  "status_429": 38,
+  "by_host": {
+   "rpc.mainnet.arc.io": 93,
+   "arc.drpc.org": 43,
+   "api.coinbase.com": 9,
+   "www.stateraarc.com": 5,
+   "arc.gateway.tenderly.co": 3,
+   "abacus.jasoncameron.dev": 1
+  },
+  "api_paths": [
+   "/api/radar/tokens",
+   "/api/snapshot",
+   "/api/xdex/api/token-price/price"
+  ],
+  "largest": [
+   "0.08MB https://www.stateraarc.com/api/radar/tokens?limit=500",
+   "0.00MB https://api.coinbase.com/v2/prices/AVAX-USD/spot",
+   "0.00MB https://api.coinbase.com/v2/prices/LINK-USD/spot",
+   "0.00MB https://api.coinbase.com/v2/prices/PAXG-USD/spot",
+   "0.00MB https://www.stateraarc.com/portfolio",
+   "0.00MB https://rpc.mainnet.arc.io/",
+   "0.00MB https://rpc.mainnet.arc.io/",
+   "0.00MB https://rpc.mainnet.arc.io/"
+  ],
+  "console_errors": 41,
+  "failed_loads": 0,
+  "console_sample": [
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()"
+  ],
+  "failed_sample": []
+ },
+ "swap": {
+  "path": "/swap",
+  "t_content": null,
+  "requests": 144,
+  "images": 13,
+  "bytes_total": 54236,
+  "bytes_data": 57252,
+  "rpc_calls": 129,
+  "rpc_by_method": {
+   "eth_call": 129
+  },
+  "status_429": 31,
+  "by_host": {
+   "rpc.mainnet.arc.io": 93,
+   "arc.drpc.org": 33,
+   "api.coinbase.com": 9,
+   "www.stateraarc.com": 5,
+   "arc.gateway.tenderly.co": 3,
+   "abacus.jasoncameron.dev": 1
+  },
+  "api_paths": [
+   "/api/radar/tokens",
+   "/api/snapshot",
+   "/api/xdex/api/token-price/price"
+  ],
+  "largest": [
+   "0.00MB https://api.coinbase.com/v2/prices/ETH-USD/spot",
+   "0.00MB https://api.coinbase.com/v2/prices/XRP-USD/spot",
+   "0.00MB https://api.coinbase.com/v2/prices/SOL-USD/spot",
+   "0.00MB https://www.stateraarc.com/swap",
+   "0.00MB https://rpc.mainnet.arc.io/",
+   "0.00MB https://rpc.mainnet.arc.io/",
+   "0.00MB https://rpc.mainnet.arc.io/",
+   "0.00MB https://rpc.mainnet.arc.io/"
+  ],
+  "console_errors": 32,
+  "failed_loads": 0,
+  "console_sample": [
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()"
+  ],
+  "failed_sample": []
+ },
+ "landing_mobile": {
+  "path": "/",
+  "t_content": 5.41,
+  "requests": 142,
+  "images": 20,
+  "bytes_total": 5063546,
+  "bytes_data": 1280556,
+  "rpc_calls": 127,
+  "rpc_by_method": {
+   "eth_call": 127
+  },
+  "status_429": 27,
+  "by_host": {
+   "rpc.mainnet.arc.io": 95,
+   "arc.drpc.org": 29,
+   "api.coinbase.com": 9,
+   "www.stateraarc.com": 5,
+   "arc.gateway.tenderly.co": 3,
+   "abacus.jasoncameron.dev": 1
+  },
+  "api_paths": [
+   "/api/radar/tokens",
+   "/api/snapshot",
+   "/api/xdex/api/token-price/price"
+  ],
+  "largest": [
+   "1.14MB https://www.stateraarc.com/api/snapshot",
+   "1.14MB https://gateway.pinata.cloud/ipfs/QmSr2vA6tXKKRQHBhqa5BCCfrs6NuWkojzz65BzG5LD1ww",
+   "0.66MB https://www.stateraarc.com/statera-lockup.png",
+   "0.61MB https://i.ibb.co/TD7yjQfX/coollogo.png",
+   "0.32MB https://www.stateraarc.com/hero-lava-3.jpg",
+   "0.31MB https://www.stateraarc.com/hero-lava-2.jpg",
+   "0.27MB https://gateway.pinata.cloud/ipfs/bafybeibbuz5ajmixrb7j7w6wnqjnl7zv5i6d7vle7mbobce3wzugepbosq",
+   "0.16MB https://www.stateraarc.com/assets/index-B-Q8nNe6.js"
+  ],
+  "console_errors": 29,
+  "failed_loads": 3,
+  "console_sample": [
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()",
+   "error: Failed to load resource: the server responded with a status of 429 ()"
+  ],
+  "failed_sample": [
+   "ipfs://QmSr2vA6tXKKRQHBhqa5BCCfrs6NuWkojzz65BzG5LD1ww net::ERR_UNKNOWN_URL_SCHEME",
+   "ipfs://bafybeibbuz5ajmixrb7j7w6wnqjnl7zv5i6d7vle7mbobce3wzugepbosq net::ERR_UNKNOWN_URL_SCHEME",
+   "https://api.tollylabs.com/token-image/0x5849fd68a097b3ee7d87ce88a0fcbb76857648ff.png net::ERR_BLOCKED_BY_ORB"
+  ]
+ },
+ "_meta": {
+  "base": "https://www.stateraarc.com",
+  "at": "2026-09-28T15:46:23Z"
+ }
+}
