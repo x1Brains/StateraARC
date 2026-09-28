@@ -438,6 +438,7 @@ async function walletTxHashes(w: string, maxTxs: number): Promise<string[]> {
     for (const t of j.items || []) {
       if (cached.length && t.hash === cached[0]) { joined = true; break; }    // reached what we already have
       if ((t.method?.name || '') !== 'approve') hashes.push(t.hash);
+      if (t.timestamp) txTs.set(t.hash, Number(t.timestamp) * 1000); // for the chart's "your trades" markers
     }
     if (joined || !j.page?.has_more) break;
     cursor = j.page?.next || ''; if (!cursor) break;
@@ -445,7 +446,29 @@ async function walletTxHashes(w: string, maxTxs: number): Promise<string[]> {
   const all = (joined ? [...hashes, ...cached] : hashes.length ? hashes : cached).slice(0, maxTxs);
   listMem.set(w, { at: Date.now(), hashes: all });
   const store = lsGet(PNL_LIST_KEY) || {}; store[w] = all; lsSet(PNL_LIST_KEY, store);
+  lsSet(PNL_TS_KEY, Object.fromEntries([...txTs].slice(-2000))); // remembered across visits (bounded)
   return all;
+}
+// Each wallet tx's time (ms), from the same arc-scan list — the chart places the wallet's buys/sells with it.
+const PNL_TS_KEY = 'statera-pnl-ts-v1';
+const txTs = new Map<string, number>(Object.entries((lsGet('statera-pnl-ts-v1') || {}) as Record<string, number>));
+
+/** One wallet's own buys and sells of ONE token, rebuilt from its transactions (same legs as the P&L): a tx where the
+ *  token came in and USDC went out is a buy, the reverse a sell. Newest first. Runs in the viewer's own browser. */
+export interface WalletTrade { ts: number; side: 'buy' | 'sell'; qty: number; usd: number; price: number; tx: string }
+export async function fetchWalletTokenTrades(wallet: string, token: string, decimals: number): Promise<WalletTrade[]> {
+  const w = wallet.toLowerCase(), t = token.toLowerCase();
+  const hashes = await prefetchWalletPnl(w, 160);
+  const out: WalletTrade[] = [];
+  for (const h of hashes) {
+    const L = legCache.get(`${w}:${h}`); const ts = txTs.get(h);
+    if (!L || !ts) continue;
+    const tin = L.tin[t] ? Number(BigInt(L.tin[t])) / 10 ** decimals : 0, tout = L.tout[t] ? Number(BigInt(L.tout[t])) / 10 ** decimals : 0;
+    const uo = L.u6o > 0 ? L.u6o : L.uno, ui = L.u6i > 0 ? L.u6i : L.uni; // 0x3600 leg preferred, else native — never both
+    if (tin > 0 && uo > 0) out.push({ ts, side: 'buy', qty: tin, usd: uo, price: uo / tin, tx: h });
+    else if (tout > 0 && ui > 0) out.push({ ts, side: 'sell', qty: tout, usd: ui, price: ui / tout, tx: h });
+  }
+  return out.sort((a, b) => b.ts - a.ts);
 }
 
 /**
@@ -1075,7 +1098,7 @@ export const fetchCuratedV4Tokens = (): Promise<Token[]> => curatedV4Tokens(mCal
 // the hand-rolled extsload if StateView reverts / an RPC lacks it, so this can only match or beat the old read.
 const v4PriceOf = (poolId: string, usdcIsC0: boolean, decimals: number): Promise<number | null> => liveV4PriceOf(mCall, poolId, usdcIsC0, decimals);
 // Timestamped prices from a V4 pool's Swap events (singleton, filtered by poolId). sqrtPriceX96 = word 2.
-async function scanV4Swaps(v4: V4Pool, decimals: number, spanCap: number): Promise<{ ts: number; price: number }[]> {
+async function scanV4Swaps(v4: V4Pool, decimals: number, spanCap: number): Promise<{ ts: number; price: number; usd: number }[]> {
   const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return [];
   const head = BigInt(headHex);
   const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
@@ -1087,7 +1110,7 @@ async function scanV4Swaps(v4: V4Pool, decimals: number, spanCap: number): Promi
   for (let from = head - BigInt(spanCap); from < head; from += CH) ranges.push([from, from + CH > head ? head : from + CH]);
   const results = await runLimited(ranges.map(([from, to], idx) => () =>
     getLogsBig({ address: PM_V4, topics: [V4_SWAP_TOPIC, v4.poolId], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }, idx)), 10);
-  const swaps: { ts: number; price: number }[] = [];
+  const swaps: { ts: number; price: number; usd: number }[] = [];
   for (const logs of results) {
     if (!Array.isArray(logs)) continue;
     for (const l of logs) {
@@ -1096,7 +1119,8 @@ async function scanV4Swaps(v4: V4Pool, decimals: number, spanCap: number): Promi
       const ratio = (Number(sqrtP) / 2 ** 96) ** 2;
       const price = (v4.usdcIsC0 ? 1 / ratio : ratio) * dexp;
       if (!isFinite(price) || price <= 0) continue;
-      swaps.push({ ts: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime), price });
+      const amt = decodeSwap(l.data, '', v4.usdcIsC0); // V4 Swap: amount0/amount1 are words 0/1, signed — same decode as V3
+      swaps.push({ ts: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime), price, usd: amt ? Number(amt.usdc) / 1e6 : 0 });
     }
   }
   swaps.sort((a, b) => a.ts - b.ts);
@@ -1286,8 +1310,8 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
 // Raw pool swaps cached per (token, scan-window). The wide timeframes (4H/1D/1W/ALL) all scan the SAME
 // ~900k-block window and differ only in bucket size — so we scan ONCE, cache the raw {ts,price} swaps,
 // and re-bucket for each timeframe. That makes every wide-TF click after the first INSTANT (no re-scan).
-const swapsCache = new Map<string, { at: number; swaps: { ts: number; price: number }[] }>();
-async function scanPoolSwaps(token: string, decimals: number, spanCap: number): Promise<{ ts: number; price: number }[]> {
+const swapsCache = new Map<string, { at: number; swaps: { ts: number; price: number; usd: number }[] }>();
+async function scanPoolSwaps(token: string, decimals: number, spanCap: number): Promise<{ ts: number; price: number; usd: number }[]> {
   const t = token.toLowerCase();
   const sk = t + ':' + spanCap;
   const cached = swapsCache.get(sk);
@@ -1316,7 +1340,7 @@ async function scanPoolSwaps(token: string, decimals: number, spanCap: number): 
   for (let from = head - BigInt(spanCap); from < head; from += CH) ranges.push([from, from + CH > head ? head : from + CH]);
   const results = await runLimited(ranges.map(([from, to], idx) => () =>
     getLogsBig({ address: pool, topics: [[SWAP_TOPIC, SWAP_V2_TOPIC]], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }, idx)), 10);
-  const swaps: { ts: number; price: number }[] = [];
+  const swaps: { ts: number; price: number; usd: number }[] = [];
   for (const logs of results) {
     if (!Array.isArray(logs)) continue;
     for (const l of logs) {
@@ -1334,7 +1358,8 @@ async function scanPoolSwaps(token: string, decimals: number, spanCap: number): 
         price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp;
       }
       if (!isFinite(price) || price <= 0) continue;
-      swaps.push({ ts: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime), price });
+      const amt = decodeSwap(l.data, topic, usdcIsToken0); // the USDC side of the swap = its dollar size (volume bars)
+      swaps.push({ ts: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime), price, usd: amt ? Number(amt.usdc) / 1e6 : 0 });
     }
   }
   swaps.sort((a, b) => a.ts - b.ts);
@@ -1487,14 +1512,30 @@ export async function fetchPoolCandles(token: string, decimals: number, interval
   const spanCap = intervalSec >= 14400 ? 900000 : intervalSec >= 3600 ? 300000 : 180000;
   const swaps = await scanPoolSwaps(token, decimals, spanCap);
   if (!swaps.length) return [];
-  const buckets = new Map<number, { o: number; h: number; l: number; c: number }>();
-  for (const s of swaps) {
+  const buckets = new Map<number, { o: number; h: number; l: number; c: number; v: number }>();
+  for (const s of [...swaps].sort((a, b) => a.ts - b.ts)) {
     const b = Math.floor(s.ts / intervalSec) * intervalSec;
     const cur = buckets.get(b);
-    if (!cur) buckets.set(b, { o: s.price, h: s.price, l: s.price, c: s.price });
-    else { cur.h = Math.max(cur.h, s.price); cur.l = Math.min(cur.l, s.price); cur.c = s.price; }
+    if (!cur) buckets.set(b, { o: s.price, h: s.price, l: s.price, c: s.price, v: s.usd || 0 });
+    else { cur.h = Math.max(cur.h, s.price); cur.l = Math.min(cur.l, s.price); cur.c = s.price; cur.v += s.usd || 0; }
   }
-  const data = [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([time, v]) => ({ time, open: v.o, high: v.h, low: v.l, close: v.c }));
+  // ⛔ 09-28 owner: "the candles sometimes they break". Each candle opened at ITS first swap, not the previous close, so
+  // neighbouring candles jumped; and quiet buckets had no candle at all. Now: a candle opens at the previous close (wick
+  // widened to include it), and a bucket with no trades is a flat candle at the last price with 0 volume — a continuous
+  // chart like every DEX screener. Filling stops at 5,000 buckets (a very long quiet stretch just stays sparse).
+  const keys = [...buckets.keys()].sort((a, b) => a - b);
+  const data: Candle[] = [];
+  const fill = keys.length > 1 && (keys[keys.length - 1] - keys[0]) / intervalSec <= 5000;
+  let prev: number | null = null;
+  for (let k = 0, t = keys[0]; k < keys.length; ) {
+    const v = buckets.get(t);
+    if (v) {
+      const open = prev ?? v.o;
+      data.push({ time: t, open, high: Math.max(v.h, open), low: Math.min(v.l, open), close: v.c, volume: v.v });
+      prev = v.c; k++; t += intervalSec;
+    } else if (fill && prev != null) { data.push({ time: t, open: prev, high: prev, low: prev, close: prev, volume: 0 }); t += intervalSec; }
+    else t = keys[k]; // no fill: jump straight to the next traded bucket
+  }
   candleCache.set(ck, { at: Date.now(), data });
   return data;
 }

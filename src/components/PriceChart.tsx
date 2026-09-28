@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, LineStyle, type IChartApi, type ISeriesApi } from 'lightweight-charts';
 import { fetchWarpCandles, type Candle } from '../lib/warp';
-import { fetchPoolCandles as fetchPoolCandlesInTab, tprice } from '../lib/arc';
+import { fetchPoolCandles as fetchPoolCandlesInTab, tprice, usd, type WalletTrade } from '../lib/arc';
 import { v2Enabled, v2Candles } from '../lib/v2';
 // v2: the VPS scans the pool once for every visitor (server/token-detail.ts); the in-tab scan is the fallback.
 const fetchPoolCandles = (a: string, dec: number, sec: number, look: number) =>
@@ -44,7 +44,7 @@ type ChartType = 'candles' | 'line';
 // Shared DEX-style formatter (subscript zeros for tiny prices) — chart axis + labels match the header.
 const priceFmt = (p: number) => (!isFinite(p) || Math.abs(p) < 1e-15 ? '$0' : tprice(p));
 
-export function PriceChart({ address, symbol, decimals, priceScale = 1, change24h }: { address: string; symbol?: string; decimals?: number; priceScale?: number; change24h?: number | null }) {
+export function PriceChart({ address, symbol, decimals, priceScale = 1, change24h, trades }: { address: string; symbol?: string; decimals?: number; priceScale?: number; change24h?: number | null; trades?: WalletTrade[] | null }) {
   const [tf, setTf] = useState('5m');
   // A quiet token (last trade > 24h ago) showed an empty 5m chart reading "No trades yet on this pool" — wrong, the pool HAS
   // traded, just not today; 1H/ALL had its history (owner 09-25: "charts are broken now on some"). Until the user picks a
@@ -60,6 +60,9 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<any> | null>(null);
   const seriesTypeRef = useRef<ChartType | null>(null);
+  const volRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  // Hover readout (OHLC + volume of the candle under the cursor; the latest candle when the cursor is off the chart).
+  const [hover, setHover] = useState<Candle | null>(null);
 
   // Warm the wide-timeframe swap cache in the background shortly after load, so the first click on
   // 4H/1D/1W/ALL (a ~900k-block scan) is instant instead of a few seconds.
@@ -108,15 +111,22 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       width: boxRef.current.clientWidth, height: boxRef.current.clientHeight || 300, // height from CSS (.chart-box: 300 desktop / 230 phone)
       layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#8f8478', fontFamily: 'JetBrains Mono, monospace' },
       grid: { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } },
-      rightPriceScale: { borderColor: 'rgba(255,255,255,.08)', scaleMargins: { top: 0.12, bottom: 0.08 } },
+      rightPriceScale: { borderColor: 'rgba(255,255,255,.08)', scaleMargins: { top: 0.1, bottom: 0.22 } }, // room for the volume bars
       timeScale: { borderColor: 'rgba(255,255,255,.08)', timeVisible: true, secondsVisible: false },
       crosshair: { mode: 0, horzLine: { labelBackgroundColor: '#ff5a5a' }, vertLine: { labelBackgroundColor: '#333', style: LineStyle.Dashed } },
       localization: { priceFormatter: priceFmt },
     });
     chartRef.current = chart;
+    // Volume bars along the bottom 18% of the pane, on their own scale (USD traded per candle).
+    volRef.current = chart.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+    chart.subscribeCrosshairMove((p) => {
+      const d = p.time != null && seriesRef.current ? (p.seriesData.get(seriesRef.current) as any) : null;
+      setHover(d && d.open != null ? { time: p.time as number, open: d.open, high: d.high, low: d.low, close: d.close, volume: (p.seriesData.get(volRef.current!) as any)?.value } : null);
+    });
     const ro = new ResizeObserver(() => { if (boxRef.current) chart.applyOptions({ width: boxRef.current.clientWidth, height: boxRef.current.clientHeight || 300 }); });
     ro.observe(boxRef.current);
-    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; seriesRef.current = null; seriesTypeRef.current = null; };
+    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; seriesRef.current = null; seriesTypeRef.current = null; volRef.current = null; };
   }, []);
 
   // (re)build the series when the chart type changes, then push data on any candle/type change
@@ -137,8 +147,23 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     series.applyOptions({ priceFormat: { type: 'price', precision, minMove: Math.pow(10, -precision) } });
     const data = type === 'candles' ? candles : candles.map((c) => ({ time: c.time, value: c.close }));
     series.setData(data as any);
+    volRef.current?.setData(candles.map((c) => ({ time: c.time, value: c.volume ?? 0, color: c.close >= c.open ? 'rgba(90,209,138,.35)' : 'rgba(255,90,90,.35)' })) as any);
     chart.timeScale().fitContent();
   }, [candles, type]);
+
+  // The connected wallet's own buys (B, below the bar) and sells (S, above) — each placed on the candle it happened in.
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || !candles || !candles.length) return;
+    const cfg = TF_CFG[tf] ?? TF_CFG['5m'];
+    const first = candles[0].time, lastT = candles[candles.length - 1].time + cfg.sec;
+    const marks = (trades || []).map((t) => ({ ...t, bucket: Math.floor(t.ts / 1000 / cfg.sec) * cfg.sec }))
+      .filter((t) => t.bucket >= first && t.bucket < lastT)
+      .sort((a, b) => a.bucket - b.bucket)
+      .map((t) => ({ time: t.bucket, position: t.side === 'buy' ? 'belowBar' : 'aboveBar', color: t.side === 'buy' ? '#4ecb71' : '#ff5a3c',
+        shape: t.side === 'buy' ? 'arrowUp' : 'arrowDown', text: `${t.side === 'buy' ? 'B' : 'S'} ${usd(t.usd)}` }));
+    (series as any).setMarkers?.(marks);
+  }, [trades, candles, type, tf]);
 
   // linear / log price scale
   useEffect(() => {
@@ -174,6 +199,13 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
         </div>
       </div>
       <div className="chart-box-wrap">
+        {(() => { const k = hover ?? (candles && candles.length ? candles[candles.length - 1] : null); return k ? (
+          <div className="chart-ohlc">
+            <span>O <b>{priceFmt(k.open)}</b></span><span>H <b>{priceFmt(k.high)}</b></span><span>L <b>{priceFmt(k.low)}</b></span>
+            <span>C <b className={k.close >= k.open ? 'up' : 'down'}>{priceFmt(k.close)}</b></span>
+            {k.volume != null && <span>Vol <b>{usd(k.volume)}</b></span>}
+            {!!trades?.length && <span className="chart-mine">Your trades marked <i className="b">B</i><i className="s">S</i></span>}
+          </div>) : null; })()}
         <div className="chart-box" ref={boxRef} />
         {(loading || empty) && (
           <div className="chart-overlay">

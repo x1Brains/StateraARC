@@ -1633,3 +1633,57 @@ footer .wrap { padding: 16px 20px; }
   .nx-cols { grid-template-columns: 1fr; gap: 8px; }
   .nx-card { padding: 16px; }
 }
+
+/* ══ TOKEN PAGE DASHBOARD (09-28 redesign) ══════════════════════════════════════════════════════════════════════════
+   Owner: "a double background, better borders, better layout, one full dashboard". Layer 1 = the site backdrop; layer 2 =
+   the .tdx shell (its own glow + grid, framed); layer 3 = panels with a double border (inner line + outer halo) and a fire
+   hairline on top. Chart + trades on the left, every metric in one sticky column on the right. Scoped to .tdx only. */
+.tdx { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; margin-top: 14px;
+  padding: 14px; border-radius: 22px; border: 1px solid rgba(255,122,30,.16);
+  background:
+    radial-gradient(900px 420px at 12% -10%, rgba(255,122,30,.10), transparent 60%),
+    radial-gradient(700px 380px at 110% 0%, rgba(255,47,20,.07), transparent 60%),
+    linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px) 0 0 / 100% 28px,
+    linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px) 0 0 / 28px 100%,
+    rgba(8,8,10,.72);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.025), 0 30px 90px rgba(0,0,0,.55); }
+.tdx-main { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.tdx-side { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 84px; max-height: calc(100vh - 100px); overflow-y: auto; padding-right: 2px; scrollbar-width: thin; }
+.tdx .panel, .tdx .stat, .tdx .chg-bar { position: relative; border: 1px solid rgba(255,255,255,.07);
+  box-shadow: 0 0 0 4px rgba(255,255,255,.012), inset 0 1px 0 rgba(255,255,255,.05), 0 12px 32px rgba(0,0,0,.35); }
+.tdx .panel::before { content: ''; position: absolute; left: 14px; right: 14px; top: -1px; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,160,60,.55), transparent); }
+.tdx .panel h3 { font-family: var(--disp); letter-spacing: 1.5px; }
+.tdx .td-head { margin-top: 0 !important; padding: 16px 18px; border-radius: 16px; border: 1px solid rgba(255,255,255,.07);
+  background: linear-gradient(120deg, rgba(255,122,30,.10), transparent 55%), var(--panel); box-shadow: 0 0 0 4px rgba(255,255,255,.012), inset 0 1px 0 rgba(255,255,255,.05); }
+.tdx .td-stats { margin-top: 0 !important; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.tdx .td-stats .stat { padding: 12px 12px; }
+.tdx .td-stats .stat .v { font-size: 18px; }
+.tdx .chg-bar { border-radius: 12px; }
+.tdx .chart-card { padding: 14px 14px 10px; }
+.tdx .chart-box { height: 480px; }
+.tdx-side .side-card { padding: 14px 16px; }
+.tdx .td-tabpanel { margin-top: 0 !important; }
+/* chart readout + your-trades legend */
+.chart-ohlc { position: absolute; top: 6px; left: 8px; z-index: 3; display: flex; flex-wrap: wrap; gap: 4px 12px; font: 11px var(--mono); color: var(--gray-2); pointer-events: none; }
+.chart-ohlc b { color: var(--white); font-weight: 500; } .chart-ohlc b.up { color: #5ad18a; } .chart-ohlc b.down { color: #ff5a5a; }
+.chart-mine i { font-style: normal; font-weight: 700; margin-left: 4px; padding: 0 5px; border-radius: 4px; } .chart-mine i.b { background: rgba(78,203,113,.2); color: #4ecb71; } .chart-mine i.s { background: rgba(255,90,60,.2); color: #ff5a3c; }
+/* My trades */
+.mine-cta { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 18px; border: 1px dashed rgba(255,122,30,.35); border-radius: 12px; background: rgba(255,122,30,.04); }
+.mine-cta b { display: block; font-family: var(--disp); font-size: 15px; letter-spacing: .5px; } .mine-cta span { display: block; font-size: 12.5px; color: var(--gray); margin-top: 4px; max-width: 520px; }
+.mine-sum { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+.mine-sum > div { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,.015); }
+.mine-sum span { display: block; font-family: var(--disp); font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray-2); }
+.mine-sum b { display: block; font-family: var(--disp); font-size: 17px; margin-top: 2px; } .mine-sum b.up { color: #4ecb71; } .mine-sum b.down { color: #ff5a3c; }
+.mine-sum small { display: block; font-size: 11px; color: var(--gray-2); margin-top: 2px; }
+@media (max-width: 1100px) {
+  .tdx { grid-template-columns: 1fr; padding: 10px; }
+  .tdx-side { position: static; max-height: none; overflow: visible; }
+  .tdx .td-stats { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 640px) {
+  .tdx { padding: 6px; border-radius: 16px; gap: 10px; }
+  .tdx .chart-box { height: 320px; }
+  .tdx .td-stats { grid-template-columns: repeat(2, 1fr); }
+  .mine-sum { grid-template-columns: 1fr 1fr; }
+  .chart-ohlc { font-size: 10px; gap: 2px 8px; }
+}

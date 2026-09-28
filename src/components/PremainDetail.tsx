@@ -6,6 +6,7 @@ import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { v2Enabled, v2TokenDetail } from '../lib/v2';
+import { fetchWalletTokenTrades, type WalletTrade } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX } from './icons';
 import { useNames, displayName } from '../lib/names';
 
@@ -21,7 +22,7 @@ interface Detail {
   reservedCheck: string | null;
 }
 
-export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: { address: string; seed?: Token; ready?: boolean; onBack: () => void; onTrade?: (t: { address: string; symbol: string; name?: string; price?: number | null }) => void }) {
+export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wallet, onConnect }: { address: string; seed?: Token; ready?: boolean; onBack: () => void; onTrade?: (t: { address: string; symbol: string; name?: string; price?: number | null }) => void; wallet?: string | null; onConnect?: () => void }) {
   const [d, setD] = useState<Detail | null>(null);
   const [warp, setWarp] = useState<WarpToken | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -36,7 +37,10 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
   const [dayStats, setDayStats] = useState<DayStats | null>(null);
   const [dec, setDec] = useState<number | null>(null); // token decimals actually used for every on-chain read
   const [burn, setBurn] = useState<{ burnt: number; supply: number | null; pct: number | null } | null>(null);
-  const [tab, setTab] = useState<'txns' | 'holders'>('txns');
+  const [tab, setTab] = useState<'txns' | 'holders' | 'mine'>('txns');
+  // The connected wallet's own buys/sells of this token (rebuilt in this browser from its transactions) — listed in
+  // "My trades" and marked on the chart.
+  const [mine, setMine] = useState<WalletTrade[] | null>(null);
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
   const [poolsOpen, setPoolsOpen] = useState(false);
   const [calcAmt, setCalcAmt] = useState('');
@@ -131,6 +135,13 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
     })();
     return () => { alive = false; };
   }, [address, ready]); // eslint-disable-line
+
+  useEffect(() => {
+    if (!wallet || dec == null) { setMine(null); return; }
+    let alive = true; setMine(null);
+    fetchWalletTokenTrades(wallet, address, dec).then((t) => { if (alive) setMine(t); }).catch(() => { if (alive) setMine([]); });
+    return () => { alive = false; };
+  }, [wallet, address, dec]);
 
   useEffect(() => {
     let alive = true;
@@ -365,74 +376,167 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
     <div className="wrap"><section className="section">
       <button className="back" onClick={onBack}><IconArrowLeft className="i" /> Back to board</button>
 
-      <div className="td-head" style={{ marginTop: 14 }}>
-        <TokenLogo symbol={sym} seed={address} url={warp?.image ?? seed?.iconUrl ?? null} />
-        <div className="td-id">
-          <div className="td-name">{name || sym}
-            {d?.lookalike && <span className="wl-note" style={{ marginLeft: 8 }}>Lookalike</span>}
-            {d?.reservedName && <span className="wl-note" style={{ marginLeft: 8 }}>Reserved-name</span>}
-          </div>
-          <div className="td-sym">{sym} · {d?.standard?.toUpperCase() || 'ERC-20'}{seed?.hooked && <span className="wl-note" style={{ marginLeft: 8 }} title="This token trades on a Uniswap V4 pool with a hook, which can charge a swap tax (buy/sell fee). Verify before trading.">Hooked · may tax</span>}</div>
-          <div className="td-share">
-            <button className="addr" onClick={copy} title="copy address"><span className="addr-hex">{address.slice(0, 10)}…{address.slice(-8)}</span>{copied ? <><IconCheck className="i" /> Copied</> : <IconCopy className="i" />}</button>
-            <button className="addr td-sh" onClick={copyLink} title="Copy a share link — unfurls into a live-price card on X, Telegram and Discord">{linkCopied ? <><IconCheck className="i" /> Link copied</> : <>Copy link</>}</button>
-            <button className="addr td-sh" onClick={postToX} title="Post this token on X with its live card"><IconX className="i" /> Post</button>
-          </div>
-        </div>
-        {onTrade && (
-          <button className="btn solid td-trade" onClick={() => onTrade({ address, symbol: sym, name, price: px })}>
-            Trade<span className="td-trade-sym"> {sym}</span> <IconArrowRight className="arw" />
-          </button>
-        )}
-      </div>
-
-      {err && !d && <div className="side-note" style={{ marginTop: 12 }}>Some extended contract details (creator, size) are temporarily unavailable — the price and market data below are unaffected.</div>}
-
-      <div className="stats td-stats" style={{ marginTop: 12 }}>
-        <div className="stat"><div className="v r">{px != null ? tprice(px) : '—'}</div><div className="l">Price</div></div>
-        <div className="stat"><div className={`v chg ${chgClass(chg)}`}>{chgTxt(chg)}</div><div className="l">24h</div></div>
-        <div className="stat"><div className="v">{mc != null ? usd(mc) : '—'}</div><div className="l">Market Cap</div></div>
-        <div className="stat"><div className="v">{tvl != null ? usd(tvl) : '—'}</div><div className="l">Liquidity</div></div>
-        <div className="stat"><div className="v">{vol != null ? usd(vol) : '—'}</div><div className="l">Vol 24h</div></div>
-        <div className="stat"><div className="v">{fmtNum(holdersTotal)}</div><div className="l">Holders</div></div>
-      </div>
-
-      {/* Change over multiple timeframes (DEX-style) */}
-      {Object.values(chgBar).some((v) => v != null) && (
-        <div className="chg-bar">
-          {(Object.entries(chgBar) as [string, number | null][]).map(([l, v]) => (
-            <div className="chg-cell" key={l}><span className="chg-l">{l}</span><span className={`chg-v chg ${chgClass(v)}`}>{chgTxt(v)}</span></div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ marginTop: 12 }}>
-        {dec != null && <PriceChart address={address} symbol={sym} decimals={dec} priceScale={chartScale} change24h={chg} />}
-      </div>
-
-      {/* Dashboard: token info + activity (left) · pool metrics + health (right) */}
-      <div className="td-dash">
-        <div className="td-col">
-          {/* Info — contract, market details, links */}
-          <div className="panel side-card td-info">
-            <h3>Info</h3>
-            <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
-            <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
-            <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{dec ?? d?.decimals ?? '—'}</span></div>
-            {pool && <div className="ir"><span className="ir-k">Pool ID</span><a className="ir-v mono" href={`https://explorer.arc.io/address/${pool}`} target="_blank" rel="noreferrer" style={{ color: 'var(--red-hi)', textDecoration: 'none' }}>{pool.slice(0, 10)}…{pool.slice(-6)}</a></div>}
-            {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
-            {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
-            {burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{burnedPct.toFixed(2)}%</span></div>}
-            {rd?.verified && <div className="ir"><span className="ir-k">Verified</span><span className="ir-v" style={{ color: '#4ecb71' }}>Yes</span></div>}
-            {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
-            {!!socials.length && (
-              <div className="ir"><span className="ir-k">Links</span><span className="ir-v td-socials">
-                {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
-              </span></div>
+      {/* DASHBOARD (09-28 redesign): chart + trades on the left, every metric in one sticky column on the right */}
+      <div className="tdx">
+        <div className="tdx-main">
+          <div className="td-head" style={{ marginTop: 14 }}>
+            <TokenLogo symbol={sym} seed={address} url={warp?.image ?? seed?.iconUrl ?? null} />
+            <div className="td-id">
+              <div className="td-name">{name || sym}
+                {d?.lookalike && <span className="wl-note" style={{ marginLeft: 8 }}>Lookalike</span>}
+                {d?.reservedName && <span className="wl-note" style={{ marginLeft: 8 }}>Reserved-name</span>}
+              </div>
+              <div className="td-sym">{sym} · {d?.standard?.toUpperCase() || 'ERC-20'}{seed?.hooked && <span className="wl-note" style={{ marginLeft: 8 }} title="This token trades on a Uniswap V4 pool with a hook, which can charge a swap tax (buy/sell fee). Verify before trading.">Hooked · may tax</span>}</div>
+              <div className="td-share">
+                <button className="addr" onClick={copy} title="copy address"><span className="addr-hex">{address.slice(0, 10)}…{address.slice(-8)}</span>{copied ? <><IconCheck className="i" /> Copied</> : <IconCopy className="i" />}</button>
+                <button className="addr td-sh" onClick={copyLink} title="Copy a share link — unfurls into a live-price card on X, Telegram and Discord">{linkCopied ? <><IconCheck className="i" /> Link copied</> : <>Copy link</>}</button>
+                <button className="addr td-sh" onClick={postToX} title="Post this token on X with its live card"><IconX className="i" /> Post</button>
+              </div>
+            </div>
+            {onTrade && (
+              <button className="btn solid td-trade" onClick={() => onTrade({ address, symbol: sym, name, price: px })}>
+                Trade<span className="td-trade-sym"> {sym}</span> <IconArrowRight className="arw" />
+              </button>
             )}
-            <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" warp /></div>
           </div>
 
+          {err && !d && <div className="side-note" style={{ marginTop: 12 }}>Some extended contract details (creator, size) are temporarily unavailable — the price and market data below are unaffected.</div>}
+
+          <div className="stats td-stats" style={{ marginTop: 12 }}>
+            <div className="stat"><div className="v r">{px != null ? tprice(px) : '—'}</div><div className="l">Price</div></div>
+            <div className="stat"><div className={`v chg ${chgClass(chg)}`}>{chgTxt(chg)}</div><div className="l">24h</div></div>
+            <div className="stat"><div className="v">{mc != null ? usd(mc) : '—'}</div><div className="l">Market Cap</div></div>
+            <div className="stat"><div className="v">{tvl != null ? usd(tvl) : '—'}</div><div className="l">Liquidity</div></div>
+            <div className="stat"><div className="v">{vol != null ? usd(vol) : '—'}</div><div className="l">Vol 24h</div></div>
+            <div className="stat"><div className="v">{fmtNum(holdersTotal)}</div><div className="l">Holders</div></div>
+          </div>
+
+          {/* Change over multiple timeframes (DEX-style) */}
+          {Object.values(chgBar).some((v) => v != null) && (
+            <div className="chg-bar">
+              {(Object.entries(chgBar) as [string, number | null][]).map(([l, v]) => (
+                <div className="chg-cell" key={l}><span className="chg-l">{l}</span><span className={`chg-v chg ${chgClass(v)}`}>{chgTxt(v)}</span></div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ marginTop: 12 }}>
+            {dec != null && <PriceChart address={address} symbol={sym} decimals={dec} priceScale={chartScale} change24h={chg} trades={mine} />}
+          </div>
+
+
+          {/* Compact tabbed section — Transactions / Holders (scrolls inside itself, not the page) */}
+          <div className="panel td-tabpanel" style={{ marginTop: 12 }}>
+            <div className="td-tabs">
+              <button className={tab === 'txns' ? 'on' : ''} onClick={() => setTab('txns')}>Transactions</button>
+              <button className={tab === 'holders' ? 'on' : ''} onClick={() => setTab('holders')}>Holders{holdersTotal != null ? ` · ${fmtNum(holdersTotal)}` : ''}</button>
+              <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>My trades{mine && mine.length ? ` · ${mine.length}` : ''}</button>
+            </div>
+
+            {tab === 'txns' && (
+              <div className="td-tabbody">
+                {swaps && swaps.length ? (() => {
+                  const rows = swaps.filter((s) => txFilter === 'all' || s.side === txFilter);
+                  return (<>
+                    <div className="txf">
+                      {(['all', 'buy', 'sell'] as const).map((f) => (
+                        <button key={f} className={txFilter === f ? 'on' : ''} onClick={() => setTxFilter(f)}>{f === 'all' ? 'All' : f === 'buy' ? 'Buys' : 'Sells'}</button>
+                      ))}
+                    </div>
+                    <div className="tr-table">
+                      <div className="tr-row tr-head"><span>Age</span><span>Type</span><span className="num">USD</span><span className="num">{sym}</span><span className="num">Price</span><span>Maker</span><span className="num tx">Tx</span></div>
+                      {rows.map((s, i) => (
+                        <div className="tr-row" key={s.tx + i}>
+                          <span className="tr-age">{s.time ? agoStr(s.time) : '—'}</span>
+                          <span className={`tr-side ${s.side}`}>{s.side === 'buy' ? 'Buy' : 'Sell'}</span>
+                          <span className={`num mono tr-usd ${s.side}`}>{s.usd != null ? usd(s.usd) : '—'}</span>
+                          <span className="num mono">{compact(s.amount)}</span>
+                          <span className="num mono tr-px">{s.price != null ? tprice(s.price) : '—'}</span>
+                          {s.trader ? <a className="tr-mk mono" href={`https://explorer.arc.io/address/${s.trader}`} target="_blank" rel="noreferrer" title={s.trader}>{displayName(s.trader, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a> : <span className="tr-mk mono">…</span>}
+                          <a className="tr-tx num tx" href={`https://explorer.arc.io/tx/${s.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
+                        </div>
+                      ))}
+                    </div>
+                  </>);
+                })()
+                  : swaps == null && txs == null ? <div className="side-note">Loading transactions…</div>
+                  // Fallback: no indexed swaps for this pool yet — show raw on-chain transfers instead.
+                  : txs && txs.length ? <div className="txn-table">
+                      <div className="txn-row txn-head"><span>Type</span><span className="num">Amount</span><span>Maker</span><span className="num tx">Tx</span></div>
+                      {txs.map((t, i) => { const k = txKind(t); const mk = txMaker(t); return (
+                        <div className="txn-row" key={t.tx + i}>
+                          <span className={`txn-type ${k}`}>{k === 'buy' ? 'Buy' : k === 'sell' ? 'Sell' : 'Transfer'}</span>
+                          <span className="num mono">{compact(t.amount)} <span className="txn-sym">{sym}</span></span>
+                          <a className="txn-mk mono" href={`https://explorer.arc.io/address/${mk}`} target="_blank" rel="noreferrer" title={mk}>{displayName(mk, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a>
+                          <a className="txn-tx num tx" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
+                        </div> ); })}
+                    </div>
+                  : <div className="side-note">No recent trades found on-chain.</div>}
+              </div>
+            )}
+
+    {tab === 'mine' && (
+      <div className="td-tabbody">
+        {!wallet ? (
+          <div className="mine-cta"><div><b>See your own trades on this token</b><span>Connect your wallet — your buys and sells are listed here and marked on the chart (B / S). Read-only: nothing is signed.</span></div>
+            {onConnect && <button className="btn solid" onClick={onConnect}>Connect wallet</button>}</div>
+        ) : mine == null ? <div className="side-note">Reading your transactions…</div>
+          : !mine.length ? <div className="side-note">No buys or sells of {sym} found in this wallet's recent transactions.</div>
+          : (() => {
+              const b = mine.filter((t) => t.side === 'buy'), sl = mine.filter((t) => t.side === 'sell');
+              const cost = b.reduce((x, t) => x + t.usd, 0), qb = b.reduce((x, t) => x + t.qty, 0), got = sl.reduce((x, t) => x + t.usd, 0), qs = sl.reduce((x, t) => x + t.qty, 0);
+              const avg = qb > 0 ? cost / qb : null, held = Math.max(0, qb - qs), open = avg != null && px != null ? held * (px - avg) : null, realized = avg != null ? got - avg * qs : null;
+              return (<>
+                <div className="mine-sum">
+                  <div><span>Bought</span><b>{usd(cost)}</b><small>{compact(qb)} {sym}</small></div>
+                  <div><span>Sold</span><b>{usd(got)}</b><small>{compact(qs)} {sym}</small></div>
+                  <div><span>Avg buy</span><b>{avg != null ? tprice(avg) : '—'}</b><small>now {px != null ? tprice(px) : '—'}</small></div>
+                  <div><span>Profit / loss</span><b className={(realized ?? 0) + (open ?? 0) >= 0 ? 'up' : 'down'}>{realized == null ? '—' : `${(realized + (open ?? 0)) >= 0 ? '+' : '−'}${usd(Math.abs(realized + (open ?? 0)))}`}</b><small>{usd(Math.abs(realized ?? 0))} {(realized ?? 0) >= 0 ? 'made' : 'lost'} on sells · {open == null ? '—' : `${open >= 0 ? '+' : '−'}${usd(Math.abs(open))}`} on what you hold</small></div>
+                </div>
+                <div className="tr-table">
+                  <div className="tr-row tr-head"><span>When</span><span>Type</span><span className="num">USD</span><span className="num">{sym}</span><span className="num">Price</span><span /><span className="num">Tx</span></div>
+                  {mine.map((t) => (
+                    <div className="tr-row" key={t.tx}>
+                      <span className="tr-age">{new Date(t.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className={`tr-side ${t.side}`}>{t.side === 'buy' ? 'Buy' : 'Sell'}</span>
+                      <span className={`num mono tr-usd ${t.side}`}>{usd(t.usd)}</span>
+                      <span className="num mono">{compact(t.qty)}</span>
+                      <span className="num mono tr-px">{tprice(t.price)}</span>
+                      <span />
+                      <a className="tr-tx num tx" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
+                    </div>
+                  ))}
+                </div>
+              </>);
+            })()}
+      </div>
+    )}
+
+            {tab === 'holders' && (
+              <div className="td-tabbody">
+                {top10 != null && <div className="td-tabsub">Top 10 hold <b>{top10.toFixed(1)}%</b>{holdersTotal != null ? ` · ${fmtNum(holdersTotal)} holders` : ''}</div>}
+                {holders == null ? <div className="side-note">Loading holders…</div>
+                  : !holders.length ? <div className="side-note">No holder data available from the indexer.</div>
+                  : <div className="hl-list">
+                      {holders.map((h) => (
+                        <div className="hl-row" key={h.address}>
+                          <span className="hl-rank">{h.rank}</span>
+                          <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer" title={h.address}>{displayName(h.address, names, (a) => a.slice(0, 8) + '…' + a.slice(-6))}</a>
+                          {h.isPool && <span className="hl-tag pool">POOL</span>}
+                          {h.isDeployer && <span className="hl-tag dev">DEV</span>}
+                          <span className="hl-barwrap"><span className="hl-bar" style={{ width: `${holderPct(h) ?? 0}%` }} /></span>
+                          <span className="hl-bal">{compact(h.amount)}</span>
+                          <span className="hl-share">{(() => { const p = holderPct(h); return p != null ? p.toFixed(2) + '%' : '—'; })()}</span>
+                        </div>
+                      ))}
+                    </div>}
+              </div>
+            )}
+          </div>
+
+
+        </div>
+        <aside className="tdx-side">
           {/* Trade activity (24h) — buy/sell pressure, traders, txns (RadarDEX) */}
           {(buys != null || sells != null || txnsF != null) && (
             <div className="panel side-card">
@@ -456,9 +560,6 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
             </div>
           )}
 
-        </div>
-
-        <div className="td-col">
           {/* Liquidity & Pool — RadarDEX detail, or on-chain reserves for tokens it doesn't index. */}
           {liqCells.length > 0 && (
             <div className="panel side-card">
@@ -558,78 +659,27 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
               </div>
             </div>
           )}
-        </div>
-      </div>
-
-      {/* Compact tabbed section — Transactions / Holders (scrolls inside itself, not the page) */}
-      <div className="panel td-tabpanel" style={{ marginTop: 12 }}>
-        <div className="td-tabs">
-          <button className={tab === 'txns' ? 'on' : ''} onClick={() => setTab('txns')}>Transactions</button>
-          <button className={tab === 'holders' ? 'on' : ''} onClick={() => setTab('holders')}>Holders{holdersTotal != null ? ` · ${fmtNum(holdersTotal)}` : ''}</button>
-        </div>
-
-        {tab === 'txns' && (
-          <div className="td-tabbody">
-            {swaps && swaps.length ? (() => {
-              const rows = swaps.filter((s) => txFilter === 'all' || s.side === txFilter);
-              return (<>
-                <div className="txf">
-                  {(['all', 'buy', 'sell'] as const).map((f) => (
-                    <button key={f} className={txFilter === f ? 'on' : ''} onClick={() => setTxFilter(f)}>{f === 'all' ? 'All' : f === 'buy' ? 'Buys' : 'Sells'}</button>
-                  ))}
-                </div>
-                <div className="tr-table">
-                  <div className="tr-row tr-head"><span>Age</span><span>Type</span><span className="num">USD</span><span className="num">{sym}</span><span className="num">Price</span><span>Maker</span><span className="num tx">Tx</span></div>
-                  {rows.map((s, i) => (
-                    <div className="tr-row" key={s.tx + i}>
-                      <span className="tr-age">{s.time ? agoStr(s.time) : '—'}</span>
-                      <span className={`tr-side ${s.side}`}>{s.side === 'buy' ? 'Buy' : 'Sell'}</span>
-                      <span className={`num mono tr-usd ${s.side}`}>{s.usd != null ? usd(s.usd) : '—'}</span>
-                      <span className="num mono">{compact(s.amount)}</span>
-                      <span className="num mono tr-px">{s.price != null ? tprice(s.price) : '—'}</span>
-                      {s.trader ? <a className="tr-mk mono" href={`https://explorer.arc.io/address/${s.trader}`} target="_blank" rel="noreferrer" title={s.trader}>{displayName(s.trader, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a> : <span className="tr-mk mono">…</span>}
-                      <a className="tr-tx num tx" href={`https://explorer.arc.io/tx/${s.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
-                    </div>
-                  ))}
-                </div>
-              </>);
-            })()
-              : swaps == null && txs == null ? <div className="side-note">Loading transactions…</div>
-              // Fallback: no indexed swaps for this pool yet — show raw on-chain transfers instead.
-              : txs && txs.length ? <div className="txn-table">
-                  <div className="txn-row txn-head"><span>Type</span><span className="num">Amount</span><span>Maker</span><span className="num tx">Tx</span></div>
-                  {txs.map((t, i) => { const k = txKind(t); const mk = txMaker(t); return (
-                    <div className="txn-row" key={t.tx + i}>
-                      <span className={`txn-type ${k}`}>{k === 'buy' ? 'Buy' : k === 'sell' ? 'Sell' : 'Transfer'}</span>
-                      <span className="num mono">{compact(t.amount)} <span className="txn-sym">{sym}</span></span>
-                      <a className="txn-mk mono" href={`https://explorer.arc.io/address/${mk}`} target="_blank" rel="noreferrer" title={mk}>{displayName(mk, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a>
-                      <a className="txn-tx num tx" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
-                    </div> ); })}
-                </div>
-              : <div className="side-note">No recent trades found on-chain.</div>}
+          {/* Info — contract, market details, links */}
+          <div className="panel side-card td-info">
+            <h3>Info</h3>
+            <div className="ir"><span className="ir-k">Contract</span><span className="ir-v mono">{address}</span></div>
+            <div className="ir"><span className="ir-k">Standard</span><span className="ir-v">{d?.standard?.toUpperCase() || 'ERC-20'}</span></div>
+            <div className="ir"><span className="ir-k">Decimals</span><span className="ir-v">{dec ?? d?.decimals ?? '—'}</span></div>
+            {pool && <div className="ir"><span className="ir-k">Pool ID</span><a className="ir-v mono" href={`https://explorer.arc.io/address/${pool}`} target="_blank" rel="noreferrer" style={{ color: 'var(--red-hi)', textDecoration: 'none' }}>{pool.slice(0, 10)}…{pool.slice(-6)}</a></div>}
+            {rd?.deployer && <div className="ir"><span className="ir-k">Deployer</span><span className="ir-v mono">{rd.deployer.slice(0, 10)}…{rd.deployer.slice(-6)}</span></div>}
+            {warp?.v4 && <div className="ir"><span className="ir-k">Market</span><span className="ir-v">Uniswap v4{warp.fee != null ? ` · ${(warp.fee / 1e4).toFixed(2)}% fee` : ''}</span></div>}
+            {burnedPct != null && <div className="ir"><span className="ir-k">Burned</span><span className="ir-v">{burnedPct.toFixed(2)}%</span></div>}
+            {rd?.verified && <div className="ir"><span className="ir-k">Verified</span><span className="ir-v" style={{ color: '#4ecb71' }}>Yes</span></div>}
+            {warp?.createdAt != null && <div className="ir"><span className="ir-k">Created</span><span className="ir-v">{new Date(warp.createdAt).toLocaleDateString()}</span></div>}
+            {!!socials.length && (
+              <div className="ir"><span className="ir-k">Links</span><span className="ir-v td-socials">
+                {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
+              </span></div>
+            )}
+            <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" warp /></div>
           </div>
-        )}
 
-        {tab === 'holders' && (
-          <div className="td-tabbody">
-            {top10 != null && <div className="td-tabsub">Top 10 hold <b>{top10.toFixed(1)}%</b>{holdersTotal != null ? ` · ${fmtNum(holdersTotal)} holders` : ''}</div>}
-            {holders == null ? <div className="side-note">Loading holders…</div>
-              : !holders.length ? <div className="side-note">No holder data available from the indexer.</div>
-              : <div className="hl-list">
-                  {holders.map((h) => (
-                    <div className="hl-row" key={h.address}>
-                      <span className="hl-rank">{h.rank}</span>
-                      <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer" title={h.address}>{displayName(h.address, names, (a) => a.slice(0, 8) + '…' + a.slice(-6))}</a>
-                      {h.isPool && <span className="hl-tag pool">POOL</span>}
-                      {h.isDeployer && <span className="hl-tag dev">DEV</span>}
-                      <span className="hl-barwrap"><span className="hl-bar" style={{ width: `${holderPct(h) ?? 0}%` }} /></span>
-                      <span className="hl-bal">{compact(h.amount)}</span>
-                      <span className="hl-share">{(() => { const p = holderPct(h); return p != null ? p.toFixed(2) + '%' : '—'; })()}</span>
-                    </div>
-                  ))}
-                </div>}
-          </div>
-        )}
+        </aside>
       </div>
 
       <div className="td-disc" style={{ marginTop: 12 }}>

@@ -454,6 +454,8 @@ export default function App() {
             address={selected}
             seed={seed}
             ready={seedReady}
+            wallet={wallet}
+            onConnect={onConnect}
             onBack={() => setSelected(null)}
             onTrade={(t) => tradeToken(t)}
           />

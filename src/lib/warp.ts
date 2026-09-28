@@ -80,7 +80,7 @@ export async function fetchWarpToken(address: string): Promise<WarpToken | null>
 
 // OHLC candles for a token — Warp serves real candlesticks at 1m / 5m / 1h.
 // Shape matches TradingView lightweight-charts: { time: unix-seconds, open, high, low, close }.
-export interface Candle { time: number; open: number; high: number; low: number; close: number }
+export interface Candle { time: number; open: number; high: number; low: number; close: number; volume?: number } // volume = USD traded in the candle (on-chain candles)
 export async function fetchWarpCandles(address: string, interval = '5m'): Promise<Candle[]> {
   try {
     const j = await get(`/tokens/${address}/candles?interval=${encodeURIComponent(interval)}`);
