@@ -59,6 +59,11 @@ export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string;
     return () => { alive = false; };
   }, [seed, needFallback]);
 
+  // An IPFS-hosted logo goes to the VPS copy FIRST: the public gateways now refuse cross-site image loads (Chrome ORB /
+  // CORP — 09-28: pinata + ipfs.io both blocked), so trying them first cost 2 failed requests per logo before the cache.
+  if (ipfsCid && isAddr && !cacheBroke) {
+    return <img className="tlogo" src={`/api/logo/${seed.toLowerCase()}`} alt={symbol} loading="lazy" onError={() => setCacheBroke(true)} />;
+  }
   if (primary && !primaryBroke) {
     return <img className="tlogo" src={primary} alt={symbol} loading="lazy" onError={() => setPrimaryBroke(true)} />;
   }
