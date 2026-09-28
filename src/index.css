@@ -1567,3 +1567,28 @@ footer .wrap { padding: 16px 20px; }
   .hero-trust .div { display: none; }
   .hero-trust .ht b { font-size: 16px; }
 }
+
+/* ── ARC NETWORK page (Network.tsx) ─────────────────────────────────────────────────────────────────────────── */
+.net-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+.net-card { background: linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,0) 40%), var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+.net-card.net-wide { margin-top: 12px; }
+.net-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.net-card-head h3 { font-family: var(--disp); font-weight: 700; font-size: 15px; text-transform: uppercase; letter-spacing: .5px; margin: 0; }
+.net-card-head .side-note { font-size: 11px; color: var(--gray-2); }
+.net-row { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+.net-row:first-of-type { border-top: 0; }
+.net-row .up { color: #4ecb71; } .net-row .down { color: #ff5a3c; }
+.net-chains { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.net-vals { display: flex; flex-direction: column; }
+.net-val { display: grid; grid-template-columns: 34px 1fr 90px 150px 110px; gap: 10px; align-items: center; padding: 7px 4px; border-top: 1px solid var(--line-soft); font-size: 12.5px; }
+.net-val.head { border-top: 0; font-family: var(--disp); font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gray-2); }
+.net-val a { color: var(--white); text-decoration: none; } .net-val a:hover { color: #ffc24a; }
+.net-val .num { text-align: right; }
+.net-bar { display: inline-block; width: 60px; height: 4px; margin-right: 8px; vertical-align: middle; background: var(--line); border-radius: 2px; overflow: hidden; }
+.net-bar > span { display: block; height: 100%; background: var(--fire); }
+@media (max-width: 640px) {
+  .net-grid { grid-template-columns: 1fr; }
+  .net-val { grid-template-columns: 26px 1fr 60px 64px; font-size: 12px; }
+  .net-val > :nth-child(5) { display: none; }
+  .net-bar { display: none; }
+}

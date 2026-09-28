@@ -10,17 +10,18 @@ import { Portfolio } from './components/Portfolio';
 import { Swap } from './components/Swap';
 import { Dropdown } from './components/Dropdown';
 import { PremainDetail } from './components/PremainDetail';
+import { Network } from './components/Network';
 import { TokenPage } from './components/TokenPage';
 import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
 import { WalletButton } from './components/WalletButton';
 import { IconArrowRight, IconArrowLeft, IconX } from './components/icons';
 
-type Page = 'home' | 'screener' | 'portfolio' | 'swap' | 'token';
+type Page = 'home' | 'screener' | 'network' | 'portfolio' | 'swap' | 'token';
 
 // ── deep-linkable URLs (clean path routing, e.g. stateraarc.com/swap). Vercel serves index.html for
 //    any non-file/non-/api path (SPA fallback rewrite in vercel.json), so refresh/direct-load work. ──
-const PATHS: Record<Page, string> = { home: '/', screener: '/screener', token: '/str', portfolio: '/portfolio', swap: '/swap' };
+const PATHS: Record<Page, string> = { home: '/', screener: '/screener', network: '/network', token: '/str', portfolio: '/portfolio', swap: '/swap' };
 const pathFor = (pg: Page, sel: string | null): string =>
   pg === 'screener' && sel && /^0x[0-9a-fA-F]{40}$/.test(sel) ? `/token/${sel}` : (PATHS[pg] || '/');
 function parsePath(): { page: Page; selected: string | null } {
@@ -34,6 +35,7 @@ function parsePath(): { page: Page; selected: string | null } {
 const NAV: { key: Page; label: string }[] = [
   { key: 'home', label: 'Home' },
   { key: 'screener', label: 'Screener' },
+  { key: 'network', label: 'Network' },
   { key: 'portfolio', label: 'Portfolio' },
   { key: 'swap', label: 'Swap' },
 ];
@@ -287,7 +289,7 @@ export default function App() {
   // page kept that token's name + price in the browser tab.
   useEffect(() => {
     if (page === 'screener' && selected) return;
-    const T: Record<Page, string> = { home: 'StateraArc — Arc token screener', screener: 'Screener — StateraArc', portfolio: 'Portfolio — StateraArc', swap: 'Swap — StateraArc', token: '$STR — StateraArc' };
+    const T: Record<Page, string> = { home: 'StateraArc — Arc token screener', screener: 'Screener — StateraArc', network: 'Arc Network — StateraArc', portfolio: 'Portfolio — StateraArc', swap: 'Swap — StateraArc', token: '$STR — StateraArc' };
     document.title = T[page] || T.home;
   }, [page, selected]);
   const navReady = useRef(false);
@@ -605,6 +607,7 @@ export default function App() {
           </section></div>
         )}
 
+        {page === 'network' && <Network />}
         {page === 'token' && <TokenPage />}
         {page === 'portfolio' && <Portfolio tokens={tokens} wallet={wallet} onConnect={onConnect} onOpenToken={openToken} mainnet />}
         {page === 'swap' && <Swap tokens={swapTokens} wallet={wallet} onConnect={onConnect} preload={swapPreload} mainnet />}

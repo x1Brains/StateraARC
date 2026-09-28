@@ -13,6 +13,7 @@
 //   /v2/token/<addr>/candles?sec&look the chart (the page's own timeframes only)
 //   /v2/tokens?addrs=a,b,…            rows for a set of addresses (portfolio pricing)
 //   /v2/swap-tokens                   the swap picker list
+//   /v2/chain                         Arc network: block time, TPS, fees, validators (block producers), CCTP flows, supplies
 //   /v2/list                          the whole live list (v1-compatible shape: { generatedAt, tokens })
 import http from 'node:http';
 import fs from 'node:fs';
@@ -21,6 +22,7 @@ import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
 import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk } from './token-detail.ts';
+import { pollChain, chainSummary, chainStats } from './chain.ts';
 
 const PORT = Number(process.env.PORT || 8790);
 const SNAP = process.env.SNAPSHOT_FILE || '/root/statera-live/tokens-snapshot.json';
@@ -51,6 +53,21 @@ async function rpc(method: string, params: unknown[], tries = 4): Promise<any> {
   return null;
 }
 const call: Live.Call = (to, data) => rpc('eth_call', [{ to, data }, 'latest']);
+// A JSON-RPC batch (the chain follower reads ≤ 40 blocks per call); rotates nodes, retries the whole batch.
+async function rpcBatch(calls: [string, unknown[]][], tries = 4): Promise<any[]> {
+  for (let i = 0; i < tries; i++) {
+    const url = RPCS[(rr++) % RPCS.length];
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(calls.map(([method, params], id) => ({ jsonrpc: '2.0', id, method, params }))), signal: AbortSignal.timeout(10000) });
+      if (r.status === 429 || r.status >= 500) { await sleep(300 * (i + 1)); continue; }
+      const j: any = await r.json();
+      if (!Array.isArray(j) || j.some((x) => x.error)) { await sleep(300 * (i + 1)); continue; }
+      return j.sort((a: any, b: any) => a.id - b.id).map((x: any) => x.result);
+    } catch { await sleep(300 * (i + 1)); }
+  }
+  throw new Error('rpc batch failed');
+}
 
 async function radarTokens(limit = 500): Promise<Token[]> {
   if (!RADAR_KEY) return [];
@@ -135,11 +152,12 @@ http.createServer((req, res) => {
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: detailStats }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: detailStats, chain: chainStats }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
     if (path === '/home') { send(req, res, 200, v.homeJson, v.homeGz); return; }
+    if (path === '/chain') { const c = chainSummary(); send(req, res, c ? 200 : 503, JSON.stringify(c ?? { error: 'warming up' }), undefined, c ? 10 : 0); return; }
     if (path === '/list') { send(req, res, 200, v.list, v.listGz); return; }
     if (path === '/swap-tokens') { send(req, res, 200, v.swap, v.swapGz, 30); return; }
     if (path === '/board') {
@@ -195,4 +213,8 @@ setInterval(tickLive, LIVE_MS);
 // Keep the 8 busiest token pages warm (by 24h volume, real tokens only) — their first visitor never waits for a scan.
 const warm = () => { if (view) prewarm(Board.boardRows(view.tokens, view.ix, { filter: 'all', q: '', sort: 'volume', dir: 'desc', hideDupes: true, showInactive: false }).slice(0, 8)); };
 setTimeout(warm, 20_000); setInterval(warm, 180_000);
+// The Network page's chain follower: every block, one poll at a time, every 15 s.
+let chaining = false;
+const tickChain = async () => { if (chaining) return; chaining = true; try { await pollChain(rpc, rpcBatch); } catch (e) { chainStats.errors++; console.error('[chain]', (e as Error).message); } finally { chaining = false; } };
+tickChain(); setInterval(tickChain, 15_000);
 setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(); } catch { /* keep serving the last good list */ } }, 5000);
