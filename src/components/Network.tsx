@@ -7,7 +7,8 @@ import { v2Chain, type V2Chain } from '../lib/v2';
 // which institution runs which one, and we don't guess.
 const n0 = (v: number | null | undefined, d = 0) => (v == null || !isFinite(v) ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
 const short = (a: string) => a.slice(0, 8) + '…' + a.slice(-6);
-const ago = (s: number) => (s < 90 ? `${Math.round(s)}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`);
+// Spelled out: the labels render in capitals, and '2m' read as '2M' (2 million).
+const ago = (s: number) => (s < 90 ? `${Math.round(s)} sec` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`);
 
 export function Network() {
   const [c, setC] = useState<V2Chain | null>(null);
@@ -78,7 +79,7 @@ export function Network() {
                 <a className="mono" href={`https://explorer.arc.io/address/${v.address}`} target="_blank" rel="noreferrer" title={v.address}>{short(v.address)}</a>
                 <span className="num mono">{n0(v.blocks)}</span>
                 <span className="num mono"><span className="net-bar"><span style={{ width: `${Math.min(100, v.share * 100 * c.validatorCount / 2)}%` }} /></span>{(v.share * 100).toFixed(1)}%</span>
-                <span className="num mono">{v.behind <= 0 ? 'now' : `${n0(v.behind)} ago`}</span>
+                <span className="num mono">{v.behind <= 0 ? 'now' : `${n0(v.behind)} blocks ago`}</span>
               </div>
             ))}
           </div>
