@@ -22,6 +22,8 @@ const WHERE_KEYS: { k: 'lending' | 'dex' | 'bridge' | 'contracts' | 'wallets'; l
   { k: 'lending', label: 'Lending', cls: 'lend' }, { k: 'dex', label: 'DEX pools', cls: 'dex' }, { k: 'bridge', label: 'Circle Gateway', cls: 'bridge' },
   { k: 'contracts', label: 'Other contracts', cls: 'ctr' }, { k: 'wallets', label: 'Wallets', cls: 'wal' },
 ];
+// The token contracts behind "Money on Arc" — one click to check any number on the explorer (owner 09-28: people doubted it).
+const ASSET_ADDR: Record<string, string> = { USDC: '0x3600000000000000000000000000000000000000', EURC: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', cirBTC: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', USYC: '0x8a5d989bbb96929f689b0200f435f53da42bf490' };
 const ASSET_NAME: Record<string, string> = { USDC: 'US dollars (USDC)', EURC: 'Euros (EURC)', cirBTC: 'Bitcoin (cirBTC)', USYC: 'Yield dollars (USYC)' };
 
 export function Network() {
@@ -88,14 +90,24 @@ export function Network() {
         {/* 2 · Money on Arc */}
         <div className="nx-card">
           <div className="nx-head"><h3>Money on Arc</h3>{assetsUsd != null && assetsUsd > 0 && <span className="nx-total">{usd(assetsUsd)}</span>}</div>
-          <p className="nx-sub">Circle's own digital money that exists on Arc today.</p>
+          <p className="nx-sub">Circle's own digital money that exists on Arc today — the full supply of each token, read from its contract.</p>
+          {c.supplyUsd && (() => {
+            const stable = (c.supplyUsd.USDC ?? 0) + (c.supplyUsd.EURC ?? 0), btc = c.supplyUsd.cirBTC ?? 0;
+            return (
+              <div className="nx-subtotals">
+                <span>Stablecoins (USDC + EURC) <b>{usd(stable)}</b></span>
+                <span>Bitcoin (cirBTC) <b>{usd(btc)}</b></span>
+                <span className="nx-cmp">DefiLlama's ~$450–520M for Arc is its stablecoin count or its TVL (money deposited in apps) — neither includes the cirBTC.</span>
+              </div>
+            );
+          })()}
           {assets.map((k) => {
             const w = where?.assets.find((a) => a.sym === k);
             const val = (v: number) => (w?.price != null ? usd(v * w.price) : `${n0(v, k === 'cirBTC' ? 2 : 0)} ${k}`);
             return (
               <div className="nx-asset" key={k}>
                 <div className="nx-row">
-                  <span>{ASSET_NAME[k]}</span>
+                  <span>{ASSET_NAME[k]} <a className="nx-verify" href={`https://explorer.arc.io/token/${ASSET_ADDR[k]}`} target="_blank" rel="noreferrer" title="Open this token's contract on the Arc explorer — the supply shown there is the number here">Verify on explorer ↗</a></span>
                   <span className="num mono">{c.supplyUsd?.[k] != null ? usd(c.supplyUsd[k]!) : '—'}<small className="sub">{n0(c.supplies[k], k === 'cirBTC' ? 2 : 0)} {k}</small></span>
                 </div>
                 {w && w.supply > 0 && <>
