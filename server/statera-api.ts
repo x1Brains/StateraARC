@@ -96,6 +96,9 @@ let generatedAt: string | null = null, snapMtime = 0, asOf: number | null = null
 let view: View | null = null;
 const stats = { loads: 0, loadFails: 0, onchainPriced: 0, liveRuns: 0, radarRows: 0, deepPriced: 0, lastLoad: 0, lastOnchain: 0, lastLive: 0, requests: 0 };
 
+// USD price of a token from the live on-chain list (USDC = 1). Defined up here: the HTTP server answers during startup.
+const USDC_ADDR = '0x3600000000000000000000000000000000000000';
+const priceOf = (t: string) => { const a = t.toLowerCase(); if (a === USDC_ADDR) return 1; const r = view?.byAddr.get(a); return r && r.price != null && isFinite(r.price) ? r.price : null; };
 const slimRow = (t: Token) => t; // rows go out whole: the page renders every field it had in v1
 function rebuild() {
   const ix = Board.buildIndex(tokens, PINNED);
@@ -166,7 +169,14 @@ http.createServer((req, res) => {
     const v = view;
     if (path === '/home') { send(req, res, 200, v.homeJson, v.homeGz); return; }
     if (path === '/lending') { const l = lendingSummary(); send(req, res, l ? 200 : 503, JSON.stringify(l ?? { error: 'warming up' }), undefined, l ? 30 : 0); return; }
-    if (path === '/chain') { const c = chainSummary(); send(req, res, c ? 200 : 503, JSON.stringify(c ?? { error: 'warming up' }), undefined, c ? 10 : 0); return; }
+    if (path === '/chain') {
+      const c = chainSummary();
+      // Dollar value of each Circle asset (price from the on-chain token list; USDC = 1) so the page can say "$" not units.
+      const ADDR: Record<string, string> = { USDC: USDC_ADDR, EURC: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', cirBTC: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', USYC: '0x8a5d989bbb96929f689b0200f435f53da42bf490' };
+      const supplyUsd: Record<string, number | null> = {};
+      if (c) for (const [k, v] of Object.entries(c.supplies)) { const px = ADDR[k] ? priceOf(ADDR[k]) : null; supplyUsd[k] = v != null && px != null ? v * px : null; }
+      send(req, res, c ? 200 : 503, JSON.stringify(c ? { ...c, supplyUsd } : { error: 'warming up' }), undefined, c ? 10 : 0); return;
+    }
     if (path === '/list') { send(req, res, 200, v.list, v.listGz); return; }
     if (path === '/swap-tokens') { send(req, res, 200, v.swap, v.swapGz, 30); return; }
     if (path === '/board') {
@@ -244,8 +254,6 @@ async function getLogsBig(params: any): Promise<any[] | null> {
   }
   return null;
 }
-const USDC_ADDR = '0x3600000000000000000000000000000000000000';
-const priceOf = (t: string) => { const a = t.toLowerCase(); if (a === USDC_ADDR) return 1; const r = view?.byAddr.get(a); return r && r.price != null && isFinite(r.price) ? r.price : null; };
 const symbolOf = (t: string) => { const a = t.toLowerCase(); if (a === USDC_ADDR) return 'USDC'; return view?.byAddr.get(a)?.symbol ?? null; };
 let lending = false;
 const tickLending = async () => { if (lending) return; lending = true; try { await refreshLending(rpc, call, getLogsBig, priceOf, symbolOf); } catch (e) { lendingStats.errors++; console.error('[lending]', (e as Error).message); } finally { lending = false; } };

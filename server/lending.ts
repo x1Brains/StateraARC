@@ -83,7 +83,8 @@ export async function refreshLending(rpc: Rpc, call: Call, getLogsBig: (p: any) 
   const sum = (xs: { supplyUsd: number | null; borrowUsd: number | null }[], k: 'supplyUsd' | 'borrowUsd') => xs.reduce((s, x) => s + (x[k] ?? 0), 0);
   snapshot = {
     at: Date.now(),
-    morpho: { address: MORPHO, markets, supplyUsd: sum(markets, 'supplyUsd'), borrowUsd: sum(markets, 'borrowUsd'), sweptTo: st.scannedTo, head },
+    // complete = every CreateMarket since Morpho's deploy has been read; until then the page says "counting", not a partial $.
+    morpho: { address: MORPHO, markets, supplyUsd: sum(markets, 'supplyUsd'), borrowUsd: sum(markets, 'borrowUsd'), sweptTo: st.scannedTo, head, complete: st.scannedTo >= head - 2000, progress: Math.min(1, (st.scannedTo - MORPHO_FROM) / Math.max(1, head - MORPHO_FROM)) },
     aave: { hub: AAVE_HUB, assets: aave, supplyUsd: sum(aave, 'supplyUsd'), borrowUsd: sum(aave, 'borrowUsd') },
   };
   lendingStats.lastOk = Date.now();

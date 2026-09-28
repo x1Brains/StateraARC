@@ -55,14 +55,14 @@ export interface V2Chain {
   m5: V2ChainWin | null; h1: V2ChainWin | null; h6: V2ChainWin | null;
   validators: { address: string; blocks: number; share: number; lastBlock: number; behind: number }[]; validatorCount: number;
   cctp: { h1: { in: V2Flows; out: V2Flows }; h6: { in: V2Flows; out: V2Flows } | null };
-  supplies: Record<string, number | null>; suppliesAt: number;
+  supplies: Record<string, number | null>; suppliesAt: number; supplyUsd?: Record<string, number | null>;
 }
 export const v2Chain = () => get<V2Chain>('chain', 8000).then((c) => { if (!c || typeof c.head !== 'number') throw new Error('v2 chain: bad shape'); return c; });
 // Lending on Arc (server/lending.ts): Morpho Blue markets + Aave V4 Hub assets, read on chain.
 export interface V2LendRow { supply: number; borrow: number; supplyUsd: number | null; borrowUsd: number | null; utilization: number | null }
 export interface V2Lending {
   at: number;
-  morpho: { address: string; supplyUsd: number; borrowUsd: number; markets: (V2LendRow & { id: string; loan: string; loanSymbol: string | null; collateral: string; collateralSymbol: string | null; lltv: number })[] };
+  morpho: { address: string; supplyUsd: number; borrowUsd: number; complete?: boolean; progress?: number; markets: (V2LendRow & { id: string; loan: string; loanSymbol: string | null; collateral: string; collateralSymbol: string | null; lltv: number })[] };
   aave: { hub: string; supplyUsd: number; borrowUsd: number; assets: (V2LendRow & { assetId: number; token: string; symbol: string | null })[] };
 }
 export const v2Lending = () => get<V2Lending>('lending', 8000).then((l) => { if (!l || !l.morpho || !l.aave) throw new Error('v2 lending: bad shape'); return l; });
