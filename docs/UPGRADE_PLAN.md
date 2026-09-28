@@ -61,4 +61,29 @@ Postgres + Ponder should get their own small VPS (owner decision: ~€5–8/mont
   proposer — to be checked).
 
 ## Status log
-- 2026-09-28: phase 0 done. Phase 1 in progress.
+- 2026-09-28 — **phase 0 done**: tag `v1-baseline-2026-09-28`, VPS copy, map, crawl, harness.
+- 2026-09-28 — **4 v1 bugs fixed**: live EURC ticker, fractional amounts, holder shares from on-chain supply (arc-scan
+  first), ipfs:// logos.
+- 2026-09-28 — **phase 1 done + live**: `src/lib/rules.ts` / `live.ts` / `board.ts` shared by browser and server
+  (A/B: 735 checks, 0 differences; render A/B identical); `server/statera-api.ts` on the VPS (`statera-api.service`,
+  :8790, funnel `/v2`, own clone `/root/statera-api-repo`, deploy = `ssh x1b-prod 'bash -s' < server/deploy-api.sh`);
+  `api/v2.js` proxy; App reads v2 with automatic v1 fallback (`?data=v1` forces v1).
+- 2026-09-28 — **phase 2 done + live**: token page chain data (`/v2/token/:a/detail`) and chart candles
+  (`/v2/token/:a/candles`) computed once on the VPS with the page's own arc.ts functions; the page re-reads every 10 s.
+
+Measured on the live site (desktop, headless), v1 baseline → v2:
+
+| Page | RPC calls | Data | Rate-limit errors |
+|---|---|---|---|
+| Home | 124 → **0** | 1.28 MB → **20 KB** | 22 → 0 |
+| Screener | 270 → **52** (logos not yet in the VPS cache) | 0.11 → 0.07 MB | 67 → 0 |
+| Token cirBTC | ~400–600 → **1–2** | 15–17 MB → **0.6–1.3 MB** | ~90 → 0 |
+| Token ARGUS | ~455–655 → **1** | 4–6 MB → **1.1 MB** | ~80 → 0 |
+| $STR / Swap / Portfolio | ~117–139 → **0** | — | → 0 |
+
+Known trade-offs / next:
+- Token page trades are ~10–40 s behind (server recompute every 10 s, stale copy ≤ 2 min on first paint); v1 was live
+  at open but frozen after. Real-time needs phase 3 (websocket-fed swaps).
+- Portfolio page downloads the full live list (1.15 MB) to price holdings — switch to `/v2/tokens?addrs=` from the bag.
+- ⛔ Lesson: the local test proxy bypassed `api/v2.js`, so its allow-list 404'd `/detail` + `/candles` on the live site
+  and the page silently fell back to v1. Always verify a new endpoint THROUGH the Vercel proxy on the live site.
