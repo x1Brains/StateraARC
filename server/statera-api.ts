@@ -9,6 +9,7 @@
 //   /v2/board?filter&q&sort&dir&dups&inactive&page&per   one page of the screener + totals
 //   /v2/search?q&limit                hero typeahead
 //   /v2/token/<addr>                  one row (with pool keys for the token page)
+//   /v2/token/<addr>/detail           the token page's chain data (stats, pools, 24h, trades, holders…), cached per token
 //   /v2/tokens?addrs=a,b,…            rows for a set of addresses (portfolio pricing)
 //   /v2/swap-tokens                   the swap picker list
 //   /v2/list                          the whole live list (v1-compatible shape: { generatedAt, tokens })
@@ -18,6 +19,7 @@ import zlib from 'node:zlib';
 import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
+import { tokenDetail, prewarm, detailStats } from './token-detail.ts';
 
 const PORT = Number(process.env.PORT || 8790);
 const SNAP = process.env.SNAPSHOT_FILE || '/root/statera-live/tokens-snapshot.json';
@@ -132,7 +134,7 @@ http.createServer((req, res) => {
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: detailStats }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
@@ -155,6 +157,14 @@ http.createServer((req, res) => {
       const limit = intIn(u.searchParams.get('limit'), 7, 1, 50);
       send(req, res, 200, JSON.stringify({ rows: Board.heroMatches(v.tokens, v.ix, (u.searchParams.get('q') || '').slice(0, 80), limit) })); return;
     }
+    const dm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/detail$/);
+    if (dm) {
+      const a = dm[1].toLowerCase();
+      tokenDetail(a, v.byAddr.get(a))
+        .then((d) => send(req, res, 200, JSON.stringify(d), undefined, 15))
+        .catch((e) => send(req, res, 502, JSON.stringify({ error: 'detail failed: ' + (e as Error).message }), undefined, 0));
+      return;
+    }
     const m = path.match(/^\/token\/(0x[0-9a-fA-F]{40})$/);
     if (m) { const t = v.byAddr.get(m[1].toLowerCase()); send(req, res, t ? 200 : 404, JSON.stringify(t ? { asOf, token: t } : { error: 'not listed' })); return; }
     if (path === '/tokens') {
@@ -172,4 +182,7 @@ const tickLive = async () => { if (living) return; living = true; try { await li
 await tickLoad(); tickLive();
 setInterval(tickLoad, LOAD_MS);
 setInterval(tickLive, LIVE_MS);
+// Keep the 8 busiest token pages warm (by 24h volume, real tokens only) — their first visitor never waits for a scan.
+const warm = () => { if (view) prewarm(Board.boardRows(view.tokens, view.ix, { filter: 'all', q: '', sort: 'volume', dir: 'desc', hideDupes: true, showInactive: false }).slice(0, 8)); };
+setTimeout(warm, 20_000); setInterval(warm, 180_000);
 setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(); } catch { /* keep serving the last good list */ } }, 5000);

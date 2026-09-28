@@ -3,6 +3,7 @@
 // depends on v2 alone. Force v1 with ?data=v1 (sticky for the tab) to compare the two.
 import type { Token } from './rules';
 import type { DashStats } from './board';
+import type { DayStats, OnchainPool, RadarSwap, RadarHolder, TokenTransfer } from './arc';
 
 export interface V2Home {
   asOf: number | null; generatedAt: string | null; tracked: number; stats: DashStats;
@@ -35,3 +36,12 @@ export const v2Search = (q: string, limit = 7) => get<{ rows: Token[] }>(`search
 export const v2Token = (addr: string) => get<{ token: Token }>(`token/${addr.toLowerCase()}`, 6000).then((j) => j.token).catch((e) => { if (e?.notFound) return null; throw e; });
 export const v2SwapTokens = () => get<{ tokens: Token[] }>('swap-tokens', 10000).then((j) => j.tokens || []);
 export const v2List = () => get<{ tokens: Token[]; asOf: number | null }>('list', 20000);
+// The token page's chain data (server/token-detail.ts). Cold ≈ 5 s (the server scans the pool once for everyone), then cached.
+export interface V2TokenDetail {
+  address: string; at: number; ms: number; dec: number;
+  ocPool: { tvl: number | null; reserveQuote: number | null; reserveBase: number | null; pool: string | null; price: number | null } | null;
+  ocPools: OnchainPool[] | null; dayStats: DayStats | null; burn: { burnt: number; supply: number | null; pct: number | null } | null;
+  holders: RadarHolder[] | null; swaps: RadarSwap[] | null; txs: TokenTransfer[] | null;
+}
+export const v2TokenDetail = (addr: string) => get<V2TokenDetail>(`token/${addr.toLowerCase()}/detail`, 20000)
+  .then((d) => { if (!d || typeof d.dec !== 'number') throw new Error('v2 detail: bad shape'); return d; });

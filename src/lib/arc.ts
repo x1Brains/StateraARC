@@ -1,10 +1,12 @@
 // StateraArc — Arc chain data layer. Reads Blockscout's public API (no key, client-side).
 // Flip NET to 'mainnet' when Arc mainnet + its explorer go live (Sept 16, 2026).
-import { fetchWarpTokens, type Candle } from './warp';
-import { type Token, NATIVE_USDC_ADDR, MAINNET_CORE, ECOSYSTEM_TOKENS, ECOSYSTEM_ADDRS, sanitizeToken } from './rules';
-export type { Token } from './rules';
-import { rnum, normIcon, radarRow, snapshotRow, runLimited, MAINNET_POOL, PM_V4, deepPoolPrices, onchainPrices, curatedV4Tokens, v4PriceOf as liveV4PriceOf } from './live';
-export { PINNED, sanitizeToken, NATIVE_USDC_ADDR, MAINNET_CORE, ECOSYSTEM_TOKENS, ECOSYSTEM_ADDRS } from './rules';
+import { fetchWarpTokens, type Candle } from './warp.ts';
+// Vite fills import.meta.env at build time; under Node (the VPS API imports this file) it is absent → empty, defaults apply.
+const ENV: Record<string, string | undefined> = (import.meta as any).env ?? {};
+import { type Token, NATIVE_USDC_ADDR, MAINNET_CORE, ECOSYSTEM_TOKENS, ECOSYSTEM_ADDRS, sanitizeToken } from './rules.ts';
+export type { Token } from './rules.ts';
+import { rnum, normIcon, radarRow, snapshotRow, runLimited, MAINNET_POOL, PM_V4, deepPoolPrices, onchainPrices, curatedV4Tokens, v4PriceOf as liveV4PriceOf } from './live.ts';
+export { PINNED, sanitizeToken, NATIVE_USDC_ADDR, MAINNET_CORE, ECOSYSTEM_TOKENS, ECOSYSTEM_ADDRS } from './rules.ts';
 
 export type Net = 'testnet' | 'mainnet';
 
@@ -41,7 +43,7 @@ export const MAINNET_INFO = {
 
 // Mainnet-only app: wallet connect + all chain data target Arc mainnet (5042 / 0x13b2 / rpc.mainnet.arc.io).
 // (testnet override kept behind an explicit env flag for local debugging, but the shipped default is mainnet.)
-export const NET: Net = (import.meta.env.VITE_ARC_NET as Net) === 'testnet' ? 'testnet' : 'mainnet';
+export const NET: Net = (ENV.VITE_ARC_NET as Net) === 'testnet' ? 'testnet' : 'mainnet';
 export const CHAIN = NETS[NET];
 
 // Known launchpads / factories from our radar (deployers that minted many tokens).
@@ -79,7 +81,7 @@ export async function fetchTokens(limit = 500): Promise<Token[]> {
   // loads the whole screener instantly instead of hammering Blockscout's rate-limited API.
   try {
     // A cron can host a fresh snapshot at VITE_SNAPSHOT_URL; otherwise use the bundled one.
-    const url = (import.meta.env.VITE_SNAPSHOT_URL as string) || '/tokens-snapshot.json';
+    const url = (ENV.VITE_SNAPSHOT_URL as string) || '/tokens-snapshot.json';
     const r = await fetch(url, { cache: 'default' });
     if (r.ok) {
       const snap = await r.json();
@@ -137,7 +139,7 @@ export async function fetchTokens(limit = 500): Promise<Token[]> {
 export interface PremainMeta { generated: string; headBlock: string | null; tokenCount: number; source: string; }
 export let premainMeta: PremainMeta | null = null;
 export async function fetchPremainTokens(): Promise<Token[]> {
-  const url = (import.meta.env.VITE_SNAPSHOT_5042_URL as string) || '/tokens-snapshot-5042.json';
+  const url = (ENV.VITE_SNAPSHOT_5042_URL as string) || '/tokens-snapshot-5042.json';
   const r = await fetch(url, { cache: 'default' });
   if (!r.ok) return [];
   const snap = await r.json();
@@ -669,7 +671,7 @@ const QUOTES = [
 ];
 // RPC failover: try each endpoint with a short retry on 429/error. Add alternate providers or
 // our own read-only Arc node to RPCS for real redundancy (no single point of failure).
-export const RPCS = [(import.meta.env.VITE_ARC_RPC as string) || CHAIN.rpc, ...((import.meta.env.VITE_ARC_RPC_BACKUP as string || '').split(',').map((s) => s.trim()).filter(Boolean))].filter(Boolean);
+export const RPCS = [(ENV.VITE_ARC_RPC as string) || CHAIN.rpc, ...((ENV.VITE_ARC_RPC_BACKUP as string || '').split(',').map((s) => s.trim()).filter(Boolean))].filter(Boolean);
 async function rpcCall(body: object): Promise<any> {
   for (const rpc of RPCS) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -767,7 +769,7 @@ export async function fetchHoldings(addr: string): Promise<Holding[]> {
 // We rotate on timeout / 429 / 5xx / JSON-error (and a null receipt) so a slow/stale node fails over.
 // A 7s per-try timeout keeps a hung node from blocking the whole call.
 const MAINNET_RPCS = [
-  (import.meta.env.VITE_ARC_MAINNET_RPC as string) || 'https://rpc.mainnet.arc.io',
+  (ENV.VITE_ARC_MAINNET_RPC as string) || 'https://rpc.mainnet.arc.io',
   'https://arc.drpc.org',
   'https://arc.gateway.tenderly.co',
 ].filter((v, i, a) => v && a.indexOf(v) === i);
@@ -974,7 +976,7 @@ export async function fetchMainnetTokens(): Promise<Token[]> {
 export async function fetchScreenerTokens(): Promise<{ tokens: Token[]; asOf: number | null }> {
   // /api/snapshot = the VPS's latest on-chain build (no deploy needed to refresh it); the static file baked into
   // the deploy is the fallback. A list under 200 tokens is a degraded build — try the next source.
-  const urls = [(import.meta.env.VITE_SNAPSHOT_URL as string) || '/api/snapshot', '/tokens-snapshot.json'];
+  const urls = [(ENV.VITE_SNAPSHOT_URL as string) || '/api/snapshot', '/tokens-snapshot.json'];
   for (const url of urls) try {
     const r = await fetch(url, { cache: 'default' });
     if (r.ok) {

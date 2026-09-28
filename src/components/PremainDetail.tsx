@@ -5,6 +5,7 @@ import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
+import { v2Enabled, v2TokenDetail } from '../lib/v2';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX } from './icons';
 import { useNames, displayName } from '../lib/names';
 
@@ -65,6 +66,23 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
       // Decimals: RadarDEX / snapshot if known, else read from the contract — never a guessed 18 (an 8-dec coin
       // like cirBTC read with 18 is 10^10 off).
       const rdP = fetchRadarTokenDetail(address).catch(() => null);
+      // v2: the VPS computes all of the chain reads below ONCE for every visitor (server/token-detail.ts — the same
+      // functions), ~30 KB instead of ~450–650 RPC calls / up to 15 MB in this tab. Any failure → the in-tab path below.
+      if (v2Enabled) {
+        const v = await v2TokenDetail(address).catch(() => null);
+        if (!alive) return;
+        if (v) {
+          setDec(v.dec);
+          rdP.then((detail) => { if (alive) setRd(detail); });
+          setOcPool(v.ocPool); setOcPools(v.ocPools); setDayStats(v.dayStats); setBurn(v.burn); setTxs(v.txs ?? []);
+          if (v.holders && v.holders.length) setHolders(v.holders);
+          else fetchRadarHolders(address, v.dec, 100).then((h) => { if (alive) { setHolders(h.holders); if (h.holderCount != null) setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
+          if (v.swaps && v.swaps.length) setSwaps(v.swaps);
+          else fetchRadarSwaps(address, v.dec, 50).catch(() => [] as RadarSwap[]).then((r) => { if (alive) setSwaps(r); });
+          return;
+        }
+      }
+      fetchTokenTransfers(address, 18, 40).then((t) => { if (alive) setTxs(t); }).catch(() => { if (alive) setTxs([]); });
       const dec = seed?.decimals ?? (await fetchTokenDecimals(address)) ?? (await rdP)?.decimals ?? 18;
       if (!alive) return;
       setDec(dec);
@@ -98,7 +116,6 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
         if (alive) setSwaps(r);
       });
     })();
-    fetchTokenTransfers(address, 18, 40).then((t) => { if (alive) setTxs(t); }).catch(() => { if (alive) setTxs([]); });
     return () => { alive = false; };
   }, [address, ready]); // eslint-disable-line
 
