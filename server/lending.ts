@@ -43,7 +43,7 @@ export async function refreshLending(rpc: Rpc, call: Call, getLogsBig: (p: any) 
   for (let k = 0; k < 60 && st.scannedTo < head; k++) {
     const from = st.scannedTo + 1, to = Math.min(head, from + RANGE - 1);
     const logs = await getLogsBig({ address: MORPHO, topics: [T_CREATE_MARKET], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) });
-    if (!Array.isArray(logs)) { lendingStats.errors++; break; }
+    if (!Array.isArray(logs)) { lendingStats.errors++; break; } // resumes from here next refresh (persisted)
     for (const l of logs) {
       const id = l.topics[1];
       if (st.markets.some((m) => m.id === id)) continue;

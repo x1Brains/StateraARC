@@ -37,7 +37,9 @@ const KEY = readKey(KEY_FILE), RADAR_KEY = readKey(RADAR_KEY_FILE);
 const LOAD_MS = 60_000, LIVE_MS = 40_000;
 
 // ── RPC: rotate the same three nodes the browser uses; retry on 429/5xx/JSON error ──────────────────────────────────
-const RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org', 'https://arc.gateway.tenderly.co'];
+// Order matters on this box: its IP is shared with the grid bot, holdings, sniper and the indexer, and on 09-28 arc.io,
+// tenderly and quicknode were rate-limiting it while drpc + blockdaemon answered — those go first.
+const RPCS = ['https://arc.drpc.org', 'https://rpc.blockdaemon.mainnet.arc.io', 'https://rpc.mainnet.arc.io', 'https://rpc.quicknode.mainnet.arc.io'];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let rr = 0;
 async function rpc(method: string, params: unknown[], tries = 4): Promise<any> {
@@ -58,7 +60,7 @@ const call: Live.Call = (to, data) => rpc('eth_call', [{ to, data }, 'latest']);
 // A JSON-RPC batch (the chain follower reads ≤ 40 blocks per call); rotates nodes, retries the whole batch.
 // Its own node pool: the VPS IP also carries the grid bot, holdings, sniper and indexer, and tenderly rate-limits it (09-28),
 // so the follower spreads over the four that accept batches from here.
-const BATCH_RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org', 'https://rpc.quicknode.mainnet.arc.io', 'https://rpc.blockdaemon.mainnet.arc.io'];
+const BATCH_RPCS = ['https://arc.drpc.org', 'https://rpc.blockdaemon.mainnet.arc.io', 'https://rpc.mainnet.arc.io', 'https://rpc.quicknode.mainnet.arc.io'];
 let br = 0;
 async function rpcBatch(calls: [string, unknown[]][], tries = 5): Promise<any[]> {
   for (let i = 0; i < tries; i++) {
@@ -229,7 +231,7 @@ const backfill = async () => { try { if (await backfillStep(rpcBatch)) { setTime
 setTimeout(backfill, 5_000);
 setInterval(saveChain, 60_000);
 // Lending (Network page): every 5 min. getLogs over ~95k blocks needs the nodes that allow it (address-filtered, few results).
-const BIG_RPCS = ['https://rpc.blockdaemon.mainnet.arc.io', 'https://arc.gateway.tenderly.co'];
+const BIG_RPCS = ['https://rpc.blockdaemon.mainnet.arc.io', 'https://rpc.blockdaemon.mainnet.arc.io', 'https://arc.gateway.tenderly.co'];
 let bg = 0;
 async function getLogsBig(params: any): Promise<any[] | null> {
   for (let i = 0; i < 4; i++) {
