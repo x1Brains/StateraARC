@@ -72,8 +72,8 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
         const v = await v2TokenDetail(address).catch(() => null);
         if (!alive) return;
         if (v) {
-          // Stay current while the page is open: re-read every 15 s and take any newer copy (the server recomputes a token at
-          // most every 20 s, and a stale copy it served triggers that refresh). v1 froze these panels at page-open time.
+          // Stay current while the page is open: re-read every 10 s and take any newer copy (the server recomputes a token at
+          // most every 10 s, and a stale copy it served triggers that refresh). v1 froze these panels at page-open time.
           let lastAt = v.at;
           const poll = setInterval(() => {
             if (!alive) { clearInterval(poll); return; }
@@ -84,7 +84,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade }: 
               if (f.holders && f.holders.length) setHolders(f.holders);
               if (f.swaps && f.swaps.length) setSwaps(f.swaps);
             }).catch(() => {});
-          }, 15_000);
+          }, 10_000);
           setDec(v.dec);
           rdP.then((detail) => { if (alive) setRd(detail); });
           setOcPool(v.ocPool); setOcPools(v.ocPools); setDayStats(v.dayStats); setBurn(v.burn); setTxs(v.txs ?? []);
