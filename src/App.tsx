@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Board from './lib/board';
+import * as Live from './lib/live';
 import type { Filter, SortKey } from './lib/board';
-import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, shareStamp, sanitizeToken, PINNED, type Token, type MarketPx } from './lib/arc';
+import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, shareStamp, PINNED, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -138,15 +139,11 @@ export default function App() {
       setTokens(list); setAsOf(ts);
       // Merge curated V4 launchpad tokens (GLITCH etc.) that no aggregator indexes, so they're listed &
       // searchable now — priced on-chain. (Full chain-wide V4 discovery bake is the proper fix.)
-      fetchCuratedV4Tokens().then((extra) => {
-        if (extra.length) setTokens((prev) => { const have = new Set(prev.map((t) => t.address.toLowerCase())); return [...prev, ...extra.filter((e) => !have.has(e.address.toLowerCase()))]; });
-      }).catch(() => {});
+      fetchCuratedV4Tokens().then((extra) => { if (extra.length) setTokens((prev) => Live.mergeCurated(prev, extra)); }).catch(() => {});
       // Live re-price the top ON-CHAIN rows (V3 slot0 / V4 extsload) so what's visible isn't ~15 min stale
       // between indexer bakes. RadarDEX rows get their own live overlay below.
-      const ocTop = list.filter((t) => (t.source === 'V3' || t.source === 'V4') && (t.pool || t.poolId)).sort((a, b) => (b.liq ?? 0) - (a.liq ?? 0)).slice(0, 60);
-      if (ocTop.length) fetchOnchainScreenerPrices(ocTop).then((px) => {
-        if (Object.keys(px).length) setTokens((prev) => prev.map((t) => { const p = px[t.address.toLowerCase()]; return p != null ? sanitizeToken({ ...t, price: p }) : t; }));
-      }).catch(() => {});
+      const ocTop = Live.topOnchainRows(list);
+      if (ocTop.length) fetchOnchainScreenerPrices(ocTop).then((px) => { if (Object.keys(px).length) setTokens((prev) => Live.applyOnchainPrices(prev, px)); }).catch(() => {});
       // ⛔ REMOVED (09-24): the old "safety net" sampled only the last ~90 min of swaps and multiplied by ~15.6 for any
       // row whose volume was blank — cirBTC came out $1.98M vs $1.08M real 24h, so the dashboard total flipped
       // $6.1M <-> $8.2M from reload to reload. The on-chain builder's full-24h volume is the only volume shown now.
@@ -163,18 +160,7 @@ export default function App() {
       // RadarDEX (~500 active tokens) + on-chain slot0 prices for the deep pools RadarDEX doesn't list.
       const [live, deep] = await Promise.all([fetchRadarTokens(500).catch(() => [] as Token[]), fetchDeepPoolPrices().catch(() => ({} as Record<string, number>))]);
       if (!live.length && !Object.keys(deep).length) return;
-      const m = new Map(live.map((t) => [t.address.toLowerCase(), t]));
-      setTokens((prev) => prev.map((t) => {
-        const a = t.address.toLowerCase();
-        const l = m.get(a);
-        // ⛔ ON-CHAIN IS PRIMARY (owner, 09-24): RadarDEX is a backup. For a row the snapshot priced from the chain
-        // it may only fill a field that is still empty; it overwrites only rows that came from an indexer anyway.
-        const chain = t.priceFrom === 'chain';
-        const pick = <K extends keyof Token>(k: K) => (chain ? (t[k] ?? (l as any)?.[k]) : ((l as any)?.[k] ?? t[k]));
-        let n = l ? { ...t, price: pick('price'), change24h: pick('change24h'), change1h: pick('change1h'), volume24h: pick('volume24h'), liq: pick('liq'), mcap: pick('mcap') } : t;
-        if (deep[a] != null) n = { ...n, price: deep[a] }; // deep-pool live price wins (correct slot0)
-        return sanitizeToken(n);
-      }));
+      setTokens((prev) => Live.applyLiveOverlay(prev, live, deep)); // on-chain primary; RadarDEX fills gaps (src/lib/live.ts)
       setAsOf(Date.now());
     } catch { /* keep snapshot values */ }
   };

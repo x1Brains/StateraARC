@@ -1,9 +1,9 @@
 // StateraArc — Arc chain data layer. Reads Blockscout's public API (no key, client-side).
 // Flip NET to 'mainnet' when Arc mainnet + its explorer go live (Sept 16, 2026).
 import { fetchWarpTokens, type Candle } from './warp';
-import { keccak_256 } from '@noble/hashes/sha3';
 import { type Token, NATIVE_USDC_ADDR, MAINNET_CORE, ECOSYSTEM_TOKENS, ECOSYSTEM_ADDRS, sanitizeToken } from './rules';
 export type { Token } from './rules';
+import { rnum, normIcon, radarRow, snapshotRow, runLimited, MAINNET_POOL, PM_V4, deepPoolPrices, onchainPrices, curatedV4Tokens, v4PriceOf as liveV4PriceOf } from './live';
 export { PINNED, sanitizeToken, NATIVE_USDC_ADDR, MAINNET_CORE, ECOSYSTEM_TOKENS, ECOSYSTEM_ADDRS } from './rules';
 
 export type Net = 'testnet' | 'mainnet';
@@ -176,43 +176,11 @@ async function radarGet(path: string): Promise<any> {
   }
   throw lastErr || new Error('radar unavailable');
 }
-const rnum = (v: any): number | null => (v == null || isNaN(Number(v)) ? null : Number(v));
-// Unwrap Next.js image-optimizer URLs (e.g. arguspad.io/_next/image?url=<ipfs>&w=128) to the underlying
-// image. Those optimizer endpoints rate-limit (HTTP 429) so the <img> fails and falls back to a letter
-// tile; the wrapped source (IPFS/pinata) loads reliably. Applies to every launchpad's logos.
-function normIcon(u: string | null | undefined): string | null {
-  if (!u) return null;
-  const m = u.match(/\/_next\/image\?url=([^&]+)/);
-  let v = u;
-  if (m) { try { v = decodeURIComponent(m[1]); } catch { /* keep u */ } }
-  // Browsers can't load ipfs:// or ar:// (52 broken screener logos, 09-28) — same gateway as toHttp().
-  return v.trim().replace(/^ipfs:\/\/(ipfs\/)?/i, 'https://gateway.pinata.cloud/ipfs/').replace(/^ar:\/\//i, 'https://arweave.net/');
-}
-// Launchpad display names (radar uses lowercase slugs). Falls back to a capitalized slug.
-const RADAR_LP: Record<string, string> = {
-  argus: 'Argus', tolly: 'Tolly', long: 'LONG', dyor: 'DYOR', o1: 'O1', warp: 'Warp',
-  synthra: 'Synthra', ayoo: 'Ayoo', poolstrade: 'PoolsTrade', archemist: 'Archemist', noxa: 'Noxa',
-  lotus: 'Lotus', arcfun: 'Arc.fun', arcorigin: 'ArcOrigin', basedpad: 'BasedPad', rwarc: 'RWArc',
-  sharc: 'Sharc', pegd: 'PEGD', cusp: 'Cusp', klik: 'Klik', cambo: 'Cambo', dagg: 'Dagg',
-};
 export async function fetchRadarTokens(limit = 500): Promise<Token[]> {
   try {
     const j = await radarGet(`/tokens?limit=${limit}`);
     const arr: any[] = j.tokens || j || [];
-    return arr.map((t): Token => {
-      const lp = t.launchpad ? (RADAR_LP[t.launchpad] || (t.launchpad[0].toUpperCase() + t.launchpad.slice(1))) : null;
-      const deploy = rnum(t.deployTs ?? t.firstSeen);
-      return {
-        address: (t.address || '').toLowerCase(), name: t.name || t.symbol || '?', symbol: t.symbol || '?',
-        holders: t.holderCount != null ? Number(t.holderCount) : null, totalSupply: null, type: 'ERC-20',
-        iconUrl: normIcon(t.icon), launchpad: lp, isOurs: false, isEcosystem: false,
-        price: rnum(t.price), liq: rnum(t.liquidityUsdc), mcap: rnum(t.mcap),
-        volume24h: rnum(t.volume24 ?? t.volume24hFixed), change24h: rnum(t.change24h),
-        change1h: rnum(t.change1h), txns24: rnum(t.txns24),
-        spark: Array.isArray(t.spark) ? t.spark.filter((n: any) => typeof n === 'number' && isFinite(n)) : null,
-        createdAt: deploy != null ? deploy * 1000 : null,
-      };
-    }).filter((t) => /^0x[0-9a-f]{40}$/.test(t.address));
+    return arr.map(radarRow).filter((t) => /^0x[0-9a-f]{40}$/.test(t.address));
   } catch { return []; }
 }
 
@@ -627,7 +595,7 @@ export const usd = (n: number | null) => {
 // trade as "0" (09-28). 1–1000 → up to 2 decimals, below 1 → 3 significant figures.
 export const compact = (n: number | null) =>
   !ok(n, 1e18) ? '—' : Math.abs(n) >= 1e9 ? (n/1e9).toFixed(2)+'B' : Math.abs(n) >= 1e6 ? (n/1e6).toFixed(2)+'M' : Math.abs(n) >= 1e3 ? (n/1e3).toFixed(1)+'K'
-  : Number.isInteger(n) || Math.abs(n) >= 100 ? String(Math.round(n)) : Math.abs(n) >= 1 ? String(+n.toFixed(2)) : n === 0 ? '0' : Math.abs(n) < 1e-4 ? (n < 0 ? '>-0.0001' : '<0.0001') : String(+n.toPrecision(3));
+  : Number.isInteger(n) || Math.abs(n) >= 100 ? String(Math.round(n)) : Math.abs(n) >= 1 ? String(+n.toFixed(2)) : n === 0 ? '0' : Math.abs(n) < 1e-6 ? (n < 0 ? '>-0.000001' : '<0.000001') : String(+n.toPrecision(3));
 
 // Token price — handles both normal and sub-cent values.
 // Clean, consistent price formatting: ~4 significant figures for sub-dollar prices (no long messy
@@ -846,15 +814,6 @@ async function getLogsBig(params: any, seed = 0, tries = 4): Promise<any[] | nul
   }
   return null;
 }
-// Run async tasks with bounded concurrency (keeps us under the RPC's rate limit).
-async function runLimited<T>(tasks: (() => Promise<T>)[], limit = 4): Promise<T[]> {
-  const out: T[] = new Array(tasks.length);
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, async () => {
-    while (i < tasks.length) { const idx = i++; out[idx] = await tasks[idx](); }
-  }));
-  return out;
-}
 export const mCall = (to: string, data: string) => mrpc('eth_call', [{ to, data }, 'latest']);
 const mHexToStr = (hex: string) => { let s = ''; for (let i = 0; i + 1 < hex.length; i += 2) { const c = parseInt(hex.substr(i, 2), 16); if (c) s += String.fromCharCode(c); } return s; };
 const mReadStr = async (t: string, sel: string): Promise<string | null> => {
@@ -888,22 +847,6 @@ export async function fetchHoldingsMainnet(addr: string, extra: { address: strin
 // USDC pools (token→pool) discovered on-chain 2026-09-16. Live spot price = pool's native-USDC
 // balance ÷ pool's token balance (verified consistent with the WarpV2 getAmountsOut quote for WARP;
 // Warp's own API price lagged live). All these tokens are 18-dec. No pool = not priced (CRCL/ARCX10).
-const MAINNET_POOL: Record<string, string> = {
-  '0x384c60f98ecd4c26345499345c03d677e40f115e': '0x507a494fde26960cb36d50912cab83c71ecc7ea7', // WARP (WarpV2)
-  '0xece5ca8bf9220718e5727754026757512212cb3c': '0x6a3bacaa6493734c1ac221ebf42cf530a96c1e02', // ARGUS
-  '0x8bcb94279fc2c984ec34e0c1f2192df8c69ea4f0': '0x0069cb6f70e2f848405f4483f232274c720ce6f9', // Architects
-  '0xbc43ce8dec648ea298c4275559b81d6261c90b67': '0x162df51c504e7b8321e07387932f333d9be16a72', // TOLLY
-  '0xf3715bf5c2de299f08b81180ffb739a8372a175f': '0x6d8db35396b5eb98dee495e32b8cca992682316d', // ARCANINE
-  '0x07704b06981ea962b87296362a1281484d160000': '0xcf924acee7eb1f169a922bf19b0a732810971985', // ARCAT
-  '0xeb64987643db71c76b2a2be7e723decc995e5b37': '0x40732e01ba7a829dea44f51a10e7c58cd9f37765', // COOL
-  '0x0bffa97f774824e9da843699aedd2835cb1b8022': '0x7dbcec05f12b14e21a79a0dc15ea9859322a4ab2', // ARCASH
-  '0xbe0cad585ea2d13de2f4e36376be755c0afd8b97': '0x482a249eb473b7de0ca8357b5496ccb7c55dfb72', // ARCBAT
-  // Found via Transfer-log scan (their pools hold few tokens so they never rank as top holders).
-  '0x2ba0f44bdfc17fba30eda9cdbecb908ca45b043b': '0x2e8180fa3967caf9abf57bbaeab9ae9063bcd7ba', // CRCL (thin, high unit price)
-  // ARCX10 omitted: its V3 pool is dead ($16); real liquidity is a hooked Uniswap-v4 pool we don't price.
-  '0x2164bb17a2d38c1b5170e987b2c0416df1efc752': '0xda9f3d166497ddfddf37c93cacfd8aa39b71e493', // LONG (Uni V3, ~$113k)
-  '0xd17014b731d33994e4e482c374ef375b68240087': '0x0f0333cf487a90ac7e56cba1541a1669e260cf22', // MMM (thin)
-};
 // NOTE: these are Uniswap-V3 pools (Argus factory). balanceOf-ratio is an APPROXIMATION of the V3
 // spot price (concentrated liquidity), close enough for portfolio display; exact pricing = slot0.
 // Live USD prices for mainnet tokens, read straight from each token's USDC pool reserves.
@@ -926,38 +869,10 @@ export async function priceMainnet(addrs: string[]): Promise<Record<string, numb
 
 // LIVE prices for the deep-pool tokens (Argus/Tolly/Long/CRCL… not on RadarDEX) straight from chain,
 // for the screener's live overlay. V3 price = slot0 sqrtPriceX96 (⛔ NOT reserve ratio); V2 = reserves.
-export async function fetchDeepPoolPrices(): Promise<Record<string, number>> {
-  const out: Record<string, number> = {};
-  const balOf = (token: string, who: string) => mCall(token, '0x70a08231000000000000000000000000' + who.slice(2).toLowerCase());
-  await runLimited(Object.entries(MAINNET_POOL).map(([token, pool]) => async () => {
-    const [slot0, t0] = await Promise.all([mCall(pool, '0x3850c7bd'), mCall(pool, '0x0dfe1681')]); // slot0(), token0()
-    if (!t0) return; // ⛔ unknown orientation = no price (a guessed `false` inverted ARC BAT to $6.97e27, 09-25)
-    const usdcIsT0 = ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
-    let price: number | null = null;
-    if (slot0 && slot0 !== '0x' && slot0.length >= 66) {
-      try { const sqrtP = BigInt('0x' + slot0.slice(2, 66)); if (sqrtP > 0n) { const r = (Number(sqrtP) / 2 ** 96) ** 2; if (isFinite(r) && r > 0) price = (usdcIsT0 ? 1 / r : r) * 1e12; } } catch { /* skip */ }
-    }
-    if (price == null) { // V2 pool: reserve ratio
-      const [uHex, bHex] = await Promise.all([balOf(NATIVE_USDC_ADDR, pool), balOf(token, pool)]);
-      try { const u = Number(BigInt(uHex)) / 1e6, tk = Number(BigInt(bHex)) / 1e18; if (tk > 0) price = u / tk; } catch { /* skip */ }
-    }
-    if (price != null && isFinite(price) && price > 0) out[token] = price;
-  }), 5);
-  return out;
-}
+export const fetchDeepPoolPrices = (): Promise<Record<string, number>> => deepPoolPrices(mCall);
 // Live price for a set of ON-CHAIN screener rows (V3 slot0 / V4 extsload), so the top rows aren't ~15 min
 // stale between indexer bakes. Bounded to whatever list the caller passes (the visible top rows).
-export async function fetchOnchainScreenerPrices(rows: { address: string; pool?: string | null; poolId?: string | null; usdcIsC0?: boolean; decimals?: number }[]): Promise<Record<string, number>> {
-  const out: Record<string, number> = {};
-  await runLimited(rows.map((t) => async () => {
-    const dexp = 10 ** ((t.decimals ?? 18) - 6);
-    let price: number | null = null;
-    if (t.poolId) { const sq = await v4Slot0Sqrt(t.poolId); if (sq != null && sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } }
-    else if (t.pool) { const s0 = await mCall(t.pool, '0x3850c7bd').catch(() => null); if (s0 && s0.length >= 66) { try { const sq = BigInt(s0.slice(0, 66)); if (sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } } catch { /* */ } } }
-    if (price != null && isFinite(price) && price > 0 && price < 1e6) out[t.address.toLowerCase()] = price;
-  }), 8);
-  return out;
-}
+export const fetchOnchainScreenerPrices = (rows: Parameters<typeof onchainPrices>[1]): Promise<Record<string, number>> => onchainPrices(mCall, rows);
 
 // Combined price + USD liquidity + market cap for every tracked mainnet pool (one throttled pass).
 // mcap = price × total supply (all these tokens are 18-dec).
@@ -1065,19 +980,7 @@ export async function fetchScreenerTokens(): Promise<{ tokens: Token[]; asOf: nu
     if (r.ok) {
       const snap = await r.json();
       if (snap && Array.isArray(snap.tokens) && snap.tokens.length >= (url === urls[urls.length - 1] ? 1 : 200)) {
-        const tokens = snap.tokens.map((t: any): Token => ({
-          address: t.address, name: t.name, symbol: t.symbol,
-          holders: t.holders ?? null, totalSupply: null, type: 'ERC-20',
-          iconUrl: normIcon(t.iconUrl) ?? null, launchpad: t.launchpad ?? null,
-          isOurs: !!t.isOurs, isEcosystem: !!t.isEcosystem,
-          price: rnum(t.price), liq: rnum(t.liq), mcap: rnum(t.mcap),
-          volume24h: rnum(t.volume24h), change24h: rnum(t.change24h), change1h: rnum(t.change1h),
-          txns24: rnum(t.txns24), spark: Array.isArray(t.spark) ? t.spark.filter((n: any) => typeof n === 'number' && isFinite(n)) : null,
-          createdAt: rnum(t.createdAt), source: t.source ?? null,
-          pool: t.pool ?? null, poolId: t.poolId ?? null, usdcIsC0: !!t.usdcIsC0, decimals: t.decimals ?? 18, hooked: !!t.hooked,
-          v4fee: t.v4fee ?? null, v4tick: t.v4tick ?? null, hooks: t.hooks ?? null,
-          priceFrom: t.priceFrom ?? null,
-        }));
+        const tokens: Token[] = snap.tokens.map(snapshotRow);
         const asOf = snap.generatedAt ? Date.parse(snap.generatedAt) : null;
         return { tokens: tokens.map(sanitizeToken), asOf: Number.isFinite(asOf) ? asOf : null };
       }
@@ -1115,12 +1018,8 @@ const SWAP_V2_TOPIC = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d1308
 // nothing and their token page was blank. We find the pool by scanning Initialize, price it via extsload,
 // and chart it from the singleton's Swap events filtered by poolId. ⛔ Anyone can open a decoy pool for the
 // same pair (GLITCH had 11); the REAL one is the one with actual swap volume, so we pick by swap count.
-const PM_V4 = '0x8366a39cc670b4001a1121b8f6a443a643e40951';
 const V4_INIT_TOPIC = '0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438';
 const V4_SWAP_TOPIC = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f';
-const v4HexToU8 = (h: string) => { h = h.replace(/^0x/, ''); const a = new Uint8Array(h.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; };
-// state lives at _pools[poolId] (mapping slot 6); slot0 (sqrtPriceX96 in low 160 bits) is its base slot.
-const v4StateSlot = (poolId: string) => '0x' + Array.from(keccak_256(v4HexToU8(poolId.replace(/^0x/, '').padStart(64, '0') + (6).toString(16).padStart(64, '0')))).map((b) => b.toString(16).padStart(2, '0')).join('');
 export interface V4Pool { poolId: string; usdcIsC0: boolean; }
 const v4PoolCache = new Map<string, V4Pool | null>();
 const v4Inflight: Map<string, Promise<V4Pool | null>> = new Map();
@@ -1167,53 +1066,12 @@ async function findV4PoolUncached(t: string): Promise<V4Pool | null> {
 // Curated actively-traded V4 launchpad tokens (potato.fm / "Argus pad") that NO aggregator indexes.
 // Until the chain-wide V4 discovery bake lands (28k candidate pools, mostly decoys → must filter to real
 // volume), these are added to the screener by hand so they're findable/searchable. Priced + supply on-chain.
-const CURATED_V4: { address: string; symbol: string; name: string; launchpad?: string; poolId: string; usdcIsC0: boolean }[] = [
-  { address: '0x08adbf431569a1aacac2606d2adcd18f4ebf2a71', symbol: 'GLITCH', name: 'Glitch', launchpad: 'Argus pad',
-    poolId: '0x278eab5f794ccbaa85dd7cd275e56bf563d8d26e35fd717800f39340f9730c3a', usdcIsC0: false },
-];
-export async function fetchCuratedV4Tokens(): Promise<Token[]> {
-  const out: Token[] = [];
-  await Promise.all(CURATED_V4.map(async (c) => {
-    try {
-      const v4: V4Pool = { poolId: c.poolId, usdcIsC0: c.usdcIsC0 }; // known — skip the discovery scan (fast+reliable)
-      const dec = 18; // launchpad coins are 18-dec
-      const [price, supHex] = await Promise.all([
-        v4PriceOf(v4.poolId, v4.usdcIsC0, dec),
-        mCall(c.address, '0x18160ddd').catch(() => null), // totalSupply()
-      ]);
-      let supply: number | null = null; try { if (supHex && supHex !== '0x') supply = Number(BigInt(supHex)) / 10 ** dec; } catch { /* */ }
-      const mcap = price != null && supply ? price * supply : null;
-      out.push({ address: c.address.toLowerCase(), name: c.name, symbol: c.symbol, holders: null, totalSupply: null,
-        type: 'ERC-20', iconUrl: null, launchpad: c.launchpad ?? null, isOurs: false, isEcosystem: false,
-        price, liq: null, mcap: mcap && mcap <= 1e10 ? mcap : null, fdv: mcap && mcap <= 1e11 ? mcap : null,
-        volume24h: null, change5m: null, change1h: null, change6h: null, change24h: null, txns24: null,
-        // carry the pool so the token page primes the cache → no slow discovery scan
-        poolId: c.poolId, usdcIsC0: c.usdcIsC0, decimals: dec,
-        source: 'V4', spark: null, createdAt: null });
-    } catch { /* */ }
-  }));
-  return out;
-}
+export const fetchCuratedV4Tokens = (): Promise<Token[]> => curatedV4Tokens(mCall);
 // Official Uniswap V4 read contract (docs.arc.io/arc/references/contract-addresses). getSlot0(bytes32)=0xc815641c
 // returns (uint160 sqrtPriceX96, int24 tick, ...). Verified bit-identical to the extsload path on GLITCH +
 // ARGUS pools — but via the canonical contract, so we read the SAME slot the protocol reads. Falls back to
 // the hand-rolled extsload if StateView reverts / an RPC lacks it, so this can only match or beat the old read.
-const V4_STATEVIEW = '0xf3334192d15450cdd385c8b70e03f9a6bd9e673b';
-async function v4Slot0Sqrt(poolId: string): Promise<bigint | null> {
-  const sv = await mCall(V4_STATEVIEW, '0xc815641c' + poolId.replace(/^0x/, '').padStart(64, '0')).catch(() => null);
-  if (sv && sv !== '0x') { try { const sq = BigInt('0x' + sv.slice(2, 66)) & ((1n << 160n) - 1n); if (sq > 0n) return sq; } catch { /* fall through to extsload */ } }
-  const s0 = await mCall(PM_V4, '0x1e2eaeaf' + v4StateSlot(poolId).slice(2)).catch(() => null);
-  if (!s0 || s0 === '0x') return null;
-  try { const sq = BigInt(s0) & ((1n << 160n) - 1n); return sq > 0n ? sq : null; } catch { return null; }
-}
-// USD-per-token from the V4 pool's live sqrtPriceX96 (StateView, extsload fallback).
-async function v4PriceOf(poolId: string, usdcIsC0: boolean, decimals: number): Promise<number | null> {
-  const sqrtP = await v4Slot0Sqrt(poolId);
-  if (sqrtP == null || sqrtP <= 0n) return null;
-  const ratio = (Number(sqrtP) / 2 ** 96) ** 2; const dexp = 10 ** (decimals - 6);
-  const price = (usdcIsC0 ? 1 / ratio : ratio) * dexp;
-  return isFinite(price) && price > 0 ? price : null;
-}
+const v4PriceOf = (poolId: string, usdcIsC0: boolean, decimals: number): Promise<number | null> => liveV4PriceOf(mCall, poolId, usdcIsC0, decimals);
 // Timestamped prices from a V4 pool's Swap events (singleton, filtered by poolId). sqrtPriceX96 = word 2.
 async function scanV4Swaps(v4: V4Pool, decimals: number, spanCap: number): Promise<{ ts: number; price: number }[]> {
   const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return [];
