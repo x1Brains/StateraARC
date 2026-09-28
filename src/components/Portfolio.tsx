@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { sanitizeToken, ECOSYSTEM_ADDRS } from '../lib/rules';
 import { fetchHoldings, fetchHoldingsMainnet, fetchHoldingsOnchain, fetchPortfolioMainnet, fetchRadarPortfolio, fetchNftHoldings, fetchWalletPnl, prefetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type RadarHolding, type NftHolding, type TokenPnl } from '../lib/arc';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
@@ -186,7 +187,11 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         // Price sanity: no Arc token is worth >$1M/unit — a bigger number is a decimals/degenerate-pool
         // error (DUKE mispriced at 1e44 blew up the whole total). Drop it, and cap any $1B+ position too.
         const rawP = priceMap.get(h.address) ?? null;
-        const p = rawP != null && isFinite(rawP) && rawP > 0 && rawP < 1e6 ? rawP : null;
+        // HARD RULES on the final row, whatever priced it (holdings service, pool, Warp): an impersonator (a fake "USDC"
+        // valued at $4,000 on 09-28) or an impossible price → no price, and it's counterfeit even though it "had" one.
+        const flagged = !!sanitizeToken({ address: h.address, symbol: h.symbol, name, price: rawP, liq: null, mcap: null, holders: null, totalSupply: null,
+          type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false, isEcosystem: ECOSYSTEM_ADDRS.has(h.address.toLowerCase()) } as Token).bad;
+        const p = !flagged && rawP != null && isFinite(rawP) && rawP > 0 && rawP < 1e6 ? rawP : null;
         const value = p != null && h.balance * p < 1e9 ? h.balance * p : null;
         // Counterfeit spam (only ever flags UNPRICED tokens — a token with real value is never hidden):
         //  • duplicate: another held token shares this ticker and is priced or bigger → this is an airdrop copy
@@ -196,7 +201,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         const dupSpam = !!st && st.count > 1 && p == null && (st.anyPriced || h.balance < st.maxBal);
         const real = realAddrBySymbol.get(sym);
         const collideSpam = !!real && real.addr !== h.address.toLowerCase() && p == null;
-        const counterfeit = dupSpam || collideSpam;
+        const counterfeit = flagged || dupSpam || collideSpam;
         const pl = pnl?.[h.address.toLowerCase()] ?? null;
         const avgCost = pl?.avgCost ?? null;
         // Unrealized = (current price − avg cost) × current balance; total P&L adds realized.

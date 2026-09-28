@@ -194,6 +194,19 @@ export interface RadarHolding { address: string; symbol: string; name: string; d
 // the nanocaps/airdrops a wallet actually holds. This returns them, native USDC included, priced on-chain.
 // `ok` = the scan actually ANSWERED. An empty list with ok:true is a real "this wallet holds nothing"; with ok:false
 // the scan failed or timed out and the caller should try another source instead of declaring the wallet empty.
+// HARD RULES for wallet holdings (09-28 audit: the portfolio valued a fake "USDC" — "UpSideDownCatt" 0xc5ce… — at $4,000/token,
+// priced by the holdings service from a junk pool; the counterfeit filter only ever looked at UNPRICED tokens). Every holding,
+// from every source, runs the site's sanitizeToken: an impersonator ticker/name (not the pinned real address) or an impossible
+// price → no price, no value, flagged. The wallet total is recomputed from what survives (the service's total included it).
+export function saneHoldings(hs: RadarHolding[]): { holdings: (RadarHolding & { flagged?: string })[]; total: number | null } {
+  const out = hs.map((h) => {
+    const chk = sanitizeToken({ address: h.address, symbol: h.symbol, name: h.name, price: h.price, liq: null, mcap: null, holders: null,
+      totalSupply: null, type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false, isEcosystem: ECOSYSTEM_ADDRS.has(h.address.toLowerCase()) } as Token);
+    return chk.bad ? { ...h, price: null, usd: null, flagged: chk.bad } : h;
+  });
+  const vals = out.map((h) => h.usd).filter((v): v is number => v != null && isFinite(v) && v >= 0 && v < 1e9);
+  return { holdings: out, total: vals.length ? vals.reduce((a, b) => a + b, 0) : null };
+}
 export async function fetchHoldingsOnchain(addr: string): Promise<{ total: number | null; holdings: RadarHolding[]; ok: boolean }> {
   try {
     // Cap the wait so a cold scan can never hang the "loading" indicator indefinitely — the VPS finishes
@@ -205,7 +218,8 @@ export async function fetchHoldingsOnchain(addr: string): Promise<{ total: numbe
       decimals: h.decimals ?? 18, icon: h.iconUrl ?? null, price: rnum(h.price),
       amount: Number(h.amount ?? 0), usd: rnum(h.usd),
     })).filter((h: RadarHolding) => h.address && h.amount > 0);
-    return { total: rnum(j.total), holdings, ok: true };
+    const sane = saneHoldings(holdings);
+    return { total: sane.total, holdings: sane.holdings, ok: true };
   } catch { return { total: null, holdings: [], ok: false }; }
 }
 // One-call wallet holdings with value + icons — makes the portfolio tracker instant (no on-chain scan).
@@ -217,7 +231,8 @@ export async function fetchRadarPortfolio(addr: string): Promise<{ total: number
       decimals: h.decimals ?? 18, icon: normIcon(h.icon), price: rnum(h.price),
       amount: Number(h.amount ?? h.balance ?? 0), usd: rnum(h.usd ?? h.value),
     })).filter((h: RadarHolding) => h.address && h.amount > 0);
-    return { total: rnum(j.total), holdings };
+    const sane = saneHoldings(holdings);
+    return { total: sane.total, holdings: sane.holdings };
   } catch { return { total: null, holdings: [] }; }
 }
 
@@ -244,8 +259,8 @@ export async function fetchPortfolioMainnet(addr: string): Promise<{ total: numb
       })
       .filter((h: RadarHolding) => h.address && h.amount > 0)
       .sort((a: RadarHolding, b: RadarHolding) => (b.usd ?? 0) - (a.usd ?? 0) || b.amount - a.amount);
-    const total = holdings.reduce((s, h) => s + (h.usd ?? 0), 0);
-    return { total: holdings.some((h) => h.usd != null) ? total : null, holdings };
+    const sane = saneHoldings(holdings); // hard rules (see saneHoldings) — the total is recomputed there
+    return { total: sane.total, holdings: sane.holdings };
   } catch { return { total: null, holdings: [] }; }
 }
 
