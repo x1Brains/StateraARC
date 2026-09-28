@@ -148,7 +148,11 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     const data = type === 'candles' ? candles : candles.map((c) => ({ time: c.time, value: c.close }));
     series.setData(data as any);
     volRef.current?.setData(candles.map((c) => ({ time: c.time, value: c.volume ?? 0, color: c.close >= c.open ? 'rgba(90,209,138,.35)' : 'rgba(255,90,90,.35)' })) as any);
-    chart.timeScale().fitContent();
+    // Open on the latest ~120 candles so they read as candles, not hairlines (300 five-minute candles squeezed into the
+    // width looked like a line); everything older is one drag / scroll to the left.
+    const SHOW = window.innerWidth <= 640 ? 60 : 120;
+    if (candles.length > SHOW) chart.timeScale().setVisibleLogicalRange({ from: candles.length - SHOW, to: candles.length + 2 });
+    else chart.timeScale().fitContent();
   }, [candles, type]);
 
   // The connected wallet's own buys (B, below the bar) and sells (S, above) — each placed on the candle it happened in.
@@ -203,7 +207,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
           <div className="chart-ohlc">
             <span>O <b>{priceFmt(k.open)}</b></span><span>H <b>{priceFmt(k.high)}</b></span><span>L <b>{priceFmt(k.low)}</b></span>
             <span>C <b className={k.close >= k.open ? 'up' : 'down'}>{priceFmt(k.close)}</b></span>
-            {k.volume != null && <span>Vol <b>{usd(k.volume)}</b></span>}
+            {k.volume != null && <span title="USD traded in this candle on the pool the chart reads (the 24h stat adds up every pool)">Pool vol <b>{usd(k.volume)}</b></span>}
             {!!trades?.length && <span className="chart-mine">Your trades marked <i className="b">B</i><i className="s">S</i></span>}
           </div>) : null; })()}
         <div className="chart-box" ref={boxRef} />
