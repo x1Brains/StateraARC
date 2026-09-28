@@ -25,14 +25,16 @@ const cache = new Map<string, TokenDetail>();
 const inflight = new Map<string, Promise<TokenDetail>>();
 let running = 0; const queue: (() => void)[] = [];
 const MAX_PARALLEL = 2; // the public RPCs refuse ~30+ calls per burst — never compute many tokens at once
-const slot = () => new Promise<void>((r) => { if (running < MAX_PARALLEL) { running++; r(); } else queue.push(() => { running++; r(); }); });
+// A visitor's request goes to the FRONT of the queue; background pre-warm waits behind it (09-28: a cold visit right after
+// a restart queued behind 8 pre-warm jobs, hit the page's 20 s deadline and fell back to scanning in the tab).
+const slot = (urgent = true) => new Promise<void>((r) => { const go = () => { running++; r(); }; if (running < MAX_PARALLEL) go(); else if (urgent) queue.unshift(go); else queue.push(go); });
 const release = () => { running--; const n = queue.shift(); if (n) n(); };
 export const detailStats = { computed: 0, hits: 0, stale: 0, failed: 0, lastMs: 0 };
 
 const settle = <T>(p: Promise<T>): Promise<T | null> => p.then((v) => v, () => null);
 
-async function compute(address: string, seed: Token | undefined): Promise<TokenDetail> {
-  await slot();
+async function compute(address: string, seed: Token | undefined, urgent = true): Promise<TokenDetail> {
+  await slot(urgent);
   const t0 = Date.now();
   try {
     // Same order and inputs as PremainDetail: prime the pool from the screener row, decimals from the row or the contract.
@@ -55,9 +57,9 @@ async function compute(address: string, seed: Token | undefined): Promise<TokenD
   finally { release(); }
 }
 
-function refresh(address: string, seed: Token | undefined): Promise<TokenDetail> {
+function refresh(address: string, seed: Token | undefined, urgent = true): Promise<TokenDetail> {
   let p = inflight.get(address);
-  if (!p) { p = compute(address, seed).finally(() => inflight.delete(address)); inflight.set(address, p); }
+  if (!p) { p = compute(address, seed, urgent).finally(() => inflight.delete(address)); inflight.set(address, p); }
   return p;
 }
 
@@ -65,11 +67,11 @@ function refresh(address: string, seed: Token | undefined): Promise<TokenDetail>
 export async function tokenDetail(address: string, seed: Token | undefined): Promise<TokenDetail> {
   const a = address.toLowerCase(), c = cache.get(a);
   if (c && Date.now() - c.at < FRESH_MS) { detailStats.hits++; return c; }
-  if (c && Date.now() - c.at < STALE_MS) { detailStats.stale++; refresh(a, seed).catch(() => {}); return c; }
+  if (c && Date.now() - c.at < STALE_MS) { detailStats.stale++; refresh(a, seed, false).catch(() => {}); return c; }
   return refresh(a, seed);
 }
 /** Keep the busiest token pages warm so their first visitor never waits. */
-export function prewarm(rows: Token[]) { for (const t of rows) refresh(t.address.toLowerCase(), t).catch(() => {}); }
+export function prewarm(rows: Token[]) { for (const t of rows) refresh(t.address.toLowerCase(), t, false).catch(() => {}); }
 
 // ── Chart candles: the page's own fetchPoolCandles, run here. The chart's timeframes only (sec → max lookback), so a
 // request can't ask for an arbitrary scan. The wide views share one cached swap scan inside arc.ts (60 s).
