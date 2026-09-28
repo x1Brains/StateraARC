@@ -11,6 +11,7 @@ import { Swap } from './components/Swap';
 import { Dropdown } from './components/Dropdown';
 import { PremainDetail } from './components/PremainDetail';
 import { Network } from './components/Network';
+import { ArcLive } from './components/ArcLive';
 import { TokenPage } from './components/TokenPage';
 import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
@@ -434,6 +435,9 @@ export default function App() {
               <Dashboard tab={dashTab} setTab={setDashTab}
                 data={{ liq: trending, new: launches, movers }} stats={dashStats}
                 onOpen={openToken} onAll={() => goScreener(dashTab === 'new' ? 'new' : 'all')} loading={loading} />
+
+              {/* Arc itself — compact Network page (money on Arc, lending, bridge, validators), same live feeds */}
+              <ArcLive onOpen={() => go('network')} />
 
               <div className="home-cta">
                 <div>

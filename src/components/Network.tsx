@@ -13,18 +13,18 @@ const span = (s: number) => (s < 90 ? `${Math.round(s)} seconds` : s < 5400 ? `$
 // Arc's founding validators as Circle announced them at mainnet launch (Decrypt, CryptoRank, Blockhead, 09-16/17). Icons are
 // each institution's own site icon, stored in /public/validators; SBI and Sumitomo returned only a generic placeholder, so they
 // get a letter badge rather than a made-up logo. Which producer address belongs to which institution is NOT published.
-const VALIDATORS: { name: string; logo?: string }[] = [
+export const VALIDATORS: { name: string; logo?: string }[] = [
   { name: 'Circle', logo: 'circle' }, { name: 'BlackRock', logo: 'blackrock' }, { name: 'DTCC', logo: 'dtcc' }, { name: 'Galaxy', logo: 'galaxy' },
   { name: 'Global Payments', logo: 'globalpayments' }, { name: 'ICE', logo: 'ice' }, { name: 'Mastercard', logo: 'mastercard' }, { name: 'MoneyGram', logo: 'moneygram' },
   { name: 'SBI Group' }, { name: 'Standard Chartered', logo: 'standardchartered' }, { name: 'Sumitomo' }, { name: 'Visa', logo: 'visa' },
 ];
-const WHERE_KEYS: { k: 'lending' | 'dex' | 'bridge' | 'contracts' | 'wallets'; label: string; cls: string }[] = [
+export const WHERE_KEYS: { k: 'lending' | 'dex' | 'bridge' | 'contracts' | 'wallets'; label: string; cls: string }[] = [
   { k: 'lending', label: 'Lending', cls: 'lend' }, { k: 'dex', label: 'DEX pools', cls: 'dex' }, { k: 'bridge', label: 'Circle Gateway', cls: 'bridge' },
   { k: 'contracts', label: 'Other contracts', cls: 'ctr' }, { k: 'wallets', label: 'Wallets', cls: 'wal' },
 ];
 // The token contracts behind "Money on Arc" — one click to check any number on the explorer (owner 09-28: people doubted it).
-const ASSET_ADDR: Record<string, string> = { USDC: '0x3600000000000000000000000000000000000000', EURC: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', cirBTC: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', USYC: '0x8a5d989bbb96929f689b0200f435f53da42bf490' };
-const ASSET_NAME: Record<string, string> = { USDC: 'US dollars (USDC)', EURC: 'Euros (EURC)', cirBTC: 'Bitcoin (cirBTC)', USYC: 'Yield dollars (USYC)' };
+export const ASSET_ADDR: Record<string, string> = { USDC: '0x3600000000000000000000000000000000000000', EURC: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', cirBTC: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', USYC: '0x8a5d989bbb96929f689b0200f435f53da42bf490' };
+export const ASSET_NAME: Record<string, string> = { USDC: 'US dollars (USDC)', EURC: 'Euros (EURC)', cirBTC: 'Bitcoin (cirBTC)', USYC: 'Yield dollars (USYC)' };
 
 export function Network() {
   const [c, setC] = useState<V2Chain | null>(null);
