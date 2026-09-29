@@ -275,7 +275,7 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc) {
     const named = h.label || KNOWN_HOLDER[a] || (poolSet.has(a) ? 'Liquidity pool' : null), lab = named || short(a), p = h.percent != null ? Math.max(0, Math.min(100, h.percent)) : null;
     s += T(P + 22, yy, `${i + 1}`, 15, C.dim) + T(P + 48, yy, esc(lab), 16, named ? C.gold : C.white);
     const tag = h.kind === 'locker' ? ['LOCKED', C.green] : h.kind === 'contract' ? ['CONTRACT', '#b8a3ff'] : null;
-    if (tag) { const tx0 = P + 56 + lab.length * 8.9; s += `<rect x="${tx0}" y="${yy - 15}" width="${tag[0].length * 8 + 12}" height="20" rx="5" fill="none" stroke="${tag[1]}" stroke-opacity="0.5"/>` + T(tx0 + 6, yy, tag[0], 11, tag[1], 'letter-spacing="1"'); }
+    if (tag) { const tx0 = P + 60 + lab.length * 9.6; // room after the name/address (the tag touched '0x6763…6976') s += `<rect x="${tx0}" y="${yy - 15}" width="${tag[0].length * 8 + 12}" height="20" rx="5" fill="none" stroke="${tag[1]}" stroke-opacity="0.5"/>` + T(tx0 + 6, yy, tag[0], 11, tag[1], 'letter-spacing="1"'); }
     s += bar(P + 250, yy - 10, hw - 360, 8, [[(p || 0) / 100, C.fire]]) + T(P + hw - 22, yy, p == null ? '—' : p > 0 && p < 0.01 ? '<0.01%' : `${p.toFixed(2)}%`, 16, C.white, 'text-anchor="end"'); });
   if (!(d?.holders || []).length) s += T(P + 22, y + 90, 'Holder list not available', 16, C.dim);
   s += panel(rx0, y, hw, hh) + T(rx0 + 22, y + 42, 'LATEST TRADES', 20, C.white, 'letter-spacing="2"') + T(rx0 + hw - 22, y + 42, 'UTC', 14, C.dim, 'text-anchor="end"');
