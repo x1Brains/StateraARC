@@ -132,7 +132,9 @@ setInterval(() => pruneChainCaches(), 60_000).unref();
 const DEFAULT_TF: [number, number] = [300, 86400];
 let warming = false;
 export async function warmNext(rows: Token[]) {
-  if (warming || running > 0 || queue.length) return;
+  // a free slot and nobody queued (09-29: waiting for running === 0 never happened — the top tokens' ALL-chart scans hold a
+  // slot for minutes — so it warmed 1 token in 10 min). A warm token is served from memory and needs no slot at all.
+  if (warming || running >= MAX_PARALLEL || queue.length) return;
   const now = Date.now();
   let pick: Token | null = null, oldest = Infinity;
   for (const t of rows) {
