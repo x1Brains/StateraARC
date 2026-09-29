@@ -1978,38 +1978,45 @@ footer .wrap { padding: 16px 20px; }
 #screener .stats .stat + .stat::after { box-shadow: none; transform: none; height: auto; }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   CRISP THEME (owner 09-28: "they look reddish … washed off … I'd like them black and grayish with bright colors —
-   crispier, instead of having that filter on them — for all the windows/sections").
-   Rule: CONTAINERS are neutral — solid near-black panels, neutral grey borders, no warm washes, no glows, no blur/glass,
-   no film grain. COLOUR is only for meaning — fire for key numbers + primary buttons, green up, red down, gold labels.
-   This block is last on purpose: it overrides every earlier warm container style. Pre-change copy: git history.
+   BALANCED THEME (owner 09-28, after trying a flat black/grey version: "like how it was before but less grayish and
+   reddish — darker, more vibrant; I like the background I had, it was just too much on the effect").
+   = the original warm background at ~half strength (no film grain — that was the haze), panels DARKER than both earlier
+   versions (near-black, not grey, not warm-washed), crisp borders, no blur. Colour stays for meaning: fire for key
+   numbers + primary buttons, green up, red down, gold labels. Last block in the file on purpose (overrides).
    ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
-:root { --panel: #0d0d0f; --panel-2: #111114; --elev: #16161a; --line: #26262c; --line-2: #313138; --line-soft: rgba(255,255,255,.07); --crisp-hi: inset 0 1px 0 rgba(255,255,255,.05); }
-/* page background: pure black + a barely-there neutral grid; no fire glows, no grain */
-.backdrop { background: #000; }
+:root { --panel: #09090b; --panel-2: #0d0d10; --elev: #131317; --line: #212126; --line-2: #2c2c33; --line-soft: rgba(255,255,255,.06); --crisp-hi: inset 0 1px 0 rgba(255,255,255,.045); }
+/* background: the original fire glows, about half as strong; the fine grid stays; film grain off */
+.backdrop { background:
+    radial-gradient(78% 52% at 84% 4%, rgba(255,96,28,.065), transparent 52%),
+    radial-gradient(64% 46% at 10% -4%, rgba(255,150,60,.03), transparent 55%),
+    radial-gradient(120% 90% at 50% 116%, rgba(255,58,20,.035), transparent 60%),
+    #000; }
 .backdrop::after { display: none; }
-/* every panel / card / window: solid, neutral, sharp */
+/* panels / cards / windows: near-black, crisp neutral border, no warm wash, no glass blur */
 .panel, .stat, .table, .dash, .legend, .swap-card, .chart-card, .td-tabpanel, .side-card, .home-cta, .tok-x1, .wl-card, .wl-card.mainnet,
 .tdx .panel, .tdx .stat, .tdx .chg-bar, .tx-stats, #screener .stats, .nx-card, .nx-big, .nx-pulse, .al, .al-card, .al-pulse, .alb, .tf2, .tf2.hot,
 .hero-str-teaser, .hero-str-teaser.alert {
-  background: var(--panel) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
-  border-color: var(--line) !important; box-shadow: var(--crisp-hi) !important; }
-.swap-box { background: #09090b; }
-/* the token dashboard shell: plain black frame, neutral border — no glows, dot grid or vignette */
-.tdx { background: #050506 !important; border-color: var(--line) !important; box-shadow: none !important; }
-.tdx .panel::before { background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent) !important; } /* neutral hairline */
+  background: linear-gradient(180deg, rgba(255,255,255,.022), rgba(255,255,255,0) 38%), var(--panel) !important;
+  backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+  border-color: var(--line) !important; box-shadow: var(--crisp-hi), 0 12px 30px -18px rgba(0,0,0,.9) !important; }
+.swap-box { background: #060608; }
+/* token dashboard shell: a faint warm glow in one corner, no dot grid / vignette */
+.tdx { background: radial-gradient(55% 45% at 6% -6%, rgba(255,122,30,.07), transparent 60%), #050506 !important; border-color: rgba(255,140,60,.14) !important; box-shadow: none !important; }
+/* the thin fire lines along the top of each panel ("the little banners") — back at their original brightness */
+.tdx .panel::before { background: linear-gradient(90deg, transparent, rgba(255,160,60,.6), transparent) !important; }
+.tx-stats, .nx-card, .al-card, .alb, #screener .stats { position: relative; }
+.tx-stats::before, .nx-card::before, #screener .stats::before { content: ''; position: absolute; left: 16px; right: 16px; top: -1px; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,160,60,.6), transparent); pointer-events: none; }
 .tdx .panel:hover { border-color: var(--line-2) !important; }
-/* token header: dark and clean — the logo tint is gone, the fire edge bar stays as the one accent */
-.tx-hero { background: var(--panel) !important; border-color: var(--line) !important; box-shadow: var(--crisp-hi) !important; }
-.tx-hero-tint { display: none; }
-.tx-hero::after { box-shadow: none; }
-.tx-logo { box-shadow: none; }
-/* network + landing banner: neutral, accents only in text */
+/* token header: dark, with a faint trace of the token's own colour + a hint of warmth; the fire edge bar stays */
+.tx-hero { background: linear-gradient(110deg, rgba(255,122,30,.045), transparent 45%), var(--panel) !important; border-color: var(--line) !important; box-shadow: var(--crisp-hi) !important; }
+.tx-hero-tint { display: block; opacity: .07; filter: blur(70px) saturate(1.4); }
+.tx-hero::after { box-shadow: 0 0 6px rgba(255,122,30,.35); }
+.tx-logo { box-shadow: 0 0 8px rgba(255,122,30,.2); }
+/* network + banner */
 .nx-flow-side { background: var(--panel-2) !important; border-color: var(--line) !important; }
-.alb:hover, .al-card:hover { border-color: var(--line-2) !important; }
+.alb { background: linear-gradient(100deg, rgba(255,122,30,.05), transparent 45%), var(--panel) !important; border-color: rgba(255,140,60,.18) !important; }
+.alb:hover, .al-card:hover { border-color: rgba(255,150,70,.35) !important; }
 .mine-cta { background: var(--panel-2); border-color: var(--line-2); }
-/* dividers inside connected bars stay neutral */
-.tx-stats > div + div::before, #screener .stats .stat + .stat::after, .al-pulse > div + div::before { background: linear-gradient(transparent, rgba(255,255,255,.13), transparent) !important; }
-/* scrollbar: neutral thumb (was brown), fire only on hover */
-::-webkit-scrollbar-thumb { background: #2b2b31; border: 3px solid #060607; background-clip: padding-box; }
+.tx-stats > div + div::before, #screener .stats .stat + .stat::after, .al-pulse > div + div::before { background: linear-gradient(transparent, rgba(255,255,255,.12), transparent) !important; }
+::-webkit-scrollbar-thumb { background: #26262c; border: 3px solid #060607; background-clip: padding-box; }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #060607; }
