@@ -2062,3 +2062,19 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 @keyframes tload-dot { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
 @keyframes tload-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .tload-s, .tload-dots i { animation: none; opacity: 1; } .tdx { transition: none; } }
+
+/* Holder badges + Locked card (09-29) */
+.hl-tag.burn { color: #ff8a5a; background: rgba(255,122,30,.10); border: 1px solid rgba(255,122,30,.3); }
+.hl-tag.lock { color: #4ecb71; background: rgba(78,203,113,.10); border: 1px solid rgba(78,203,113,.32); cursor: help; }
+.hl-tag.ctr { color: #b8a3ff; background: rgba(165,139,255,.10); border: 1px solid rgba(165,139,255,.3); cursor: help; }
+.hl-addr.named { font-family: var(--body); color: var(--gold, #ffc24a); }
+.lk + .lk { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.lk-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.lk-top b { font: 700 16px var(--disp); color: var(--white); }
+.lk-pct { font-size: 12px; color: #4ecb71; }
+.lk-by { font-size: 12px; color: var(--gray); margin: 2px 0 8px; }
+.lk-by a { color: var(--white); text-decoration: none; border-bottom: 1px dotted var(--line-2); }
+.lk-part { display: grid; grid-template-columns: 1fr auto 42px; gap: 8px; font: 12px var(--mono); color: var(--gray); padding: 4px 0; border-top: 1px dashed rgba(255,255,255,.05); }
+.lk-part span:first-child { color: var(--white); }
+.lk-in { text-align: right; color: #4ecb71; }
+.lk-more { font-size: 11.5px; color: var(--dim, #6b6b75); margin-top: 4px; }

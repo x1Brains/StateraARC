@@ -5,7 +5,7 @@ import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
-import { v2Enabled, v2TokenDetail } from '../lib/v2';
+import { v2Enabled, v2TokenDetail, type V2TokenDetail } from '../lib/v2';
 import { fetchWalletTokenTrades, type WalletTrade } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX } from './icons';
 import { useNames, displayName } from '../lib/names';
@@ -36,6 +36,8 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   const [ocPools, setOcPools] = useState<OnchainPool[] | null>(null);
   const [dayStats, setDayStats] = useState<DayStats | null>(null);
   const [dec, setDec] = useState<number | null>(null); // token decimals actually used for every on-chain read
+  const [locks, setLocks] = useState<V2TokenDetail['locks']>(null);
+  const [holdersOver, setHoldersOver] = useState<V2TokenDetail['holdersOver']>(null);
   const [burn, setBurn] = useState<{ burnt: number; supply: number | null; pct: number | null } | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders' | 'mine'>('txns');
   // The connected wallet's own buys/sells of this token (rebuilt in this browser from its transactions) — listed in
@@ -65,7 +67,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
     // that picked the pool with the most USDC, which has no swaps: empty 24h stats after 13.9s, 5m/6h change never shown.
     // Wait for the list (`ready`, well under a second) so every visitor gets the snapshot's pool.
     if (!ready) return;
-    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null); setDayStats(null); setBurn(null); setDec(null);
+    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null); setDayStats(null); setBurn(null); setDec(null); setLocks(null); setHoldersOver(null);
     // Prime the pool cache from the snapshot so every panel skips the slow ~900k-block pool-discovery scan.
     if (seed && (seed.pool || seed.poolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0 });
     // 09-29: the chart mounts once `dec` is known — it waited for the whole detail response (up to ~10 s on a cold token)
@@ -93,13 +95,14 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
               if (!alive || f.at <= lastAt) return;
               lastAt = f.at;
               setOcPool(f.ocPool); setOcPools(f.ocPools); setDayStats(f.dayStats); setBurn(f.burn); setTxs(f.txs ?? []);
+              if (f.locks) setLocks(f.locks); if (f.holdersOver) setHoldersOver(f.holdersOver);
               if (f.holders && f.holders.length) setHolders(f.holders);
               if (f.swaps && f.swaps.length) setSwaps(f.swaps);
             }).catch(() => {});
           }, 10_000);
           setDec(v.dec);
           rdP.then((detail) => { if (alive) setRd(detail); });
-          setOcPool(v.ocPool); setOcPools(v.ocPools); setDayStats(v.dayStats); setBurn(v.burn); setTxs(v.txs ?? []);
+          setOcPool(v.ocPool); setOcPools(v.ocPools); setDayStats(v.dayStats); setBurn(v.burn); setTxs(v.txs ?? []); setLocks(v.locks ?? null); setHoldersOver(v.holdersOver ?? null);
           if (v.holders && v.holders.length) setHolders(v.holders);
           else fetchRadarHolders(address, v.dec, 100).then((h) => { if (alive) { setHolders(h.holders); if (h.holderCount != null) setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
           if (v.swaps && v.swaps.length) setSwaps(v.swaps);
@@ -439,7 +442,10 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
             <div><span>Market cap</span><b>{mc != null ? usd(mc) : '—'}</b></div>
             <div><span>Liquidity</span><b>{tvl != null ? usd(tvl) : '—'}</b></div>
             <div><span>Volume 24h</span><b>{vol != null ? usd(vol) : '—'}</b></div>
-            <div><span>Holders</span><b>{fmtNum(holdersTotal)}</b></div>
+            {/* 09-29 (GLITCH dev): arc-scan counts every dust wallet — lead with holders worth over $0.10, keep the total */}
+            {holdersOver && holdersOver.over > 0
+              ? <div title={`${holdersOver.over.toLocaleString()}${holdersOver.capped ? '+' : ''} wallets hold at least $${holdersOver.minUsd.toFixed(2)} of it — ${holdersTotal != null ? fmtNum(holdersTotal) : '?'} addresses in total, most of them dust`}><span>Holders $0.10+</span><b>{fmtNum(holdersOver.over)}{holdersOver.capped ? '+' : ''}</b></div>
+              : <div><span>Holders</span><b>{fmtNum(holdersTotal)}</b></div>}
             <div><span>FDV</span><b>{fdv != null ? usd(fdv) : '—'}</b></div>
           </div>
 
@@ -537,15 +543,18 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
 
             {tab === 'holders' && (
               <div className="td-tabbody">
-                {top10 != null && <div className="td-tabsub">Top 10 hold <b>{top10.toFixed(1)}%</b>{holdersTotal != null ? ` · ${fmtNum(holdersTotal)} holders` : ''}</div>}
+                {top10 != null && <div className="td-tabsub">Top 10 hold <b>{top10.toFixed(1)}%</b>{holdersTotal != null ? ` · ${fmtNum(holdersTotal)} holders` : ''}{holdersOver && holdersOver.over > 0 ? ` · ${fmtNum(holdersOver.over)}${holdersOver.capped ? '+' : ''} hold over $0.10` : ''}</div>}
                 {holders == null ? <div className="side-note">Loading holders…</div>
                   : !holders.length ? <div className="side-note">No holder data available from the indexer.</div>
                   : <div className="hl-list">
                       {holders.map((h) => (
                         <div className="hl-row" key={h.address}>
                           <span className="hl-rank">{h.rank}</span>
-                          <a className="hl-addr mono" href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer" title={h.address}>{displayName(h.address, names, (a) => a.slice(0, 8) + '…' + a.slice(-6))}</a>
+                          <a className={`hl-addr${h.label ? ' named' : ' mono'}`} href={`https://explorer.arc.io/address/${h.address}`} target="_blank" rel="noreferrer" title={h.address}>{h.label || displayName(h.address, names, (a) => a.slice(0, 8) + '…' + a.slice(-6))}</a>
                           {h.isPool && <span className="hl-tag pool">POOL</span>}
+                          {h.kind === 'burn' && <span className="hl-tag burn">BURNED</span>}
+                          {h.kind === 'locker' && (() => { const L = locks?.find((l) => l.locker === h.address.toLowerCase()); return <span className="hl-tag lock" title={L?.nextUnlock ? `Locked until ${new Date(L.nextUnlock * 1000).toUTCString().slice(5, 16)}${L.lastUnlock && L.lastUnlock !== L.nextUnlock ? ` (last part ${new Date(L.lastUnlock * 1000).toUTCString().slice(5, 16)})` : ''}` : 'Token locker'}>LOCKED</span>; })()}
+                          {h.kind === 'contract' && <span className="hl-tag ctr" title="A smart contract, not a person's wallet">CONTRACT</span>}
                           {h.isDeployer && <span className="hl-tag dev">DEV</span>}
                           <span className="hl-barwrap"><span className="hl-bar" style={{ width: `${holderPct(h) ?? 0}%` }} /></span>
                           <span className="hl-bal">{compact(h.amount)}</span>
@@ -662,6 +671,25 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                   {rd.lpTokenId && <span className="lq-r">LP #{rd.lpTokenId}</span>}
                 </div>
               )}
+            </div>
+          )}
+          {/* Locked tokens (09-29) — read from the locker contract itself: how much is still locked and when each part unlocks. */}
+          {locks && locks.some((l) => l.locked > 0) && (
+            <div className="panel side-card">
+              <h3>Locked</h3>
+              {locks.filter((l) => l.locked > 0).map((l) => {
+                const day = (t: number) => new Date(t * 1000).toUTCString().slice(5, 16), inDays = (t: number) => Math.max(0, Math.ceil((t * 1000 - Date.now()) / 86400000));
+                return (
+                  <div className="lk" key={l.locker}>
+                    <div className="lk-top"><b>{compact(l.locked)} {sym}</b>{l.pct != null && <span className="lk-pct">{l.pct.toFixed(2)}% of supply</span>}</div>
+                    <div className="lk-by">in the <a href={`https://explorer.arc.io/address/${l.locker}`} target="_blank" rel="noreferrer">{l.label}</a></div>
+                    {l.parts.slice(0, 6).map((p, i) => (
+                      <div className="lk-part" key={i}><span>{compact(p.amount)}</span><span>unlocks {day(p.unlock)}</span><span className="lk-in">{inDays(p.unlock)}d</span></div>
+                    ))}
+                    {l.parts.length > 6 && <div className="lk-more">+{l.parts.length - 6} more parts · last unlocks {l.lastUnlock ? day(l.lastUnlock) : '—'}</div>}
+                  </div>
+                );
+              })}
             </div>
           )}
           {/* Calculator — convert a token amount to USD at the live price. */}

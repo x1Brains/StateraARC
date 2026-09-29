@@ -10,6 +10,7 @@ import {
   fetchTokenBurn, fetchTokenHolders, fetchPoolTrades, resolveMakers, fetchTokenTransfers, fetchPoolCandles, pruneChainCaches,
 } from '../src/lib/arc.ts';
 import type { Candle } from '../src/lib/warp.ts';
+import { holderBadges, tokenLocks, holdersOver, type HolderKind, type TokenLocks, type HoldersOver } from './holder-intel.ts';
 
 export interface TokenDetail {
   address: string; at: number; ms: number; dec: number;
@@ -17,7 +18,9 @@ export interface TokenDetail {
   ocPools: Awaited<ReturnType<typeof fetchAllOnchainPools>> | null;
   dayStats: (Awaited<ReturnType<typeof fetchOnchainDayStats>> & { makers24?: number; makersSample?: number; makersIsFloor?: boolean }) | null;
   burn: Awaited<ReturnType<typeof fetchTokenBurn>> | null;
-  holders: { rank: number; address: string; amount: number; percent: number | null; isPool: boolean; isDeployer: boolean }[] | null;
+  holders: { rank: number; address: string; amount: number; percent: number | null; isPool: boolean; isDeployer: boolean; kind?: HolderKind; label?: string | null }[] | null;
+  locks?: TokenLocks[] | null;          // tokens still locked in a known locker (amount, % of supply, unlock dates)
+  holdersOver?: HoldersOver | null;     // holders worth ≥ $0.10 (arc-scan counts every dust wallet)
   swaps: Awaited<ReturnType<typeof fetchPoolTrades>> | null;
   txs: Awaited<ReturnType<typeof fetchTokenTransfers>> | null;
 }
@@ -61,8 +64,19 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     let dayStats: TokenDetail['dayStats'] = day;
     if (day && makers) dayStats = { ...day, makers24: makers.makers, makersSample: makers.sample, makersIsFloor: makers.sample < makers.total };
     const swaps = trades && trades.length ? (await settle(resolveMakers(trades.map((x) => ({ ...x }))))) ?? trades.map((x) => ({ ...x, trader: '' })) : trades;
-    const holders = holdersRaw && holdersRaw.length ? holdersRaw.map((x) => ({ rank: x.rank, address: x.address, amount: x.balance, percent: x.share, isPool: x.isContract, isDeployer: false })) : null;
-    const d: TokenDetail = { address, at: Date.now(), ms: Date.now() - t0, dec, ocPool, ocPools, dayStats, burn, holders, swaps, txs };
+    let holders: TokenDetail['holders'] = holdersRaw && holdersRaw.length ? holdersRaw.map((x) => ({ rank: x.rank, address: x.address, amount: x.balance, percent: x.share, isPool: x.isContract, isDeployer: false })) : null;
+    // Holder badges + locks + holders over $0.10 (server/holder-intel.ts). The ten-cent count can take many arc-scan pages,
+    // so a waiting visitor gets the cached one and the background run (warmer / stale refresh) does the paging.
+    const poolAddrs = (ocPools || []).map((q) => q.pool).filter((a): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a));
+    const price = seed?.price ?? ocPool?.price ?? null;
+    const [badges, locks, over] = await Promise.all([
+      holders ? settle(holderBadges(holders.slice(0, 40).map((h) => h.address), poolAddrs)) : null,
+      settle(tokenLocks(address, dec, burn?.supply ?? null)),
+      settle(holdersOver(address, urgent ? null : price, poolAddrs)), // price null = cached value only (no paging)
+    ]);
+    if (urgent) holdersOver(address, price, poolAddrs).catch(() => {}); // fills the cache for the next read
+    if (holders && badges) holders = holders.map((h) => { const b = badges.get(h.address.toLowerCase()); return b ? { ...h, kind: b.kind, label: b.label, isPool: h.isPool || b.kind === 'v4' || b.kind === 'pool' } : h; });
+    const d: TokenDetail = { address, at: Date.now(), ms: Date.now() - t0, dec, ocPool, ocPools, dayStats, burn, holders, swaps, txs, locks, holdersOver: over };
     cache.set(address, d); detailStats.computed++; detailStats.lastMs = d.ms;
     if (tradeOpts.partial) { detailStats.partial++; setTimeout(() => refresh(address, seed, false).catch(() => {}), 0); }
     if (cache.size > MAX_CACHED) { const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]; if (oldest) cache.delete(oldest[0]); }

@@ -237,7 +237,7 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc) {
   let cx = W - P; [...chips].reverse().forEach(([k, v]) => { const txt = `${k} ${chg(v)}`, tw = 22 + txt.length * 9.4; cx -= tw; s += `<rect x="${cx}" y="${ly + 84}" width="${tw}" height="32" rx="9" fill="${C.tile}" stroke="${chgCol(v)}" stroke-opacity="0.45"/>` + T(cx + tw / 2, ly + 106, esc(txt), 16, chgCol(v), 'text-anchor="middle"'); cx -= 8; });
   // ── stats row
   y = 284; const sw = (IW - 4 * 12) / 5;
-  [['MARKET CAP', usd(t?.mcap)], ['LIQUIDITY', usd(t?.liq)], ['VOLUME 24H', usd(day?.volume24h ?? t?.volume24h)], ['HOLDERS', t?.holders != null ? num(t.holders) : '—'], ['TXNS 24H', day?.txns24 != null ? num(day.txns24) : '—']]
+  [['MARKET CAP', usd(t?.mcap)], ['LIQUIDITY', usd(t?.liq)], ['VOLUME 24H', usd(day?.volume24h ?? t?.volume24h)], (d?.holdersOver?.over > 0 ? ['HOLDERS $0.10+', `${num(d.holdersOver.over)}${d.holdersOver.capped ? '+' : ''}`] : ['HOLDERS', t?.holders != null ? num(t.holders) : '—']), ['TXNS 24H', day?.txns24 != null ? num(day.txns24) : '—']]
     .forEach(([k, v], i) => { const x = P + i * (sw + 12); s += panel(x, y, sw, 100) + T(x + 18, y + 38, k, 14, C.gold, 'letter-spacing="2"') + T(x + 18, y + 78, esc(v), 32); });
   // ── chart
   y = 400; const chH = 400; s += panel(P, y, IW, chH);
@@ -262,14 +262,20 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc) {
   s += T(rx0 + 22, y + 92, usd(totLiq), 34) + T(rx0 + hw - 22, y + 92, `${pools.length || '—'} pool${pools.length === 1 ? '' : 's'}`, 18, C.gray, 'text-anchor="end"');
   pools.slice(0, 3).forEach((q, i) => { const yy = y + 138 + i * 34, lab = `${q.version}${q.feeTier ? ` · ${q.feeTier / 10000}%` : ''} · USDC`;
     s += `<rect x="${rx0 + 22}" y="${yy - 20}" width="${hw - 44}" height="28" rx="8" fill="${C.tile}"/>` + T(rx0 + 34, yy - 1, esc(lab), 15, C.gray) + T(rx0 + hw - 34, yy - 1, usd(q.liquidityUsdc), 15, C.white, 'text-anchor="end"'); });
-  if (d?.burn?.pct != null && d.burn.pct >= 0.01) s += T(rx0 + 22, y + bh - 16, `${d.burn.pct.toFixed(2)}% of supply burned`, 14, C.dim);
+  const lk = (d?.locks || []).filter((l) => l.locked > 0)[0];
+  const foot = [d?.burn?.pct != null && d.burn.pct >= 0.01 ? `${d.burn.pct.toFixed(2)}% burned` : null,
+    lk ? `${lk.pct != null ? lk.pct.toFixed(2) + '%' : num(lk.locked)} locked (${lk.label})${lk.nextUnlock ? ` · next unlock ${new Date(lk.nextUnlock * 1000).toUTCString().slice(5, 16)}` : ''}` : null].filter(Boolean).join('  ·  ');
+  if (foot) s += T(rx0 + 22, y + bh - 16, esc(foot), 14, lk ? C.green : C.dim);
   // ── holders + latest trades
   y = 1082; const hh = 290;
   s += panel(P, y, hw, hh) + T(P + 22, y + 42, 'TOP HOLDERS', 20, C.white, 'letter-spacing="2"');
   const poolSet = new Set(pools.map((q) => String(q.pool).toLowerCase()));
   (d?.holders || []).slice(0, 6).forEach((h, i) => { const yy = y + 80 + i * 34, a = String(h.address || '').toLowerCase();
-    const lab = KNOWN_HOLDER[a] || (poolSet.has(a) ? 'Liquidity pool' : short(a)), p = h.percent != null ? Math.max(0, Math.min(100, h.percent)) : null;
-    s += T(P + 22, yy, `${i + 1}`, 15, C.dim) + T(P + 48, yy, esc(lab), 16, KNOWN_HOLDER[a] || poolSet.has(a) ? C.gold : C.white);
+    // server labels (holder-intel.ts): V4 pools / Liquidity pool / Burned / Argus locker; any other contract gets a CONTRACT tag
+    const named = h.label || KNOWN_HOLDER[a] || (poolSet.has(a) ? 'Liquidity pool' : null), lab = named || short(a), p = h.percent != null ? Math.max(0, Math.min(100, h.percent)) : null;
+    s += T(P + 22, yy, `${i + 1}`, 15, C.dim) + T(P + 48, yy, esc(lab), 16, named ? C.gold : C.white);
+    const tag = h.kind === 'locker' ? ['LOCKED', C.green] : h.kind === 'contract' ? ['CONTRACT', '#b8a3ff'] : null;
+    if (tag) { const tx0 = P + 56 + lab.length * 8.9; s += `<rect x="${tx0}" y="${yy - 15}" width="${tag[0].length * 8 + 12}" height="20" rx="5" fill="none" stroke="${tag[1]}" stroke-opacity="0.5"/>` + T(tx0 + 6, yy, tag[0], 11, tag[1], 'letter-spacing="1"'); }
     s += bar(P + 250, yy - 10, hw - 360, 8, [[(p || 0) / 100, C.fire]]) + T(P + hw - 22, yy, p == null ? '—' : p > 0 && p < 0.01 ? '<0.01%' : `${p.toFixed(2)}%`, 16, C.white, 'text-anchor="end"'); });
   if (!(d?.holders || []).length) s += T(P + 22, y + 90, 'Holder list not available', 16, C.dim);
   s += panel(rx0, y, hw, hh) + T(rx0 + 22, y + 42, 'LATEST TRADES', 20, C.white, 'letter-spacing="2"') + T(rx0 + hw - 22, y + 42, 'UTC', 14, C.dim, 'text-anchor="end"');

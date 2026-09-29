@@ -355,7 +355,8 @@ export async function fetchRadarSwaps(addr: string, decimals = 18, limit = 40): 
     })).filter((s) => s.tx);
   } catch { return []; }
 }
-export interface RadarHolder { rank: number; address: string; amount: number; percent: number | null; isPool: boolean; isDeployer: boolean; }
+// kind/label (09-29, server/holder-intel.ts): what the address is — V4 pools, a pool, burned, a token locker, some other contract.
+export interface RadarHolder { rank: number; address: string; amount: number; percent: number | null; isPool: boolean; isDeployer: boolean; kind?: 'v4' | 'pool' | 'burn' | 'locker' | 'contract' | null; label?: string | null; }
 export async function fetchRadarHolders(addr: string, decimals = 18, limit = 50): Promise<{ holderCount: number | null; holders: RadarHolder[] }> {
   try {
     const j = await radarGet(`/token/${addr.toLowerCase()}/holders`);
