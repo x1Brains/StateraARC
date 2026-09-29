@@ -1959,3 +1959,20 @@ footer .wrap { padding: 16px 20px; }
 /* 09-28: on phones the banner's bottom touched the Full-board card (0 px gap) and read as overlapping */
 .alb { margin-bottom: 18px; }
 @media (max-width: 640px) { .alb { margin: 14px 0 16px; } }
+
+/* Screener header stats as ONE connected dashboard bar (owner 09-28: "turn this into one full dashboard") —
+   same look as the token page's stat bar: one glass panel, thin dividers, 8 across (4×2 on phones). */
+#screener .stats { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 0; margin-bottom: 14px; border-radius: 14px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,.08); background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.01) 40%), rgba(16,14,14,.62);
+  box-shadow: 0 0 0 4px rgba(255,255,255,.012), inset 0 1px 0 rgba(255,255,255,.06); }
+#screener .stats .stat { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 12px 16px; position: relative; }
+#screener .stats .stat::before { display: none; }
+#screener .stats .stat + .stat::after { content: ''; position: absolute; left: 0; top: 22%; bottom: 22%; width: 1px; background: linear-gradient(transparent, rgba(255,255,255,.12), transparent); }
+#screener .stats .stat .v { font-size: 18px; }
+#screener .stats .stat .l { font-size: 8.5px; letter-spacing: 1.3px; margin-top: 3px; }
+#screener .stats .stat:first-child .v { background: var(--fire); -webkit-background-clip: text; background-clip: text; color: transparent; }
+@media (max-width: 1100px) { #screener .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } #screener .stats .stat:nth-child(5)::after { display: none; }
+  #screener .stats .stat:nth-child(-n+4) { border-bottom: 1px solid var(--line-soft); } }
+@media (max-width: 640px) { #screener .stats .stat { padding: 9px 10px; } #screener .stats .stat .v { font-size: 14.5px; } #screener .stats .stat .l { font-size: 7.5px; letter-spacing: .8px; } }
+#screener .stats .stat:first-child::after { display: none; } /* the old per-tile fire accent (only the first tile still had it) */
+#screener .stats .stat + .stat::after { box-shadow: none; transform: none; height: auto; }

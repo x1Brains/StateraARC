@@ -489,7 +489,7 @@ export default function App() {
               <div>
                 <div className="kicker">Screener</div>
                 <h2>Arc Tokens</h2>
-                <p>Live prices, liquidity &amp; market cap from Arc mainnet pools (chain 5042) — WarpV2, Uniswap V3/V4 and Warp launchpad tokens. Click a token for its chart, holders &amp; trades.</p>
+                <p>Live prices, liquidity &amp; market cap from every Arc mainnet pool (chain 5042) — Uniswap V2/V3/V4, Aerodrome, Archery, WarpV2 and launchpad tokens. Click a token for its chart, holders &amp; trades.</p>
               </div>
               <button className="btn ghost" onClick={() => load()} disabled={loading} style={{ opacity: loading ? .5 : 1 }}>{loading ? 'Loading' : 'Refresh'}</button>
             </div>
