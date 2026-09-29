@@ -142,7 +142,7 @@ function tall(c, l, w, st, logos) {
   s += `<rect x="0" y="${H - 150}" width="${W}" height="150" fill="url(#foot)"/>`;
   s += T(P, H - 70, 'stateraarc.com/network', 30, C.fire) + T(W - P, H - 70, 'Live · read directly from Arc mainnet', 20, C.gray, 'text-anchor="end"');
   s += T(P, H - 38, 'Screener · Swap · Portfolio · Network', 18, C.dim) + T(W - P, H - 38, 'chain 5042', 18, C.dim, 'text-anchor="end"');
-  return svg(W, H, s, 44); // rounded corners (owner 09-28): the downloaded report is a card, not a square
+  return svg(W, H, s, 44, NETWORK_ACCENT); // rounded corners (owner 09-28): the downloaded report is a card, not a square
 }
 
 // X link card (1200×630). ⛔ X lays its own title label over the BOTTOM-LEFT (~0–600 × 560–630): nothing important goes there.
@@ -175,7 +175,7 @@ function wide(c, l, w, when) {
   const x2 = P + (W - 2 * P - 14) / 2 + 14;
   s += panel(x2, 448, (W - 2 * P - 14) / 2, 96) + T(x2 + 20, 482, 'VALIDATORS', 15, C.gold, 'letter-spacing="2"') + T(x2 + 20, 524, c ? `${c.validatorCount} · Circle, BlackRock, Visa, Mastercard +8` : '—', 22, C.white);
   s += T(W - P, 600, 'Live from Arc mainnet', 18, C.gray, 'text-anchor="end"');
-  return svg(W, H, s);
+  return svg(W, H, s, 0, NETWORK_ACCENT);
 }
 // ── TOKEN SNAPSHOT (the token page as one image) ────────────────────────────────────────────────────────────────────
 // Price as SVG inner markup; tiny prices get a subscript zero count ($0.0₅2485) drawn with a normal digit (same as og.js).
@@ -198,7 +198,7 @@ const short = (a) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '—');
 const hhmm = (sec) => { const d = new Date(sec * 1000); return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
 const KNOWN_HOLDER = { '0x8366a39cc670b4001a1121b8f6a443a643e40951': 'Uniswap V4 pools', '0x000000000000000000000000000000000000dead': 'Burned' };
 
-function candleChart(x, y, w, h, cs) {
+function candleChart(x, y, w, h, cs, lineCol = C.fire) {
   if (!cs || cs.length < 2) return T(x + w / 2, y + h / 2, 'Not enough trades yet for a chart', 18, C.dim, 'text-anchor="middle"');
   const volH = Math.round(h * 0.16), ph = h - volH - 10;
   let lo = Infinity, hi = -Infinity, vmax = 0;
@@ -215,11 +215,11 @@ function candleChart(x, y, w, h, cs) {
     if (vmax > 0 && c.volume) { const vh = (c.volume / vmax) * volH; out += `<rect x="${cx - bw / 2}" y="${y + h - vh}" width="${bw}" height="${vh}" fill="${col}" opacity="0.35"/>`; }
   });
   const last = cs[cs.length - 1].close, ly = Y(last);
-  out += `<rect x="${x}" y="${ly}" width="${w}" height="1" fill="${C.fire}" opacity="0.55"/>`;
+  out += `<rect x="${x}" y="${ly}" width="${w}" height="1" fill="${lineCol}" opacity="0.6"/>`;
   return out;
 }
 
-function tokenTall(t, d, cs, tf, logo, st, addr) {
+function tokenTall(t, d, cs, tf, logo, st, addr, acc) {
   const W = 1200, H = 1500, P = 56, IW = W - 2 * P; let s = '', y;
   const day = d?.dayStats || null, sym = esc(t?.symbol || 'TOKEN');
   // ── header: kicker + stamp, logo, name, price
@@ -244,7 +244,7 @@ function tokenTall(t, d, cs, tf, logo, st, addr) {
   s += T(P + 24, y + 42, `$${sym} / USDC`, 22) + T(P + 24 + 18 + (`$${t?.symbol || ''} / USDC`).length * 12, y + 42, esc(tf), 16, C.gray);
   if (cs && cs.length >= 2) { let hi = -Infinity, lo = Infinity; cs.forEach((c) => { hi = Math.max(hi, c.high); lo = Math.min(lo, c.low); });
     s += T(W - P - 24, y + 42, `H ${priceInner(hi, 16)}   L ${priceInner(lo, 16)}`, 16, C.gray, 'text-anchor="end"'); }
-  s += candleChart(P + 24, y + 64, IW - 48, chH - 88, cs);
+  s += candleChart(P + 24, y + 64, IW - 48, chH - 88, cs, acc ? acc.line : C.fire);
   // ── activity + liquidity
   y = 816; const hw = (IW - 14) / 2, bh = 250;
   s += panel(P, y, hw, bh) + T(P + 22, y + 42, 'TRADE ACTIVITY · 24H', 20, C.white, 'letter-spacing="2"');
@@ -282,8 +282,36 @@ function tokenTall(t, d, cs, tf, logo, st, addr) {
   s += `<rect x="0" y="${H - 130}" width="${W}" height="130" fill="url(#foot)"/>`;
   s += T(P, H - 56, `stateraarc.com/token/${addr.slice(0, 8)}…${addr.slice(-4)}`, 28, C.fire) + T(W - P, H - 56, 'Live on-chain data · not financial advice', 18, C.gray, 'text-anchor="end"');
   s += T(P, H - 26, 'Screener · Swap · Portfolio · Network', 16, C.dim) + T(W - P, H - 26, 'Arc mainnet · chain 5042', 16, C.dim, 'text-anchor="end"');
-  return svg(W, H, s, 44);
+  return svg(W, H, s, 44, acc);
 }
+
+// ── accent colour ── (owner 09-29: no orange-red grading in the corner; each token card takes its LOGO's colour)
+// The logo is drawn at 24×24 by resvg itself and read back as RGBA — no extra image library. Pixels that are see-through,
+// near-grey, near-black or near-white are skipped; the rest vote by hue (weighted by saturation) and the winning hue's
+// average colour is lifted to a readable brightness. No usable colour → the neutral default.
+const toHsl = (r, g, b) => { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  if (!d) return [0, 0, l]; const sat = d / (1 - Math.abs(2 * l - 1)); let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; if (h < 0) h += 360; return [h, sat, l]; };
+const hsl = (h, sat, l) => `hsl(${Math.round(h)}, ${Math.round(sat * 100)}%, ${Math.round(l * 100)}%)`;
+function logoAccent(dataUri) {
+  if (!dataUri) return null;
+  try {
+    const px = new Resvg(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><image width="24" height="24" href="${dataUri}" preserveAspectRatio="xMidYMid slice"/></svg>`).render().pixels;
+    const bins = Array.from({ length: 12 }, () => ({ w: 0, h: 0, s: 0 }));
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i + 3] < 160) continue;
+      const [h, sat, l] = toHsl(px[i], px[i + 1], px[i + 2]);
+      if (sat < 0.28 || l < 0.12 || l > 0.9) continue;
+      const bin = bins[Math.floor(h / 30) % 12], w = sat * (1 - Math.abs(l - 0.5));
+      bin.w += w; bin.h += h * w; bin.s += sat * w;
+    }
+    const best = bins.reduce((a, b) => (b.w > a.w ? b : a));
+    if (best.w < 8) return null; // too few coloured pixels (a black/white/grey logo)
+    return { h: best.h / best.w, s: Math.min(0.9, Math.max(0.55, best.s / best.w)) };
+  } catch { return null; }
+}
+// Accent set for the card: a strong colour for lines, a glow colour for the corner wash.
+const accentOf = (a) => (a ? { line: hsl(a.h, a.s, 0.58), glow: hsl(a.h, a.s, 0.5) } : null);
+const NETWORK_ACCENT = { line: '#4f8cff', glow: '#2f6bff' }; // the network card: a cool blue (not the old orange-red wash)
 
 // Token logo for the snapshot: the VPS logo cache (192px PNG — resvg draws png/jpeg only).
 async function tokenLogo(addr) {
@@ -314,17 +342,17 @@ async function validatorLogos(origin) {
   return out;
 }
 // radius > 0 = transparent rounded corners (everything clipped to a rounded card); 0 = square (X rounds link cards itself).
-const svg = (W, H, body, radius = 0) => `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}">
+const svg = (W, H, body, radius = 0, acc = null) => `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}">
   <defs>
-    <radialGradient id="g1" cx="10%" cy="0%" r="70%"><stop offset="0%" stop-color="#ff7a1e" stop-opacity="0.13"/><stop offset="70%" stop-color="#ff7a1e" stop-opacity="0"/></radialGradient>
-    <radialGradient id="g2" cx="100%" cy="100%" r="60%"><stop offset="0%" stop-color="#ff2f14" stop-opacity="0.06"/><stop offset="70%" stop-color="#ff2f14" stop-opacity="0"/></radialGradient>
-    <linearGradient id="foot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#060607" stop-opacity="0"/><stop offset="1" stop-color="#140c07"/></linearGradient>
-    <linearGradient id="hair" x1="0" x2="1"><stop offset="0" stop-color="#ffa03c" stop-opacity="0"/><stop offset="0.5" stop-color="#ffa03c" stop-opacity="0.7"/><stop offset="1" stop-color="#ffa03c" stop-opacity="0"/></linearGradient>
+    <radialGradient id="g1" cx="12%" cy="0%" r="75%"><stop offset="0%" stop-color="${acc ? acc.glow : '#000'}" stop-opacity="${acc ? 0.2 : 0}"/><stop offset="70%" stop-color="${acc ? acc.glow : '#000'}" stop-opacity="0"/></radialGradient>
+    <radialGradient id="g2" cx="100%" cy="100%" r="60%"><stop offset="0%" stop-color="${acc ? acc.glow : '#000'}" stop-opacity="${acc ? 0.07 : 0}"/><stop offset="70%" stop-color="${acc ? acc.glow : '#000'}" stop-opacity="0"/></radialGradient>
+    <linearGradient id="foot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#060607" stop-opacity="0"/><stop offset="1" stop-color="#0c0c10"/></linearGradient>
+    <linearGradient id="hair" x1="0" x2="1"><stop offset="0" stop-color="${acc ? acc.line : '#ffa03c'}" stop-opacity="0"/><stop offset="0.5" stop-color="${acc ? acc.line : '#ffa03c'}" stop-opacity="0.7"/><stop offset="1" stop-color="${acc ? acc.line : '#ffa03c'}" stop-opacity="0"/></linearGradient>
     <clipPath id="card"><rect width="${W}" height="${H}" rx="${radius}"/></clipPath>
   </defs>
   <g clip-path="url(#card)">
   <rect width="${W}" height="${H}" fill="${C.bg}"/><rect width="${W}" height="${H}" fill="url(#g1)"/><rect width="${W}" height="${H}" fill="url(#g2)"/>
-  <rect x="0" y="0" width="${W}" height="6" fill="${C.fire}"/>
+  <rect x="0" y="0" width="${W}" height="6" fill="${acc ? acc.line : C.fire}"/>
   ${body}
   </g>
   ${radius ? `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="${radius - 1}" fill="none" stroke="#2c2c33" stroke-width="2"/>` : ''}
@@ -346,7 +374,9 @@ export default async function handler(req, res) {
       const long = c15?.candles || [], shortC = c5?.candles || [];
       const [cs, tf] = long.length >= 24 ? [long.slice(-160), '15m candles · last 3 days'] : [shortC.slice(-160), '5m candles · last 24 hours'];
       const now = new Date(), st = stampOf(now);
-      const png = new Resvg(tokenTall(t, d, cs, tf, logo, st, tokenAddr), { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 1200 } }).render().asPng();
+      // the card's colour comes from the token's logo; a grey/black/white or missing logo gets a quiet neutral
+      const acc = accentOf(logoAccent(logo)) || { line: '#9aa3b2', glow: '#5b6475' };
+      const png = new Resvg(tokenTall(t, d, cs, tf, logo, st, tokenAddr, acc), { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 1200 } }).render().asPng();
       res.setHeader('content-type', 'image/png');
       const symSafe = String(t.symbol || 'token').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) || 'token';
       if (download) { res.setHeader('content-disposition', `attachment; filename="statera-${symSafe}-snapshot-${st.file}-UTC.png"`); res.setHeader('cache-control', 'no-store'); }
