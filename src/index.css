@@ -1976,3 +1976,40 @@ footer .wrap { padding: 16px 20px; }
 @media (max-width: 640px) { #screener .stats .stat { padding: 9px 10px; } #screener .stats .stat .v { font-size: 14.5px; } #screener .stats .stat .l { font-size: 7.5px; letter-spacing: .8px; } }
 #screener .stats .stat:first-child::after { display: none; } /* the old per-tile fire accent (only the first tile still had it) */
 #screener .stats .stat + .stat::after { box-shadow: none; transform: none; height: auto; }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   CRISP THEME (owner 09-28: "they look reddish … washed off … I'd like them black and grayish with bright colors —
+   crispier, instead of having that filter on them — for all the windows/sections").
+   Rule: CONTAINERS are neutral — solid near-black panels, neutral grey borders, no warm washes, no glows, no blur/glass,
+   no film grain. COLOUR is only for meaning — fire for key numbers + primary buttons, green up, red down, gold labels.
+   This block is last on purpose: it overrides every earlier warm container style. Pre-change copy: git history.
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+:root { --panel: #0d0d0f; --panel-2: #111114; --elev: #16161a; --line: #26262c; --line-2: #313138; --line-soft: rgba(255,255,255,.07); --crisp-hi: inset 0 1px 0 rgba(255,255,255,.05); }
+/* page background: pure black + a barely-there neutral grid; no fire glows, no grain */
+.backdrop { background: #000; }
+.backdrop::after { display: none; }
+/* every panel / card / window: solid, neutral, sharp */
+.panel, .stat, .table, .dash, .legend, .swap-card, .chart-card, .td-tabpanel, .side-card, .home-cta, .tok-x1, .wl-card, .wl-card.mainnet,
+.tdx .panel, .tdx .stat, .tdx .chg-bar, .tx-stats, #screener .stats, .nx-card, .nx-big, .nx-pulse, .al, .al-card, .al-pulse, .alb, .tf2, .tf2.hot,
+.hero-str-teaser, .hero-str-teaser.alert {
+  background: var(--panel) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+  border-color: var(--line) !important; box-shadow: var(--crisp-hi) !important; }
+.swap-box { background: #09090b; }
+/* the token dashboard shell: plain black frame, neutral border — no glows, dot grid or vignette */
+.tdx { background: #050506 !important; border-color: var(--line) !important; box-shadow: none !important; }
+.tdx .panel::before { background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent) !important; } /* neutral hairline */
+.tdx .panel:hover { border-color: var(--line-2) !important; }
+/* token header: dark and clean — the logo tint is gone, the fire edge bar stays as the one accent */
+.tx-hero { background: var(--panel) !important; border-color: var(--line) !important; box-shadow: var(--crisp-hi) !important; }
+.tx-hero-tint { display: none; }
+.tx-hero::after { box-shadow: none; }
+.tx-logo { box-shadow: none; }
+/* network + landing banner: neutral, accents only in text */
+.nx-flow-side { background: var(--panel-2) !important; border-color: var(--line) !important; }
+.alb:hover, .al-card:hover { border-color: var(--line-2) !important; }
+.mine-cta { background: var(--panel-2); border-color: var(--line-2); }
+/* dividers inside connected bars stay neutral */
+.tx-stats > div + div::before, #screener .stats .stat + .stat::after, .al-pulse > div + div::before { background: linear-gradient(transparent, rgba(255,255,255,.13), transparent) !important; }
+/* scrollbar: neutral thumb (was brown), fire only on hover */
+::-webkit-scrollbar-thumb { background: #2b2b31; border: 3px solid #060607; background-clip: padding-box; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #060607; }
