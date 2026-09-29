@@ -20,13 +20,21 @@ const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11'; // same address
 // a testnet name on a mainnet page would be a lie about who owns what.
 //   mainnet — ArcNS, the only registry with live mainnet names (18 .arc, 8 .circle at 2026-09-22)
 //   testnet — ClearNames, our own registry (~/bt/ArcNS)
-const REGISTRIES_BY_NET: Record<string, { label: string; registry: string; tlds: string[] }[]> = {
+// `tlds: 'any'` = every ending that exists in THAT registry is shown — only for registries whose endings are created by
+// their own admin and locked forever (ClearNames: Root.lock), so a new ending shows up with no Statera update (owner
+// 09-29: "so no one has to go through the trouble of updating it"). The name still has to come back from that same
+// registry's forward lookup, so an ending can't be faked. Registries we don't control keep a fixed list.
+type Reg = { label: string; registry: string; tlds: string[] | 'any' };
+const REGISTRIES_BY_NET: Record<string, Reg[]> = {
   mainnet: [
     { label: 'ArcNS', registry: '0xcA4d60A6d237EDa59aA1F57EbAe6B3150BcAb8Fb', tlds: ['arc', 'circle'] },
+    // ⭐ When ClearNames deploys to mainnet, add ONE line here — its Registry from ns-cn-deployment.json, tlds 'any':
+    //   { label: 'ClearNames', registry: '0x…', tlds: 'any' },
+    // After that, new names AND new endings show up by themselves; nothing else in Statera needs touching.
   ],
   testnet: [
     // ClearNames (~/bt/ArcNS, ns-cn-deployment.json, deployed 2026-09-28) — replaced the old ArcNames registry 0x131f…
-    { label: 'ClearNames', registry: '0x0d008190B7c08b6abAc921309D049E44233b7eCb', tlds: ['arc', 'usdc', 'circle', 'argus', 'glitch', 'handle', 'brains'] },
+    { label: 'ClearNames', registry: '0x0d008190B7c08b6abAc921309D049E44233b7eCb', tlds: 'any' },
   ],
 };
 const REGISTRIES = REGISTRIES_BY_NET[NET] || REGISTRIES_BY_NET.mainnet;
@@ -84,13 +92,14 @@ export function reverseNode(addr: string): string {
 // Anything rejected here is shown as the raw address instead — a name we cannot vouch for is
 // strictly worse than an address, because an address does not lie about who it is.
 const LABEL_OK = /^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])?$/;
-const KNOWN_TLDS = new Set(REGISTRIES.flatMap((r) => r.tlds));
+const KNOWN_TLDS = new Set(REGISTRIES.flatMap((r) => (r.tlds === 'any' ? [] : r.tlds)));
 
-export function isDisplayableName(name: string): boolean {
+/** `anyTld` = the name came from a registry marked tlds:'any' (its endings are locked by its own admin). */
+export function isDisplayableName(name: string, anyTld = false): boolean {
   if (!name || name.length > 64 || name !== name.toLowerCase()) return false;
   const parts = name.split('.');
   if (parts.length < 2) return false;
-  if (!KNOWN_TLDS.has(parts[parts.length - 1])) return false;
+  if (!anyTld && !KNOWN_TLDS.has(parts[parts.length - 1])) return false;
   for (const p of parts) {
     if (!LABEL_OK.test(p)) return false;          // rejects unicode, zero-width, spaces, edge hyphens
     if (/^0x[0-9a-f]+$/.test(p)) return false;    // a label must never impersonate an address
@@ -215,7 +224,7 @@ export async function resolveNames(addresses: string[]): Promise<Map<string, Nam
 
     // 3. keep only names that pass the display guard, then look up THEIR resolver
     const cand = step2.map((x, i) => ({ ...x, name: claimed[i] }))
-      .filter((x) => x.name && isDisplayableName(x.name)) as { a: string; name: string }[];
+      .filter((x) => x.name && isDisplayableName(x.name, R.tlds === 'any')) as { a: string; name: string }[];
     const fnodes = cand.map((c) => namehash(c.name));
     const fResolvers = (await batch(fnodes.map((n) => ({ to: R.registry, data: SEL_RESOLVER + pad(n) })))).map(decodeAddress);
 
