@@ -238,7 +238,9 @@ setTimeout(warm, 20_000); setInterval(warm, 180_000);
 // Every listed token (not just the top 8) kept warm in the background, one at a time; caches survive restarts.
 loadCaches();
 const listed = () => (view ? Board.boardRows(view.tokens, view.ix, { filter: 'all', q: '', sort: 'volume', dir: 'desc', hideDupes: true, showInactive: false }).slice(0, 200) : []);
-setInterval(() => { warmNext(listed()).catch(() => {}); }, 12_000);
+// back to back: the next token 4 s after the last one finished (a fixed 12 s tick warmed ~1 token a minute)
+const warmLoop = async () => { try { await warmNext(listed()); } catch { /* next */ } setTimeout(warmLoop, 4_000); };
+setTimeout(warmLoop, 15_000);
 setInterval(saveCaches, 5 * 60_000);
 // The Network page's chain follower: every block, one poll at a time, every 15 s.
 let chaining = false;

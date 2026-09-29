@@ -22,10 +22,10 @@ export interface TokenDetail {
   txs: Awaited<ReturnType<typeof fetchTokenTransfers>> | null;
 }
 
-// A copy up to 30 min old is served INSTANTLY while a fresh one is computed behind it (the page re-reads every 10 s and
+// A copy up to 90 min old is served INSTANTLY while a fresh one is computed behind it (the page re-reads every 10 s and
 // swaps it in). 09-29 (owner: "token pages load very slow"): with a 2 min window almost every visit to a less-busy token
 // waited 5–10 s for a full compute; the background warmer below keeps every listed token inside this window.
-const FRESH_MS = 10_000, STALE_MS = 30 * 60_000, MAX_CACHED = 400;
+const FRESH_MS = 10_000, STALE_MS = 90 * 60_000, MAX_CACHED = 400; // 90 min: the warmer's full pass over ~110 listed tokens takes ~an hour
 const cache = new Map<string, TokenDetail>();
 const inflight = new Map<string, Promise<TokenDetail>>();
 let running = 0; const queue: (() => void)[] = [];
@@ -105,7 +105,7 @@ export async function tokenCandles(address: string, seed: Token | undefined, sec
   const ttl = sec >= 14400 ? 5 * 60_000 : 20_000, hit = candleCache.get(k);
   if (hit && Date.now() - hit.at < ttl) return hit.c;
   // stale-while-revalidate: up to 30 min for every timeframe (the page re-reads and gets the refreshed candles)
-  if (hit && Date.now() - hit.at < Math.max(ttl * 6, 30 * 60_000)) { buildCandles(a, seed, sec, look, k).catch(() => {}); return hit.c; }
+  if (hit && Date.now() - hit.at < Math.max(ttl * 6, STALE_MS)) { buildCandles(a, seed, sec, look, k).catch(() => {}); return hit.c; }
   return buildCandles(a, seed, sec, look, k);
 }
 function buildCandles(a: string, seed: Token | undefined, sec: number, look: number, k: string): Promise<Candle[]> {
