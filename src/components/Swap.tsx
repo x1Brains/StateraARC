@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { compact, usd, CHAIN, fetchPortfolioMainnet, fetchHoldingsOnchain, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx } from '../lib/arc';
+import { compact, usd, CHAIN, fetchPortfolioMainnet, fetchHoldingsOnchain, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx, activeEth } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 import { IconSwapVertical, IconExternal } from './icons';
 import {
@@ -19,7 +19,7 @@ const USDC: Token = {
   type: 'ERC-20', iconUrl: null, launchpad: null, isOurs: false, isEcosystem: true, price: 1, liq: null, mcap: null,
 };
 
-const eth = () => (window as any).ethereum;
+const eth = () => activeEth();
 async function sendTx(tx: TxReq): Promise<string> {
   return await eth().request({ method: 'eth_sendTransaction', params: [{ from: tx.from, to: tx.to, data: tx.data, value: tx.value }] });
 }

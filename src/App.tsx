@@ -3,7 +3,7 @@ import * as Board from './lib/board';
 import * as Live from './lib/live';
 import { v2Enabled, v2Home, v2Board, v2Search, v2Token, v2SwapTokens, v2List, v2Chain, v2Lending, type V2Home, type V2Board } from './lib/v2';
 import type { Filter, SortKey } from './lib/board';
-import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, shareStamp, PINNED, type Token, type MarketPx } from './lib/arc';
+import { fetchScreenerTokens, fetchRadarTokens, fetchDeepPoolPrices, fetchMarket, fetchCuratedV4Tokens, fetchOnchainScreenerPrices, fmt, price, tprice, usd, connectWallet, discoverWallets, setActiveWallet, lastWalletRdns, type Wallet, shareStamp, PINNED, type Token, type MarketPx } from './lib/arc';
 import { TokenLogo } from './components/TokenLogo';
 import { Sparkline } from './components/Sparkline';
 import { Portfolio } from './components/Portfolio';
@@ -16,6 +16,7 @@ import { TokenPage } from './components/TokenPage';
 import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
 import { WalletButton } from './components/WalletButton';
+import { WalletPicker } from './components/WalletPicker';
 import { IconArrowRight, IconArrowLeft, IconX } from './components/icons';
 
 type Page = 'home' | 'screener' | 'network' | 'portfolio' | 'swap' | 'token';
@@ -120,15 +121,26 @@ export default function App() {
   const [perPage, setPerPage] = useState(() => (typeof window !== 'undefined' && window.innerWidth <= 640 ? 50 : 100));
   const [selected, setSelected] = useState<string | null>(() => parsePath().selected);
   const [wallet, setWallet] = useState<string | null>(null);
-  const onConnect = async () => { try { const a = await connectWallet(); if (a) setWallet(a); } catch {} };
-  const onDisconnect = () => setWallet(null);
-  const onSwitch = async () => {
+  // Connect: our own list of installed Arc-capable wallets (EIP-6963). One wallet → straight in; none announced → the
+  // legacy injected provider (or rabby.io); several → the picker. Switch = the same list again.
+  const [picker, setPicker] = useState<Wallet[] | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const connectTo = async (w?: Wallet, sw = switching) => {
+    setPicker(null); setSwitching(false);
     try {
-      const eth = (window as any).ethereum;
-      await eth?.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] }).catch(() => {});
-      const a = await connectWallet(); if (a) setWallet(a);
+      // switching → ask the wallet to show its account chooser too, not silently hand back the same account
+      if (sw) await (w?.provider ?? (window as any).ethereum)?.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] }).catch(() => {});
+      const a = await connectWallet(w); if (a) setWallet(a);
     } catch {}
   };
+  const openWallets = async (sw: boolean) => {
+    const ws = await discoverWallets();
+    if (ws.length <= 1) return connectTo(ws[0], sw);
+    setSwitching(sw); setPicker(ws);
+  };
+  const onConnect = () => openWallets(false);
+  const onSwitch = () => openWallets(true);
+  const onDisconnect = () => { setWallet(null); setActiveWallet(null); };
   // Cinematic hero: one of the four lava scenes, chosen at random on each fresh load.
   const [heroVariant] = useState<number>(() => 1 + Math.floor(Math.random() * 4));
 
@@ -344,6 +356,7 @@ export default function App() {
   return (
     <>
       {!acked && <Disclaimer onAccept={() => setAcked(true)} />}
+      {picker && <WalletPicker wallets={picker} last={lastWalletRdns()} onPick={(w) => connectTo(w)} onClose={() => { setPicker(null); setSwitching(false); }} />}
       <div className="backdrop" />
       <div className="shell">
         {/* ticker — scrolling marquee */}

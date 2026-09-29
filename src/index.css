@@ -2026,3 +2026,19 @@ footer .wrap { padding: 16px 20px; }
 .nx-big-btn:hover { border-color: rgba(255,160,60,.45); }
 .nx-big-go { color: var(--gray); letter-spacing: .5px; text-transform: none; font-size: 11px; margin-left: 6px; }
 .nx-toggle { touch-action: manipulation; min-height: 36px; }
+
+/* Wallet picker (EIP-6963) — reuses the disclaimer's overlay/card */
+.wp-card { width: min(360px, 100%); padding: 18px; }
+.wp-head { display: flex; align-items: center; justify-content: space-between; }
+.wp-head h2 { font: 700 17px var(--disp); margin: 0; color: var(--white); }
+.wp-x { background: none; border: 0; color: var(--gray); font-size: 24px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+.wp-x:hover { color: var(--white); }
+.wp-sub { font-size: 12.5px; color: var(--gray); margin: 6px 0 14px; }
+.wp-list { display: flex; flex-direction: column; gap: 8px; }
+.wp-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 12px; border-radius: 12px; background: rgba(255,255,255,.03); border: 1px solid var(--line); color: var(--white); font: 600 14px var(--disp); cursor: pointer; text-align: left; touch-action: manipulation; }
+.wp-row:hover { border-color: rgba(255,160,60,.5); background: rgba(255,160,60,.06); }
+.wp-row img, .wp-noicon { width: 28px; height: 28px; border-radius: 8px; flex: none; }
+.wp-noicon { display: grid; place-items: center; background: #222; color: var(--gray); }
+.wp-name { flex: 1; }
+.wp-last { font-size: 10.5px; letter-spacing: .5px; color: #ffc24a; border: 1px solid rgba(255,194,74,.35); border-radius: 999px; padding: 2px 8px; }
+.wp-foot { font-size: 11.5px; color: var(--gray); margin: 14px 0 0; text-align: center; }

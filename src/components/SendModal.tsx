@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { TokenLogo } from './TokenLogo';
 import { IconClose, IconExternal } from './icons';
-import { isAddress, compact, mCall } from '../lib/arc';
+import { isAddress, compact, mCall, activeEth } from '../lib/arc';
 
-const eth = () => (window as any).ethereum;
+const eth = () => activeEth();
 const ARC_CHAIN_HEX = '0x13b2'; // 5042
 
 // Parse a decimal amount string → raw bigint at the token's decimals (no float rounding).

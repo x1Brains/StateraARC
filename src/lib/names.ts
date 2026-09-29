@@ -19,13 +19,14 @@ const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11'; // same address
 // Which registries to read, per network. Resolution MUST follow the network the app is showing:
 // a testnet name on a mainnet page would be a lie about who owns what.
 //   mainnet — ArcNS, the only registry with live mainnet names (18 .arc, 8 .circle at 2026-09-22)
-//   testnet — our own registry (contracts in ~/bt/arc/contracts/ns)
+//   testnet — ClearNames, our own registry (~/bt/ArcNS)
 const REGISTRIES_BY_NET: Record<string, { label: string; registry: string; tlds: string[] }[]> = {
   mainnet: [
     { label: 'ArcNS', registry: '0xcA4d60A6d237EDa59aA1F57EbAe6B3150BcAb8Fb', tlds: ['arc', 'circle'] },
   ],
   testnet: [
-    { label: 'ArcNames', registry: '0x131f885D4abe0a136bCc1daEd63fEedAE50Ec05D', tlds: ['arc', 'circle', 'brains'] },
+    // ClearNames (~/bt/ArcNS, ns-cn-deployment.json, deployed 2026-09-28) — replaced the old ArcNames registry 0x131f…
+    { label: 'ClearNames', registry: '0x0d008190B7c08b6abAc921309D049E44233b7eCb', tlds: ['arc', 'usdc', 'circle', 'argus', 'glitch', 'handle', 'brains'] },
   ],
 };
 const REGISTRIES = REGISTRIES_BY_NET[NET] || REGISTRIES_BY_NET.mainnet;
