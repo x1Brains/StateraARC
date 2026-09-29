@@ -476,7 +476,6 @@ export default function App() {
                 </div>
                 <div className="ue5-actions">
                   <a className="btn solid" href="https://x1city.io" target="_blank" rel="noreferrer">Explore X1 City <IconArrowRight className="arw" /></a>
-                  <button className="btn ghost" onClick={() => go('token')}>The $STR token</button>
                 </div>
               </div>
             </section>
