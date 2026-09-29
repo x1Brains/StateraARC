@@ -44,6 +44,11 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
   const [poolsOpen, setPoolsOpen] = useState(false);
   const [calcAmt, setCalcAmt] = useState('');
+  // Loading scene (owner 09-29: "a nice loading scene … Statera fading in and out"): the page stays hidden behind the
+  // breathing S until its first chain data lands, then fades in whole — no panels jumping in one by one. Never longer
+  // than 6.5 s: whatever has arrived by then is shown.
+  const [loadTimedOut, setLoadTimedOut] = useState(false);
+  useEffect(() => { setLoadTimedOut(false); const t = setTimeout(() => setLoadTimedOut(true), 6500); return () => clearTimeout(t); }, [address]);
 
   // Warp (chain 5042) price/mcap + it backs the candlestick chart below.
   useEffect(() => {
@@ -63,6 +68,9 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
     let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null); setDayStats(null); setBurn(null); setDec(null);
     // Prime the pool cache from the snapshot so every panel skips the slow ~900k-block pool-discovery scan.
     if (seed && (seed.pool || seed.poolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0 });
+    // 09-29: the chart mounts once `dec` is known — it waited for the whole detail response (up to ~10 s on a cold token)
+    // although the list row already carries the decimals (the same value the server uses). Start it now.
+    if (seed?.decimals != null) setDec(seed.decimals);
     (async () => {
       // ⛔ ON-CHAIN IS PRIMARY (owner, 09-24). Every market number on this page is read from the chain first;
       // RadarDEX / Warp only fill what the chain can't give (socials, deployer, 5m change when a coin has no
@@ -372,12 +380,20 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   const chartScale = (warp?.price != null && warp.price > 0 && seed?.price != null && seed.price > 0)
     ? seed.price / warp.price : 1;
 
+  const pageLoaded = loadTimedOut || dayStats != null || ocPool != null || (swaps != null && swaps.length > 0);
   return (
-    <div className="wrap"><section className="section">
+    <div className="wrap"><section className="section tdx-host">
       <button className="back" onClick={onBack}><IconArrowLeft className="i" /> Back to board</button>
 
+      {!pageLoaded && (
+        <div className="tload" role="status" aria-live="polite">
+          <img className="tload-s" src="/statera-s-192.webp" alt="" />
+          <div className="tload-t">Loading {seed?.symbol ? `$${seed.symbol}` : 'token'}<span className="tload-dots"><i>.</i><i>.</i><i>.</i></span></div>
+          <div className="tload-sub">reading it live from Arc</div>
+        </div>
+      )}
       {/* DASHBOARD (09-28 redesign): chart + trades on the left, every metric in one sticky column on the right */}
-      <div className="tdx">
+      <div className={`tdx ${pageLoaded ? 'tdx-in' : 'tdx-pending'}`}>
         <div className="tdx-main">
           {/* HERO (09-28 v2, owner: "the banner is kinda ugly… the huge trade button is too much"): the token's own logo, blurred,
               tints the strip; identity left, price + changes right, a compact Trade button. */}

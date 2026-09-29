@@ -2045,3 +2045,20 @@ footer .wrap { padding: 16px 20px; }
 
 /* Snapshot download on the token page is an <a> styled like the Link / X buttons */
 a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
+
+/* ── Token page loading scene (09-29) — the Statera S breathes until the page's first chain data lands, then the whole
+   dashboard fades in at once. */
+.tdx-host { position: relative; }
+.tdx { transition: opacity .5s ease, transform .5s ease; }
+.tdx-pending { opacity: 0; transform: translateY(6px); pointer-events: none; }
+.tdx-in { opacity: 1; transform: none; }
+.tload { position: absolute; left: 0; right: 0; top: 70px; min-height: 62vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 5; animation: tload-in .35s ease both; }
+.tload-s { width: 96px; height: 96px; animation: tload-breathe 2.2s ease-in-out infinite; filter: drop-shadow(0 0 18px rgba(255,122,30,.35)); }
+.tload-t { font: 600 13px var(--disp); letter-spacing: 3px; text-transform: uppercase; color: var(--white); }
+.tload-sub { font-size: 12px; color: var(--gray); letter-spacing: .5px; }
+.tload-dots i { font-style: normal; animation: tload-dot 1.2s infinite; opacity: .2; }
+.tload-dots i:nth-child(2) { animation-delay: .2s; } .tload-dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes tload-breathe { 0%, 100% { opacity: .35; transform: scale(.94); filter: drop-shadow(0 0 6px rgba(255,122,30,.15)); } 50% { opacity: 1; transform: scale(1.04); filter: drop-shadow(0 0 26px rgba(255,122,30,.55)); } }
+@keyframes tload-dot { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
+@keyframes tload-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tload-s, .tload-dots i { animation: none; opacity: 1; } .tdx { transition: none; } }

@@ -1,6 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
 // Token page data, computed on the VPS with the SAME functions the page ran in each visitor's browser (src/lib/arc.ts):
 // pool stats, every pool, 24h stats + makers, burn, holders, trades (+ real wallets), transfers. One computation serves
-// every visitor: fresh for 10 s, then served stale (up to 2 min) while a background refresh runs. v1 made each visitor's
+// every visitor: fresh for 10 s, then served stale (up to 30 min) while a background refresh runs. v1 made each visitor's
 // tab do all of this itself: ~450–650 RPC calls and up to 15 MB of logs per token page.
 import type { Token } from '../src/lib/rules.ts';
 import {
@@ -20,8 +22,10 @@ export interface TokenDetail {
   txs: Awaited<ReturnType<typeof fetchTokenTransfers>> | null;
 }
 
-// Stale copies are served for at most 2 min (the page re-asks ~7 s later and gets the refreshed one); older = compute now.
-const FRESH_MS = 10_000, STALE_MS = 2 * 60_000, MAX_CACHED = 300;
+// A copy up to 30 min old is served INSTANTLY while a fresh one is computed behind it (the page re-reads every 10 s and
+// swaps it in). 09-29 (owner: "token pages load very slow"): with a 2 min window almost every visit to a less-busy token
+// waited 5–10 s for a full compute; the background warmer below keeps every listed token inside this window.
+const FRESH_MS = 10_000, STALE_MS = 30 * 60_000, MAX_CACHED = 400;
 const cache = new Map<string, TokenDetail>();
 const inflight = new Map<string, Promise<TokenDetail>>();
 let running = 0; const queue: (() => void)[] = [];
@@ -100,7 +104,8 @@ export async function tokenCandles(address: string, seed: Token | undefined, sec
   const a = address.toLowerCase(), k = `${a}:${sec}:${look}`;
   const ttl = sec >= 14400 ? 5 * 60_000 : 20_000, hit = candleCache.get(k);
   if (hit && Date.now() - hit.at < ttl) return hit.c;
-  if (hit && Date.now() - hit.at < ttl * 6) { buildCandles(a, seed, sec, look, k).catch(() => {}); return hit.c; }
+  // stale-while-revalidate: up to 30 min for every timeframe (the page re-reads and gets the refreshed candles)
+  if (hit && Date.now() - hit.at < Math.max(ttl * 6, 30 * 60_000)) { buildCandles(a, seed, sec, look, k).catch(() => {}); return hit.c; }
   return buildCandles(a, seed, sec, look, k);
 }
 function buildCandles(a: string, seed: Token | undefined, sec: number, look: number, k: string): Promise<Candle[]> {
@@ -121,3 +126,48 @@ function buildCandles(a: string, seed: Token | undefined, sec: number, look: num
   return p;
 }
 setInterval(() => pruneChainCaches(), 60_000).unref();
+
+// ── Background warmer (09-29) ── every listed token's page (detail + the default 5m/24h chart) is kept inside the 30 min
+// stale window, one token at a time and only while no visitor is waiting — the public RPC's burst limit is shared.
+const DEFAULT_TF: [number, number] = [300, 86400];
+let warming = false;
+export async function warmNext(rows: Token[]) {
+  if (warming || running > 0 || queue.length) return;
+  const now = Date.now();
+  let pick: Token | null = null, oldest = Infinity;
+  for (const t of rows) {
+    const a = t.address.toLowerCase(), at = cache.get(a)?.at ?? 0;
+    if (inflight.has(a) || now - at < 10 * 60_000) continue;
+    if (at < oldest) { oldest = at; pick = t; }
+  }
+  if (!pick) return;
+  warming = true;
+  const a = pick.address.toLowerCase();
+  try {
+    await refresh(a, pick, false);
+    const [sec, look] = DEFAULT_TF, k = `${a}:${sec}:${look}`, c = candleCache.get(k);
+    if (!c || now - c.at > 10 * 60_000) await buildCandles(a, pick, sec, look, k).catch(() => {});
+    warmStats.warmed++;
+  } catch { /* next tick */ } finally { warming = false; }
+}
+export const warmStats = { warmed: 0, restored: 0 };
+
+// Survive restarts/deploys: the caches are written every 5 min and read back at start (a deploy used to make every page cold).
+const CACHE_FILE = process.env.DETAIL_STATE || '/root/statera-api-state/detail-cache.json';
+export function saveCaches() {
+  try {
+    const small = [...candleCache.entries()].filter(([k]) => k.endsWith(`:${DEFAULT_TF[0]}:${DEFAULT_TF[1]}`));
+    const body = JSON.stringify({ v: 1, detail: [...cache.entries()], candles: small });
+    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
+    fs.writeFileSync(CACHE_FILE + '.tmp', body); fs.renameSync(CACHE_FILE + '.tmp', CACHE_FILE);
+  } catch { /* next time */ }
+}
+export function loadCaches() {
+  try {
+    const j = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+    if (j?.v !== 1) return;
+    const cutoff = Date.now() - STALE_MS;
+    for (const [k, v] of j.detail || []) if (v?.at > cutoff) { cache.set(k, v); warmStats.restored++; }
+    for (const [k, v] of j.candles || []) if (v?.at > cutoff) candleCache.set(k, v);
+  } catch { /* first run */ }
+}

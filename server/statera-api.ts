@@ -23,7 +23,7 @@ import zlib from 'node:zlib';
 import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
-import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk } from './token-detail.ts';
+import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
 import { refreshWhere, whereSummary, whereStats } from './where.ts';
@@ -165,7 +165,7 @@ http.createServer((req, res) => {
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: detailStats, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: { ...detailStats, ...warmStats }, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
@@ -235,6 +235,11 @@ setInterval(tickLive, LIVE_MS);
 // Keep the 8 busiest token pages warm (by 24h volume, real tokens only) — their first visitor never waits for a scan.
 const warm = () => { if (view) prewarm(Board.boardRows(view.tokens, view.ix, { filter: 'all', q: '', sort: 'volume', dir: 'desc', hideDupes: true, showInactive: false }).slice(0, 8)); };
 setTimeout(warm, 20_000); setInterval(warm, 180_000);
+// Every listed token (not just the top 8) kept warm in the background, one at a time; caches survive restarts.
+loadCaches();
+const listed = () => (view ? Board.boardRows(view.tokens, view.ix, { filter: 'all', q: '', sort: 'volume', dir: 'desc', hideDupes: true, showInactive: false }).slice(0, 200) : []);
+setInterval(() => { warmNext(listed()).catch(() => {}); }, 12_000);
+setInterval(saveCaches, 5 * 60_000);
 // The Network page's chain follower: every block, one poll at a time, every 15 s.
 let chaining = false;
 const tickChain = async () => { if (chaining) return; chaining = true; try { await pollChain(rpc, rpcBatch); } catch (e) { chainStats.errors++; console.error('[chain]', (e as Error).message); } finally { chaining = false; } };
@@ -269,5 +274,6 @@ const tickWhere = async () => { if (whereBusy || !view) return; whereBusy = true
   try { await refreshWhere(rpc, view.tokens.map((t) => t.pool).filter((p): p is string => !!p), priceOf); }
   catch (e) { whereStats.errors++; console.error('[where]', (e as Error).message); } finally { whereBusy = false; } };
 setTimeout(tickWhere, 45_000); setInterval(tickWhere, 10 * 60_000);
-for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveChain(); process.exit(0); });
+// one shutdown handler — the chain state and the token-page caches both saved before exit
+for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveChain(); saveCaches(); process.exit(0); });
 setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(); } catch { /* keep serving the last good list */ } }, 5000);
