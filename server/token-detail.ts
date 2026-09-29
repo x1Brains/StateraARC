@@ -48,11 +48,15 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     // A visitor waiting → the trade scan stops going back after ~3.5 s; the full scan then runs in the background and
     // the page's 10 s re-read picks it up (09-29: cold pages took 5–20 s, one quiet token's empty 900k-block walk = 16 s).
     const tradeOpts: { deadline?: number; partial?: boolean } = urgent ? { deadline: t0 + 3500 } : {};
-    // makers24 runs alongside the rest — it only needs the address (it used to wait for everything else: +2 s).
+    // ⛔ makers24 must run AFTER the day stats: it samples the tx list fetchOnchainDayStats builds (dayTxList). 09-29 I ran
+    // them in parallel to save ~2 s and makers came back empty on a first compute ("makers not loading on any" — GLITCH
+    // dev). It now starts the moment the day stats land, still alongside the slower lookups.
+    const dayP = settle(fetchOnchainDayStats(address, dec));
+    const makersP = dayP.then((day) => (day ? settle(fetchOnchainMakers24(address)) : null));
     const [ocPool, ocPools, day, burn, holdersRaw, trades, txs, makers] = await Promise.all([
-      settle(fetchOnchainPoolStats(address, dec)), settle(fetchAllOnchainPools(address, dec)), settle(fetchOnchainDayStats(address, dec)),
+      settle(fetchOnchainPoolStats(address, dec)), settle(fetchAllOnchainPools(address, dec)), dayP,
       settle(fetchTokenBurn(address, dec)), settle(fetchTokenHolders(address, 100)), settle(fetchPoolTrades(address, dec, 40, tradeOpts)),
-      settle(fetchTokenTransfers(address, 18, 40)), settle(fetchOnchainMakers24(address)),
+      settle(fetchTokenTransfers(address, 18, 40)), makersP,
     ]);
     let dayStats: TokenDetail['dayStats'] = day;
     if (day && makers) dayStats = { ...day, makers24: makers.makers, makersSample: makers.sample, makersIsFloor: makers.sample < makers.total };
