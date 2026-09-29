@@ -2042,3 +2042,6 @@ footer .wrap { padding: 16px 20px; }
 .wp-name { flex: 1; }
 .wp-last { font-size: 10.5px; letter-spacing: .5px; color: #ffc24a; border: 1px solid rgba(255,194,74,.35); border-radius: 999px; padding: 2px 8px; }
 .wp-foot { font-size: 11.5px; color: var(--gray); margin: 14px 0 0; text-align: center; }
+
+/* Snapshot download on the token page is an <a> styled like the Link / X buttons */
+a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }

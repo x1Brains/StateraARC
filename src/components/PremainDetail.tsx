@@ -398,6 +398,10 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                   <button className="tx-chip addr" onClick={copy} title="Copy the contract address">{address.slice(0, 6)}…{address.slice(-4)} {copied ? <IconCheck className="i" /> : <IconCopy className="i" />}</button>
                   <button className="tx-icon" onClick={copyLink} title="Copy a share link (live-price card on X, Telegram, Discord)">{linkCopied ? <IconCheck className="i" /> : 'Link'}</button>
                   <button className="tx-icon" onClick={postToX} title="Post this token on X with its live card"><IconX className="i" /></button>
+                  {/* The whole token page as one image, stamped with the date + time it was taken (api/report.js ?token=). */}
+                  <a className="tx-icon" href={`/api/report?token=${address.toLowerCase()}&download=1`} download
+                    onClick={(e) => { e.currentTarget.href = `/api/report?token=${address.toLowerCase()}&download=1&t=${Date.now()}`; }}
+                    title="Download a snapshot image of this token page (date + time stamped)">Snapshot</a>
                 </div>
               </div>
             </div>
