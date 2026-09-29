@@ -1601,7 +1601,9 @@ export async function resolveMakers(trades: RadarSwap[]): Promise<RadarSwap[]> {
 }
 // side from the USDC delta sign (USDC INTO pool = a BUY of the token); maker = the tx origin (real trader);
 // price = executed USD/token. Timestamps approximated from block height (fine for a table).
-export async function fetchPoolTrades(token: string, decimals = 18, want = 40): Promise<RadarSwap[]> {
+/** `opts.deadline` (ms timestamp): stop going further back than the first 80k blocks once it passes — `opts.partial` is
+ *  then set, so the caller can serve these rows now and finish the deep scan in the background. */
+export async function fetchPoolTrades(token: string, decimals = 18, want = 40, opts?: { deadline?: number; partial?: boolean }): Promise<RadarSwap[]> {
   const pool = await findTokenPool(token);
   if (!pool) { const v4 = await findV4Pool(token); return v4 ? fetchV4Trades(v4, decimals, want) : []; }
   const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]);
@@ -1633,8 +1635,10 @@ export async function fetchPoolTrades(token: string, decimals = 18, want = 40): 
   const floor = head - 80000n < 0n ? 0n : head - 80000n;
   const windows: [bigint, bigint][] = [[head - 20000n < floor ? floor : head - 20000n, head], [floor, head - 20001n]];
   for (let hi = floor - 1n; hi > head - 900000n && hi > 0n; hi -= 95000n) windows.push([hi - 95000n < 0n ? 0n : hi - 95000n, hi]);
-  for (const [lo, hi] of windows) {
+  for (const [wi, [lo, hi]] of windows.entries()) {
     if (out.length >= want || hi <= lo) break;
+    // 09-29: a quiet token (DUKE) spent 16 s walking back 900k blocks and found nothing — the first visitor waited for it.
+    if (wi >= 2 && opts?.deadline && Date.now() > opts.deadline) { opts.partial = true; break; }
     const logs = await windowLogs(lo, hi);
     for (const l of logs) {
       const topic = (l.topics?.[0] || '').toLowerCase();
@@ -1768,9 +1772,44 @@ export const shareStamp = () => Math.floor(Date.now() / 60000).toString(36);
 export const tokenShareUrl = (address: string) => `${window.location.origin}/token/${address.toLowerCase()}?v=${shareStamp()}`;
 export const isAddress = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
 
-// ── wallet (EIP-1193 injected, e.g. MetaMask) ──
-export async function connectWallet(): Promise<string | null> {
-  const eth = (window as any).ethereum;
+// ── wallet discovery (EIP-6963) ──
+// Owner 09-28: "Connect" handed off to whichever extension owns window.ethereum — Rabby — which then showed ITS OWN picker,
+// with Backpack listed twice (Backpack announces two providers) and Backpack can't use Arc anyway. We now list the
+// installed wallets ourselves: one row per wallet (deduped by rdns), wallets that can't add a custom EVM chain hidden, and
+// every later request (swap, send, sign) goes to the wallet the user picked — never back to whoever grabbed window.ethereum.
+export type WalletInfo = { uuid: string; name: string; icon: string; rdns: string };
+export type Wallet = { info: WalletInfo; provider: any };
+// Solana-first wallets: their EVM side can't add Arc (no wallet_addEthereumChain for custom chains).
+const NOT_ARC = /backpack|phantom|solflare|glow|nightly/i;
+const found = new Map<string, Wallet>();
+if (typeof window !== 'undefined') {
+  window.addEventListener('eip6963:announceProvider', (e: any) => {
+    const d = e?.detail; if (!d?.info || !d.provider) return;
+    const key = (d.info.rdns || d.info.name || d.info.uuid).toLowerCase();
+    if (!found.has(key)) found.set(key, { info: d.info, provider: d.provider });
+  });
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+}
+/** Installed wallets that can use Arc, one per wallet. Re-asks the browser and gives extensions a moment to answer. */
+export async function discoverWallets(): Promise<Wallet[]> {
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+  await new Promise((r) => setTimeout(r, 150));
+  return [...found.values()].filter((w) => !NOT_ARC.test(`${w.info.rdns} ${w.info.name}`));
+}
+const PICK_KEY = 'statera-wallet-rdns';
+let active: any = null;
+/** The provider every wallet request goes to: the wallet the user picked, else the legacy injected one. */
+export const activeEth = (): any => active || (typeof window !== 'undefined' ? (window as any).ethereum : null);
+export function setActiveWallet(w: Wallet | null) {
+  active = w?.provider ?? null;
+  try { w ? localStorage.setItem(PICK_KEY, w.info.rdns) : localStorage.removeItem(PICK_KEY); } catch { /* per-browser convenience only */ }
+}
+export const lastWalletRdns = (): string | null => { try { return localStorage.getItem(PICK_KEY); } catch { return null; } };
+
+// ── wallet connect (EIP-1193) ──
+export async function connectWallet(pick?: Wallet): Promise<string | null> {
+  if (pick) setActiveWallet(pick);
+  const eth = activeEth();
   if (!eth) { window.open('https://rabby.io', '_blank'); return null; } // no injected wallet — send them to get one
   const accts = await eth.request({ method: 'eth_requestAccounts' });
   const hexId = '0x' + CHAIN.chainId.toString(16);

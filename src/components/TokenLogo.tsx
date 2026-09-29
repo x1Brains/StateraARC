@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 import { resolveTokenLogo } from '../lib/arc';
+// Tokens with a static logo in public/l (scripts/logo-static.mjs, from the VPS logo cache). Baked into the bundle at build
+// time, so the list always matches the files that deploy carried — no extra request, no 404 probes.
+import STATIC_LOGOS from '../../public/l/index.json';
+const STATIC = new Set<string>(STATIC_LOGOS as string[]);
 
 const PALETTE = ['#ff6a1a', '#00c98d', '#00d4ff', '#bf5af2', '#d6a44b', '#ff4466', '#22c55e'];
 function colorFor(seed: string): string {
@@ -27,6 +31,7 @@ const KNOWN_ADDR: Record<string, string> = {
 const tollyImg = (addr: string) => `https://api.tollylabs.com/token-image/${addr.toLowerCase()}.png`;
 
 export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string; url?: string | null }) {
+  const [staticBroke, setStaticBroke] = useState(false);
   const [primaryBroke, setPrimaryBroke] = useState(false);
   const [ipfsBroke, setIpfsBroke] = useState(false);
   const [cacheBroke, setCacheBroke] = useState(false);
@@ -44,7 +49,7 @@ export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string;
   const primary = (rawPrimary || '').replace(/https?:\/\/[a-z0-9-]+\.mypinata\.cloud\/ipfs\//i, 'https://gateway.pinata.cloud/ipfs/');
   const ipfsCid = (() => { const m = (primary || '').match(/\/ipfs\/([A-Za-z0-9]+)/); return m ? m[1] : null; })();
   // Reset failure state when the token (url/seed) changes — the component is reused across list rows.
-  useEffect(() => { setPrimaryBroke(false); setIpfsBroke(false); setCacheBroke(false); setOnchainBroke(false); setTollyBroke(false); }, [primary, seed]);
+  useEffect(() => { setStaticBroke(false); setPrimaryBroke(false); setIpfsBroke(false); setCacheBroke(false); setOnchainBroke(false); setTollyBroke(false); }, [primary, seed]);
   // Resolve the on-chain logo when we have no primary OR the primary image failed to load (flaky IPFS
   // gateways 429 on bursts, e.g. the swap picker opening 10+ icons at once). This is the real fallback:
   // url → on-chain → letter, so a dead/rate-limited icon URL still shows the token's logo.
@@ -59,6 +64,12 @@ export function TokenLogo({ symbol, seed, url }: { symbol: string; seed: string;
     return () => { alive = false; };
   }, [seed, needFallback]);
 
+  // 09-29 ("logos are loading slow af"): a static CDN file first — /api/logo relays to the VPS and a rarely-viewed token
+  // missed Vercel's regional cache every time (median 1.2 s per logo on the screener).
+  const low = (seed || '').toLowerCase();
+  if (isAddr && STATIC.has(low) && !staticBroke) {
+    return <img className="tlogo" src={`/l/${low}.webp`} alt={symbol} loading="lazy" onError={() => setStaticBroke(true)} />;
+  }
   // An IPFS-hosted logo goes to the VPS copy FIRST: the public gateways now refuse cross-site image loads (Chrome ORB /
   // CORP — 09-28: pinata + ipfs.io both blocked), so trying them first cost 2 failed requests per logo before the cache.
   if (ipfsCid && isAddr && !cacheBroke) {

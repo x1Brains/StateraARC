@@ -30,7 +30,7 @@ const MAX_PARALLEL = 2; // the public RPCs refuse ~30+ calls per burst — never
 // a restart queued behind 8 pre-warm jobs, hit the page's 20 s deadline and fell back to scanning in the tab).
 const slot = (urgent = true) => new Promise<void>((r) => { const go = () => { running++; r(); }; if (running < MAX_PARALLEL) go(); else if (urgent) queue.unshift(go); else queue.push(go); });
 const release = () => { running--; const n = queue.shift(); if (n) n(); };
-export const detailStats = { computed: 0, hits: 0, stale: 0, failed: 0, lastMs: 0 };
+export const detailStats = { computed: 0, hits: 0, stale: 0, failed: 0, partial: 0, lastMs: 0 };
 
 const settle = <T>(p: Promise<T>): Promise<T | null> => p.then((v) => v, () => null);
 
@@ -41,17 +41,22 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     // Same order and inputs as PremainDetail: prime the pool from the screener row, decimals from the row or the contract.
     if (seed && (seed.pool || seed.poolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0 });
     const dec = seed?.decimals ?? (await fetchTokenDecimals(address)) ?? 18;
-    const [ocPool, ocPools, day, burn, holdersRaw, trades, txs] = await Promise.all([
+    // A visitor waiting → the trade scan stops going back after ~3.5 s; the full scan then runs in the background and
+    // the page's 10 s re-read picks it up (09-29: cold pages took 5–20 s, one quiet token's empty 900k-block walk = 16 s).
+    const tradeOpts: { deadline?: number; partial?: boolean } = urgent ? { deadline: t0 + 3500 } : {};
+    // makers24 runs alongside the rest — it only needs the address (it used to wait for everything else: +2 s).
+    const [ocPool, ocPools, day, burn, holdersRaw, trades, txs, makers] = await Promise.all([
       settle(fetchOnchainPoolStats(address, dec)), settle(fetchAllOnchainPools(address, dec)), settle(fetchOnchainDayStats(address, dec)),
-      settle(fetchTokenBurn(address, dec)), settle(fetchTokenHolders(address, 100)), settle(fetchPoolTrades(address, dec, 40)),
-      settle(fetchTokenTransfers(address, 18, 40)),
+      settle(fetchTokenBurn(address, dec)), settle(fetchTokenHolders(address, 100)), settle(fetchPoolTrades(address, dec, 40, tradeOpts)),
+      settle(fetchTokenTransfers(address, 18, 40)), settle(fetchOnchainMakers24(address)),
     ]);
     let dayStats: TokenDetail['dayStats'] = day;
-    if (day) { const m = await settle(fetchOnchainMakers24(address)); if (m) dayStats = { ...day, makers24: m.makers, makersSample: m.sample, makersIsFloor: m.sample < m.total }; }
+    if (day && makers) dayStats = { ...day, makers24: makers.makers, makersSample: makers.sample, makersIsFloor: makers.sample < makers.total };
     const swaps = trades && trades.length ? (await settle(resolveMakers(trades.map((x) => ({ ...x }))))) ?? trades.map((x) => ({ ...x, trader: '' })) : trades;
     const holders = holdersRaw && holdersRaw.length ? holdersRaw.map((x) => ({ rank: x.rank, address: x.address, amount: x.balance, percent: x.share, isPool: x.isContract, isDeployer: false })) : null;
     const d: TokenDetail = { address, at: Date.now(), ms: Date.now() - t0, dec, ocPool, ocPools, dayStats, burn, holders, swaps, txs };
     cache.set(address, d); detailStats.computed++; detailStats.lastMs = d.ms;
+    if (tradeOpts.partial) { detailStats.partial++; setTimeout(() => refresh(address, seed, false).catch(() => {}), 0); }
     if (cache.size > MAX_CACHED) { const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]; if (oldest) cache.delete(oldest[0]); }
     return d;
   } catch (e) { detailStats.failed++; throw e; }
