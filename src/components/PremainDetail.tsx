@@ -7,7 +7,7 @@ import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetch
 import type { Token } from '../lib/arc';
 import { v2Enabled, v2TokenDetail, type V2TokenDetail } from '../lib/v2';
 import { fetchWalletTokenTrades, type WalletTrade } from '../lib/arc';
-import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX } from './icons';
+import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX, IconLink, IconCamera } from './icons';
 import { useNames, displayName } from '../lib/names';
 
 // Pre-public (chain 5042) token detail. Source: arc-scan.org REST /tokens/{a} (UNOFFICIAL indexer,
@@ -22,6 +22,7 @@ interface Detail {
   reservedCheck: string | null;
 }
 
+const VENUE_NAME: Record<string, string> = { V4: 'Uniswap V4', V3: 'Uniswap V3', V2: 'Uniswap V2', WarpV2: 'Warp V2', Warp: 'Warp curve', Aero: 'Aerodrome', Archery: 'Archery', UniV2: 'Uniswap V2' };
 export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wallet, onConnect }: { address: string; seed?: Token; ready?: boolean; onBack: () => void; onTrade?: (t: { address: string; symbol: string; name?: string; price?: number | null }) => void; wallet?: string | null; onConnect?: () => void }) {
   const [d, setD] = useState<Detail | null>(null);
   const [warp, setWarp] = useState<WarpToken | null>(null);
@@ -191,6 +192,24 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
 
   // Share: a freshly stamped url per click (see tokenShareUrl) so X/Discord/Telegram crawl the card at the LIVE price.
   const [linkCopied, setLinkCopied] = useState(false);
+  // Snapshot: fetch the image first and save it only if it IS an image (09-29: a server error made the plain download link
+  // save 'report.txt'). Busy / error states on the button.
+  const [snap, setSnap] = useState<'idle' | 'busy' | 'err'>('idle');
+  const downloadSnapshot = async () => {
+    if (snap === 'busy') return;
+    setSnap('busy');
+    try {
+      const r = await fetch(`/api/report?token=${address.toLowerCase()}&download=1&t=${Date.now()}`);
+      const ct = r.headers.get('content-type') || '';
+      if (!r.ok || !ct.startsWith('image/')) throw new Error(`snapshot ${r.status}`);
+      const blob = await r.blob();
+      const name = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)?.[1] || `statera-${sym}-snapshot.png`;
+      const url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      setSnap('idle');
+    } catch { setSnap('err'); setTimeout(() => setSnap('idle'), 4000); }
+  };
   const copyLink = () => { navigator.clipboard?.writeText(tokenShareUrl(address)).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1400); }).catch(() => {}); };
   const postToX = () => {
     const chgS = chg != null ? ` (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% 24h)` : '';
@@ -409,18 +428,13 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                   {d?.lookalike && <span className="wl-note">Lookalike</span>}
                   {d?.reservedName && <span className="wl-note">Reserved-name</span>}
                 </div>
-                <div className="tx-chips">
-                  <span className="tx-chip sym">{sym}</span>
-                  <span className="tx-chip">{d?.standard?.toUpperCase() || 'ERC-20'}</span>
-                  {seed?.source && <span className="tx-chip">{seed.source}</span>}
-                  {seed?.hooked && <span className="tx-chip warn" title="This token trades on a Uniswap V4 pool with a hook, which can charge a swap tax (buy/sell fee).">Hooked pool</span>}
-                  <button className="tx-chip addr" onClick={copy} title="Copy the contract address">{address.slice(0, 6)}…{address.slice(-4)} {copied ? <IconCheck className="i" /> : <IconCopy className="i" />}</button>
-                  <button className="tx-icon" onClick={copyLink} title="Copy a share link (live-price card on X, Telegram, Discord)">{linkCopied ? <IconCheck className="i" /> : 'Link'}</button>
-                  <button className="tx-icon" onClick={postToX} title="Post this token on X with its live card"><IconX className="i" /></button>
-                  {/* The whole token page as one image, stamped with the date + time it was taken (api/report.js ?token=). */}
-                  <a className="tx-icon" href={`/api/report?token=${address.toLowerCase()}&download=1`} download
-                    onClick={(e) => { e.currentTarget.href = `/api/report?token=${address.toLowerCase()}&download=1&t=${Date.now()}`; }}
-                    title="Download a snapshot image of this token page (date + time stamped)">Snapshot</a>
+                {/* 09-29 (owner): facts read as TEXT, not pill buttons; only the things you can click are buttons */}
+                <div className="tx-meta">
+                  <span className="tx-sym">${sym}</span>
+                  {/* the standard only when it's NOT a plain ERC-20 (it always was — it only pushed "Hooked pool" onto a 2nd line) */}
+                  {d?.standard && !/^erc-?20$/i.test(d.standard) && <span>{d.standard.toUpperCase().replace(/^ERC(\d)/, 'ERC-$1')}</span>}
+                  {seed?.source && <span>{VENUE_NAME[seed.source] || seed.source}</span>}
+                  {seed?.hooked && <span className="tx-warn" title="This token trades on a Uniswap V4 pool with a hook, which can charge a swap tax (buy/sell fee).">Hooked pool</span>}
                 </div>
               </div>
             </div>
@@ -433,6 +447,16 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
               </div>
               {onTrade && <button className="tx-trade" onClick={() => onTrade({ address, symbol: sym, name, price: px })}>Trade <IconArrowRight className="arw" /></button>}
             </div>
+            <div className="tx-actions">
+                  <button className="tx-addr" onClick={copy} title="Copy the contract address">{address.slice(0, 6)}…{address.slice(-4)} {copied ? <IconCheck className="i" /> : <IconCopy className="i" />}</button>
+                  <button className="tx-act" onClick={copyLink} title="Copy a share link (live-price card on X, Telegram, Discord)">{linkCopied ? <IconCheck className="i" /> : <IconLink className="i" />}{linkCopied ? 'Copied' : 'Share link'}</button>
+                  <button className="tx-act" onClick={postToX} title="Post this token on X with its live card"><IconX className="i" />Post</button>
+                  {/* The whole token page as one image, stamped with the date + time it was taken (api/report.js ?token=). */}
+                  <button className={`tx-act snap${snap === 'err' ? ' err' : ''}`} onClick={downloadSnapshot} disabled={snap === 'busy'}
+                    title="Download a snapshot image of this token page (date + time stamped)">
+                    <IconCamera className="i" />{snap === 'busy' ? 'Preparing…' : snap === 'err' ? 'Try again' : 'Snapshot'}
+                  </button>
+                </div>
           </div>
 
           {err && !d && <div className="side-note">Some extended contract details (creator, size) are temporarily unavailable — the price and market data below are unaffected.</div>}

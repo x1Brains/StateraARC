@@ -40,3 +40,9 @@ export function IconPower({ className }: { className?: string }) {
 export function IconSend({ className }: { className?: string }) {
   return <svg {...base} className={className}><path d="M14 2 7 9M14 2l-4.5 12-2.5-5-5-2.5L14 2Z" /></svg>;
 }
+export function IconLink({ className }: { className?: string }) {
+  return <svg {...base} className={className}><path d="M6.6 9.4l2.8-2.8" /><path d="M7.3 4.9l1.1-1.1a2.8 2.8 0 014 4l-1.1 1.1" /><path d="M8.7 11.1l-1.1 1.1a2.8 2.8 0 01-4-4l1.1-1.1" /></svg>;
+}
+export function IconCamera({ className }: { className?: string }) {
+  return <svg {...base} className={className}><path d="M2.5 5.5h2.2l1.1-1.7h4.4l1.1 1.7h2.2v6.8h-11z" /><circle cx="8" cy="8.8" r="2.1" /></svg>;
+}

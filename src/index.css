@@ -2078,3 +2078,40 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .lk-part span:first-child { color: var(--white); }
 .lk-in { text-align: right; color: #4ecb71; }
 .lk-more { font-size: 11.5px; color: var(--dim, #6b6b75); margin-top: 4px; }
+
+/* Token header (09-29 owner: "I don't like those buttons"): facts as text, actions as real buttons */
+.tx-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin-top: 6px; font: 500 13px var(--body); color: var(--gray); }
+.tx-meta > span { display: inline-flex; align-items: center; }
+.tx-meta > span + span::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,.22); margin: 0 10px; }
+.tx-sym { font: 700 13px var(--disp); letter-spacing: .6px; color: #ffc24a; }
+.tx-warn { color: #ffb14a; cursor: help; border-bottom: 1px dotted rgba(255,177,74,.5); }
+.tx-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.tx-addr { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border-radius: 10px; cursor: pointer;
+  font: 500 12px var(--mono); color: var(--gray); background: rgba(255,255,255,.025); border: 1px dashed rgba(255,255,255,.14); transition: color .15s, border-color .15s; }
+.tx-addr:hover { color: var(--white); border-color: rgba(255,160,60,.55); }
+.tx-act { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 13px; border-radius: 10px; cursor: pointer;
+  font: 600 12px var(--disp); letter-spacing: .5px; color: #e9e9ee;
+  background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.015)); border: 1px solid rgba(255,255,255,.11);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06); transition: transform .15s, border-color .15s, background .15s, box-shadow .15s; }
+.tx-act .i, .tx-addr .i { width: 14px; height: 14px; }
+.tx-act .i { color: #ff9a4a; }
+.tx-act:hover { transform: translateY(-1px); border-color: rgba(255,150,70,.55); background: linear-gradient(180deg, rgba(255,140,60,.14), rgba(255,140,60,.04)); box-shadow: 0 6px 18px -8px rgba(255,120,40,.55); }
+.tx-act.snap { border-color: rgba(255,150,70,.35); background: linear-gradient(180deg, rgba(255,140,60,.12), rgba(255,140,60,.03)); }
+.tx-act:disabled { opacity: .7; cursor: progress; transform: none; }
+.tx-act.err { border-color: rgba(255,90,60,.6); color: #ff8a70; }
+@media (max-width: 640px) {
+  .tx-meta { font-size: 12px; } .tx-meta > span + span::before { margin: 0 7px; }
+  .tx-actions { gap: 6px; margin-top: 9px; }
+  .tx-act, .tx-addr { height: 30px; padding: 0 10px; font-size: 11px; }
+}
+/* actions: their own full-width row at the bottom of the hero, lined up under the name */
+.tx-hero > .tx-actions { position: relative; z-index: 1; flex: 1 0 100%; margin-top: 0; padding-left: 70px; }
+@media (min-width: 641px) { .tx-hero { flex-wrap: wrap; } .tx-hero-id { flex: 1 1 0; } }
+@media (max-width: 640px) { .tx-hero > .tx-actions { padding-left: 0; } }
+.tx-warn { border-bottom: 0; text-decoration: underline dotted rgba(255,177,74,.55); text-underline-offset: 3px; }
+@media (max-width: 640px) {
+  /* address on its own row, the three actions side by side (Snapshot used to drop onto a row of its own) */
+  .tx-hero > .tx-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .tx-hero > .tx-actions .tx-addr { grid-column: 1 / -1; justify-content: center; }
+  .tx-hero > .tx-actions .tx-act { justify-content: center; padding: 0 6px; }
+}
