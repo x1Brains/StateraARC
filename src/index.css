@@ -2020,3 +2020,9 @@ footer .wrap { padding: 16px 20px; }
 .tx-stats > div + div::before, #screener .stats .stat + .stat::after, .al-pulse > div + div::before { background: linear-gradient(transparent, rgba(255,255,255,.12), transparent) !important; }
 ::-webkit-scrollbar-thumb { background: #26262c; border: 3px solid #060607; background-clip: padding-box; }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #060607; }
+
+/* Validators tile on the Network dashboard is a control (opens + scrolls to the list) */
+.nx-big-btn { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.nx-big-btn:hover { border-color: rgba(255,160,60,.45); }
+.nx-big-go { color: var(--gray); letter-spacing: .5px; text-transform: none; font-size: 11px; margin-left: 6px; }
+.nx-toggle { touch-action: manipulation; min-height: 36px; }

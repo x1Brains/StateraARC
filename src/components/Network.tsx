@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usd } from '../lib/arc';
 import { v2Chain, v2Lending, v2Where, type V2Chain, type V2Lending, type V2Where } from '../lib/v2';
 
@@ -31,6 +31,10 @@ export function Network() {
   const [err, setErr] = useState(false);
   const [lend, setLend] = useState<V2Lending | null>(null);
   const [showVals, setShowVals] = useState(false);
+  // Owner 09-28: tapping "17 validators" on a phone did nothing — the tile wasn't a control, and the list opened below the
+  // fold. Both the tile and the button now open the list AND scroll to it.
+  const valsRef = useRef<HTMLDivElement>(null);
+  const openVals = (open: boolean) => { setShowVals(open); if (open) requestAnimationFrame(() => valsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })); };
   const [where, setWhere] = useState<V2Where | null>(null);
   useEffect(() => {
     let alive = true;
@@ -90,7 +94,7 @@ export function Network() {
           <div className="nx-big"><div className="v">{h1 ? `${h1.blockTime.toFixed(2)}s` : '—'}</div><div className="t">New block</div><div className="d">A new block of transactions every half second. Once in a block, a payment is final — it can't be reversed.</div></div>
           <div className="nx-big"><div className="v">{m5 ? n0(m5.tps, 0) : '—'}</div><div className="t">TX per second</div><div className="d">{h1 ? `${n0(h1.txs)} transactions in the ${hourLabel}.` : 'Counting…'}</div></div>
           <div className="nx-big"><div className="v">{transferFee == null ? '—' : transferFee < 0.01 ? `$${transferFee.toFixed(4)}` : usd(transferFee)}</div><div className="t">To send money</div><div className="d">Typical fee for a transfer. Fees on Arc are paid in dollars (USDC), not a separate gas coin.</div></div>
-          <div className="nx-big"><div className="v">{vals.length || '—'}</div><div className="t">Validators</div><div className="d">Approved institutions take turns confirming blocks{even ? ', each an equal share' : ''}.</div></div>
+          <button type="button" className="nx-big nx-big-btn" onClick={() => openVals(true)} aria-label="Show the validators"><div className="v">{vals.length || '—'}</div><div className="t">Validators <span className="nx-big-go">see all ›</span></div><div className="d">Approved institutions take turns confirming blocks{even ? ', each an equal share' : ''}.</div></button>
         </div>
 
         {/* 2 · Money on Arc */}
@@ -161,8 +165,8 @@ export function Network() {
         </div>}
 
         {/* 5 · Who runs it */}
-        <div className="nx-card">
-          <div className="nx-head"><h3>Who runs the chain</h3><button className="btn ghost nx-toggle" onClick={() => setShowVals((v) => !v)}>{showVals ? 'Hide' : 'Show'} the {vals.length}</button></div>
+        <div className="nx-card" ref={valsRef}>
+          <div className="nx-head"><h3>Who runs the chain</h3><button type="button" className="btn ghost nx-toggle" onClick={() => openVals(!showVals)}>{showVals ? 'Hide' : 'Show'} the {vals.length}</button></div>
           <p className="nx-sub">Arc is run by permissioned validators — Circle and regulated institutions. These are the founding validators Circle named at launch:</p>
           <div className="nx-vals">
             {VALIDATORS.map((v) => (
