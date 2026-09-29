@@ -17,7 +17,7 @@ import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
 import { WalletButton } from './components/WalletButton';
 import { WalletPicker } from './components/WalletPicker';
-import { IconArrowRight, IconArrowLeft, IconX } from './components/icons';
+import { IconArrowRight, IconArrowLeft, IconX, IconChevronDown } from './components/icons';
 
 type Page = 'home' | 'screener' | 'network' | 'portfolio' | 'swap' | 'token';
 
@@ -109,7 +109,7 @@ export default function App() {
   // Sortable column header (click to sort, arrow shows active key + direction).
   const th = (k: SortKey, label: string) => (
     <span className={`num sortable${sort === k ? ' hot' : ''}`} onClick={() => clickSort(k)}>
-      {label}{sort === k ? (dir === 'desc' ? ' ▾' : ' ▴') : ''}
+      {label}{sort === k ? <IconChevronDown className={`sort-caret${dir === 'asc' ? ' up' : ''}`} /> : null}
     </span>
   );
   // Quick views = sort presets (independent of the all/new/eco subset filter).

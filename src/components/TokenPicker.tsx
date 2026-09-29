@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { IconClose, IconExternal } from './icons';
+import { IconClose, IconExternal, IconChevronDown } from './icons';
 import { isAddress, type Token } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 
@@ -46,7 +46,7 @@ export function TokenPicker({ value, tokens, exclude, onSelect, onAddAddress, ad
       <button type="button" className="tk-pill tk-btn" onClick={() => setOpen(true)}>
         <TokenLogo symbol={value?.symbol || '?'} seed={value?.address || ''} url={value?.iconUrl || null} />
         <span className="tk-btn-sym">{value?.symbol || 'Select'}</span>
-        <span className="tk-caret">▾</span>
+        <span className="tk-caret"><IconChevronDown /></span>
       </button>
 
       {open && (

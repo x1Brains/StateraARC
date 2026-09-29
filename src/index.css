@@ -2115,3 +2115,8 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
   .tx-hero > .tx-actions .tx-addr { grid-column: 1 / -1; justify-content: center; }
   .tx-hero > .tx-actions .tx-act { justify-content: center; padding: 0 6px; }
 }
+/* 09-29: drawn icons instead of arrow/triangle characters (they can render as emoji or blank boxes) */
+.sort-caret { width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; transition: transform .15s; }
+.sort-caret.up { transform: rotate(180deg); }
+.nx-verify .i, .nx-big-go .arw { width: 11px; height: 11px; vertical-align: -1px; }
+.dd-caret svg, .tk-caret svg { width: 11px; height: 11px; vertical-align: -1px; }

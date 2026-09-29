@@ -1,4 +1,5 @@
 import { liveToken, within } from '../lib/livetoken.js';
+import { noEmoji } from '../lib/clean.js';
 
 // Server-rendered HTML for /token/:addr so X / Discord / Telegram unfurl a per-token card.
 // A Vite SPA ships one static index.html with generic meta — crawlers don't run JS, so they'd all
@@ -31,7 +32,7 @@ export default async function handler(req, res) {
   // Live: the site's current list (VPS /api/snapshot) + the price re-read from the token's pool right now.
   const t = addr ? await within(liveToken(origin, addr), 3500) : null;
 
-  const sym = t?.symbol || 'Token';
+  const sym = noEmoji(t?.symbol) || 'Token';
   const price = fmtUsd(t?.price);
   const ch = t?.change24h;
   const chTxt = ch == null ? '' : ` (${ch >= 0 ? '+' : ''}${ch.toFixed(1)}% 24h)`;
@@ -42,7 +43,7 @@ export default async function handler(req, res) {
     t.volume24h ? `Vol ${fmtUsd(t.volume24h)}` : '', t.holders ? `${fmtN(t.holders)} holders` : '',
   ].filter(Boolean).join(' · ') : '';
   const desc = t
-    ? `${stats ? stats + ' · ' : ''}${t.name || sym} on Arc mainnet — live chart, holders & trades on StateraArc.`
+    ? `${stats ? stats + ' · ' : ''}${noEmoji(t.name) || sym} on Arc mainnet — live chart, holders & trades on StateraArc.`
     : 'Live Arc-mainnet token screener — price, charts, liquidity, holders and trades.';
   // &sq=1 = the 600x600 square image X's `summary` card needs; v=N busts X/Discord's cached image on a redesign.
   // &t = a 5-minute bucket: X/Discord cache a card image by its URL, so a fresh page fetch must point at a fresh

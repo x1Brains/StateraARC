@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usd } from '../lib/arc';
 import { v2Chain, v2Lending, v2Where, type V2Chain, type V2Lending, type V2Where } from '../lib/v2';
+import { IconArrowRight, IconExternal } from './icons';
 
 // ARC NETWORK — the chain itself, in plain words. Everything is read live from Arc by our follower on the VPS
 // (server/chain.ts, server/lending.ts): every block, Circle's asset supplies, CCTP bridge flows, Morpho + Aave lending.
@@ -94,7 +95,7 @@ export function Network() {
           <div className="nx-big"><div className="v">{h1 ? `${h1.blockTime.toFixed(2)}s` : '—'}</div><div className="t">New block</div><div className="d">A new block of transactions every half second. Once in a block, a payment is final — it can't be reversed.</div></div>
           <div className="nx-big"><div className="v">{m5 ? n0(m5.tps, 0) : '—'}</div><div className="t">TX per second</div><div className="d">{h1 ? `${n0(h1.txs)} transactions in the ${hourLabel}.` : 'Counting…'}</div></div>
           <div className="nx-big"><div className="v">{transferFee == null ? '—' : transferFee < 0.01 ? `$${transferFee.toFixed(4)}` : usd(transferFee)}</div><div className="t">To send money</div><div className="d">Typical fee for a transfer. Fees on Arc are paid in dollars (USDC), not a separate gas coin.</div></div>
-          <button type="button" className="nx-big nx-big-btn" onClick={() => openVals(true)} aria-label="Show the validators"><div className="v">{vals.length || '—'}</div><div className="t">Validators <span className="nx-big-go">see all ›</span></div><div className="d">Approved institutions take turns confirming blocks{even ? ', each an equal share' : ''}.</div></button>
+          <button type="button" className="nx-big nx-big-btn" onClick={() => openVals(true)} aria-label="Show the validators"><div className="v">{vals.length || '—'}</div><div className="t">Validators <span className="nx-big-go">see all <IconArrowRight className="arw" /></span></div><div className="d">Approved institutions take turns confirming blocks{even ? ', each an equal share' : ''}.</div></button>
         </div>
 
         {/* 2 · Money on Arc */}
@@ -117,7 +118,7 @@ export function Network() {
             return (
               <div className="nx-asset" key={k}>
                 <div className="nx-row">
-                  <span>{ASSET_NAME[k]} <a className="nx-verify" href={`https://explorer.arc.io/token/${ASSET_ADDR[k]}`} target="_blank" rel="noreferrer" title="Open this token's contract on the Arc explorer — the supply shown there is the number here">Verify on explorer ↗</a></span>
+                  <span>{ASSET_NAME[k]} <a className="nx-verify" href={`https://explorer.arc.io/token/${ASSET_ADDR[k]}`} target="_blank" rel="noreferrer" title="Open this token's contract on the Arc explorer — the supply shown there is the number here">Verify on explorer <IconExternal className="i" /></a></span>
                   <span className="num mono">{c.supplyUsd?.[k] != null ? usd(c.supplyUsd[k]!) : '—'}<small className="sub">{n0(c.supplies[k], k === 'cirBTC' ? 2 : 0)} {k}</small></span>
                 </div>
                 {w && w.supply > 0 && <>

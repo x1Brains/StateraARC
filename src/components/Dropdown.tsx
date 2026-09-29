@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { IconCheck } from './icons';
+import { IconCheck, IconChevronDown } from './icons';
 
 // Themed select — no native OS picker. Button + anchored popover in Statera's aesthetic.
 export function Dropdown<T extends string>({ value, options, onChange, align = 'left' }: {
@@ -24,7 +24,7 @@ export function Dropdown<T extends string>({ value, options, onChange, align = '
     <div className={`dd ${open ? 'open' : ''}`} ref={ref}>
       <button type="button" className="dd-btn" onClick={() => setOpen((o) => !o)}>
         <span>{current?.label ?? value}</span>
-        <span className="dd-caret">▾</span>
+        <span className="dd-caret"><IconChevronDown /></span>
       </button>
       {open && (
         <div className={`dd-menu ${align === 'right' ? 'r' : ''}`}>

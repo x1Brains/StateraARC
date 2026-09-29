@@ -2,6 +2,7 @@ import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import FONT_B64 from '../lib/ogfont.js';
 import WASM_B64 from '../lib/ogwasm.js';
 import { fetchUpstream } from '../lib/upstream.js';
+import { noEmoji } from '../lib/clean.js';
 
 // ARC NETWORK REPORT — the whole Network page as one image, drawn from the live /v2 data (chain, lending, where) at request
 // time. Owner 09-28: "a full snapshot report image I can just post on X". Same renderer as the token cards (resvg WASM +
@@ -375,7 +376,7 @@ export default async function handler(req, res) {
       if (!/^0x[0-9a-f]{40}$/.test(tokenAddr)) throw new Error('bad token address');
       const [row, d, c15, c5, logo] = await Promise.all([within(v2(`token/${tokenAddr}`), 5000), within(v2(`token/${tokenAddr}/detail`), 9000),
         within(v2(`token/${tokenAddr}/candles?sec=900&look=259200`), 6000), within(v2(`token/${tokenAddr}/candles?sec=300&look=86400`), 6000), within(tokenLogo(tokenAddr), 3000, ''), ensureWasm()]);
-      const t = row?.token;
+      const t = row?.token ? { ...row.token, name: noEmoji(row.token.name), symbol: noEmoji(row.token.symbol), launchpad: noEmoji(row.token.launchpad) || null } : null;
       if (!t) throw new Error('token not found');
       // 15-minute candles over 3 days; a token younger than ~6 h gets 5-minute candles over 24 h instead
       const long = c15?.candles || [], shortC = c5?.candles || [];
