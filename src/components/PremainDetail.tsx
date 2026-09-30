@@ -28,7 +28,9 @@ function holdersTip(h: { over: number; total: number | null; minUsd: number; cap
   const total = h.total ?? fallbackTotal;
   const over = `${h.over.toLocaleString()}${h.capped ? '+' : ''}`;
   if (total == null || total <= 0 || h.capped) return `${over} wallets hold at least $${h.minUsd.toFixed(2)} of this token.`;
-  const under = Math.max(0, total - h.over), pct = (n: number) => `${Math.round((n / total) * 100)}%`;
+  const under = Math.max(0, total - h.over);
+  // one decimal near the ends — GLITCH's 244 of 64,790 is 0.4%, not '0%'
+  const pct = (n: number) => { const v = (n / total) * 100; return `${v > 0 && v < 1 ? v.toFixed(1) : v > 99 && v < 100 ? v.toFixed(1) : Math.round(v)}%`; };
   return `${over} of ${total.toLocaleString()} holders (${pct(h.over)}) hold at least $${h.minUsd.toFixed(2)} of it; ${under.toLocaleString()} (${pct(under)}) hold less than that.`;
 }
 
