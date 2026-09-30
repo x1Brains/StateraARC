@@ -160,7 +160,7 @@ function send(req: http.IncomingMessage, res: http.ServerResponse, status: numbe
 }
 const intIn = (v: string | null, d: number, lo: number, hi: number) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.floor(n))) : d; };
 
-http.createServer((req, res) => {
+http.createServer(async (req, res) => { // async: the /wallet route awaits (09-30: a bare await here crashed the API on start)
   try {
     stats.requests++;
     if (!KEY || req.headers['x-relay-key'] !== KEY) { res.writeHead(403).end('nope'); return; }

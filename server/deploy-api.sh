@@ -7,6 +7,9 @@ export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new -o ControlPath=n
 if [ ! -d "$DIR/.git" ]; then git clone -q "$(git -C /root/statera-repo remote get-url origin)" "$DIR"; fi
 git -C "$DIR" fetch -q origin main && git -C "$DIR" reset -q --hard origin/main
 cd "$DIR" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null
+# Gate (09-30): parse every server file the way the service will run it BEFORE restarting — a syntax error used to take
+# the API down (crash loop); now the deploy stops here and the running version keeps serving.
+if ! node --no-warnings scripts/tscheck.mjs server/*.ts; then echo "[deploy-api] ABORTED: server code does not parse - the running API was NOT restarted"; exit 1; fi
 cp server/statera-api.service /etc/systemd/system/statera-api.service
 systemctl daemon-reload && systemctl enable -q statera-api && systemctl restart statera-api
 # Funnel path /v2 -> :8790 (adds this one path; / /ns /holdings are left as they are).
