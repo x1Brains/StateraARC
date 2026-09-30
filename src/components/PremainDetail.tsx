@@ -39,6 +39,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   const [dec, setDec] = useState<number | null>(null); // token decimals actually used for every on-chain read
   const [locks, setLocks] = useState<V2TokenDetail['locks']>(null);
   const [holdersOver, setHoldersOver] = useState<V2TokenDetail['holdersOver']>(null);
+  const [chainHolders, setChainHolders] = useState<number | null>(null); // our own on-chain index's holder count
   const [burn, setBurn] = useState<{ burnt: number; supply: number | null; pct: number | null } | null>(null);
   const [tab, setTab] = useState<'txns' | 'holders' | 'mine'>('txns');
   // The connected wallet's own buys/sells of this token (rebuilt in this browser from its transactions) — listed in
@@ -68,7 +69,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
     // that picked the pool with the most USDC, which has no swaps: empty 24h stats after 13.9s, 5m/6h change never shown.
     // Wait for the list (`ready`, well under a second) so every visitor gets the snapshot's pool.
     if (!ready) return;
-    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null); setDayStats(null); setBurn(null); setDec(null); setLocks(null); setHoldersOver(null);
+    let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null); setDayStats(null); setBurn(null); setDec(null); setLocks(null); setHoldersOver(null); setChainHolders(null);
     // Prime the pool cache from the snapshot so every panel skips the slow ~900k-block pool-discovery scan.
     if (seed && (seed.pool || seed.poolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0 });
     // 09-29: the chart mounts once `dec` is known — it waited for the whole detail response (up to ~10 s on a cold token)
@@ -96,14 +97,14 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
               if (!alive || f.at <= lastAt) return;
               lastAt = f.at;
               setOcPool(f.ocPool); setOcPools(f.ocPools); setDayStats(f.dayStats); setBurn(f.burn); setTxs(f.txs ?? []);
-              if (f.locks) setLocks(f.locks); if (f.holdersOver) setHoldersOver(f.holdersOver);
+              if (f.locks) setLocks(f.locks); if (f.holdersOver) setHoldersOver(f.holdersOver); if (f.holderCount) setChainHolders(f.holderCount);
               if (f.holders && f.holders.length) setHolders(f.holders);
               if (f.swaps && f.swaps.length) setSwaps(f.swaps);
             }).catch(() => {});
           }, 10_000);
           setDec(v.dec);
           rdP.then((detail) => { if (alive) setRd(detail); });
-          setOcPool(v.ocPool); setOcPools(v.ocPools); setDayStats(v.dayStats); setBurn(v.burn); setTxs(v.txs ?? []); setLocks(v.locks ?? null); setHoldersOver(v.holdersOver ?? null);
+          setOcPool(v.ocPool); setOcPools(v.ocPools); setDayStats(v.dayStats); setBurn(v.burn); setTxs(v.txs ?? []); setLocks(v.locks ?? null); setHoldersOver(v.holdersOver ?? null); setChainHolders(v.holderCount ?? null);
           if (v.holders && v.holders.length) setHolders(v.holders);
           else fetchRadarHolders(address, v.dec, 100).then((h) => { if (alive) { setHolders(h.holders); if (h.holderCount != null) setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
           if (v.swaps && v.swaps.length) setSwaps(v.swaps);
@@ -258,7 +259,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   // Holder count: on-chain (arc-scan) and Warp agree and are ground truth; RadarDEX's count is stale/
   // partial (it only lists ~50 rows and undercounted ARGUS 12k vs the real 18k), so it goes LAST — else
   // it loaded late and OVERRODE the correct number, making the header flip 18k -> 12k.
-  const holdersTotal = d?.holders ?? warp?.holders ?? seed?.holders ?? holderCount ?? null;
+  const holdersTotal = chainHolders ?? d?.holders ?? warp?.holders ?? seed?.holders ?? holderCount ?? null;
   // Buy/sell pressure (24h) + top-10 concentration for the DEX-style panels.
   // Buy/sell/txns/makers: RadarDEX first, else count the ACTUAL on-chain trades (so a coin RadarDEX shows
   // 0 for — cirBTC etc. — still reflects its real recent activity instead of a broken all-zero panel).
@@ -567,6 +568,12 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
 
             {tab === 'holders' && (
               <div className="td-tabbody">
+                {/* 09-30 (owner): how many of the top holders are real wallets vs pools / contracts / lockers / burned */}
+                {holders && holders.length > 0 && holders.some((h) => h.kind !== undefined) && (() => {
+                  const n = (k: string | null) => holders.filter((h) => (h.kind ?? null) === k).length;
+                  const parts: [number, string, string][] = [[n(null), 'wallets', 'w'], [n('v4') + n('pool'), 'pools', 'pool'], [n('contract'), 'contracts', 'ctr'], [n('locker'), 'locked', 'lock'], [n('burn'), 'burned', 'burn']];
+                  return <div className="hl-sum">Top {holders.length}: {parts.filter(([c]) => c > 0).map(([c, l, cls], i) => <span key={l} className={`hl-sum-${cls}`}>{i ? ' · ' : ''}<b>{c}</b> {l}</span>)}</div>;
+                })()}
                 {top10 != null && <div className="td-tabsub">Top 10 hold <b>{top10.toFixed(1)}%</b>{holdersTotal != null ? ` · ${fmtNum(holdersTotal)} holders` : ''}{holdersOver && holdersOver.over > 0 ? ` · ${fmtNum(holdersOver.over)}${holdersOver.capped ? '+' : ''} hold over $0.10` : ''}</div>}
                 {holders == null ? <div className="side-note">Loading holders…</div>
                   : !holders.length ? <div className="side-note">No holder data available from the indexer.</div>

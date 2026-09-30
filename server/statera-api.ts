@@ -23,6 +23,7 @@ import zlib from 'node:zlib';
 import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
+import { indexHolders, indexStats, indexedAt } from './holder-index.ts';
 import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
@@ -165,7 +166,7 @@ http.createServer((req, res) => {
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: { ...detailStats, ...warmStats }, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
@@ -241,6 +242,18 @@ const listed = () => (view ? Board.boardRows(view.tokens, view.ix, { filter: 'al
 // back to back: the next token 4 s after the last one finished (a fixed 12 s tick warmed ~1 token a minute)
 const warmLoop = async () => { try { await warmNext(listed()); } catch { /* next */ } setTimeout(warmLoop, 4_000); };
 setTimeout(warmLoop, 15_000);
+// Our own holder index (server/holder-index.ts): every listed token, never-indexed first, then any older than 10 min —
+// one at a time, on the wide-range RPCs (not the ones visitors' pages use).
+const indexLoop = async () => {
+  let did = false;
+  try {
+    const rows = listed(), now = Date.now();
+    const next = rows.map((t) => ({ t, at: indexedAt(t.address) })).filter((x) => now - x.at > 10 * 60_000).sort((a, b) => a.at - b.at)[0];
+    if (next) { await indexHolders(next.t.address); did = true; }
+  } catch { /* next tick */ }
+  setTimeout(indexLoop, did ? 2_000 : 20_000);
+};
+setTimeout(indexLoop, 30_000);
 setInterval(saveCaches, 5 * 60_000);
 // The Network page's chain follower: every block, one poll at a time, every 15 s.
 let chaining = false;

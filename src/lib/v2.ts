@@ -50,6 +50,7 @@ export interface V2TokenDetail {
   ocPool: { tvl: number | null; reserveQuote: number | null; reserveBase: number | null; pool: string | null; price: number | null } | null;
   ocPools: OnchainPool[] | null; dayStats: DayStats | null; burn: { burnt: number; supply: number | null; pct: number | null } | null;
   holders: RadarHolder[] | null; swaps: RadarSwap[] | null; txs: TokenTransfer[] | null;
+  holderCount?: number | null; holdersFrom?: 'chain' | 'arc-scan' | null;
   locks?: V2Lock[] | null; holdersOver?: { over: number; total: number | null; minUsd: number; capped: boolean; at: number } | null;
 }
 export interface V2Lock { locker: string; label: string; locked: number; pct: number | null; nextUnlock: number | null; lastUnlock: number | null; parts: { amount: number; unlock: number }[]; expiredNotWithdrawn: number }

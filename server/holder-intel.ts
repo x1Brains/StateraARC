@@ -31,7 +31,7 @@ async function multicall(calls: { target: string; data: string }[]): Promise<(st
 
 // ── known addresses ──
 export const POOL_MANAGER_V4 = '0x8366a39cc670b4001a1121b8f6a443a643e40951';
-const BURN = new Set(['0x000000000000000000000000000000000000dead', '0x0000000000000000000000000000000000000000']);
+export const BURN = new Set(['0x000000000000000000000000000000000000dead', '0x0000000000000000000000000000000000000000']);
 // Token lockers. The Argus one was identified 09-29 from its own bytecode (lock / withdraw / getLock / lockedTotal / extend)
 // and holds only Argus-pad tokens (GLITCH 5%, ARGUS, ARCANUS…); the GLITCH dev calls it "locked on argus".
 // getLock(i) → (token, unlockTime, withdrawn?, owner, lockedAt, amount) — word 2 is 0 on every live lock seen.
@@ -39,6 +39,13 @@ export const LOCKERS: { address: string; label: string }[] = [
   { address: '0xfee1d11d4501d66d8ea1024dc198ee5663c2bf6b', label: 'Argus locker' },
 ];
 const LOCKER_SET = new Map(LOCKERS.map((l) => [l.address, l]));
+// Known protocol contracts (the Network page's lending + bridge addresses — server/where.ts), named instead of a bare
+// CONTRACT badge (09-30: cirBTC's top two holders are Morpho 70% and Aave 21% — collateral, not whales).
+export const KNOWN_CONTRACTS: Record<string, string> = {
+  '0x34cd04070dd72b14e241112f6d83812df5af7fcd': 'Morpho (lending)',
+  '0x17288dfc86205301064577b98b02b81017e6f79c': 'Aave V4 (lending)',
+  '0x77777777dcc4d5a8b6e418fd04d8997ef11000ee': 'Circle Gateway',
+};
 
 // ── 1. contract or wallet (eth_getCode; a contract stays a contract — cached for the process) ──
 const codeCache = new Map<string, boolean>();
@@ -109,6 +116,7 @@ export async function holderBadges(addrs: string[], poolAddrs: string[]): Promis
     else if (BURN.has(a)) out.set(a, { kind: 'burn', label: 'Burned' });
     else if (pools.has(a)) out.set(a, { kind: 'pool', label: 'Liquidity pool' });
     else if (LOCKER_SET.has(a)) out.set(a, { kind: 'locker', label: LOCKER_SET.get(a)!.label });
+    else if (KNOWN_CONTRACTS[a]) out.set(a, { kind: 'contract', label: KNOWN_CONTRACTS[a] });
     else if (isC.get(a)) out.set(a, { kind: 'contract', label: null });
     else out.set(a, { kind: null, label: null });
   }

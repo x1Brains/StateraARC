@@ -2122,3 +2122,7 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .dd-caret svg, .tk-caret svg { width: 11px; height: 11px; vertical-align: -1px; }
 /* swap: USD value under each amount (09-29) */
 .swap-usd { font: 12px var(--mono); color: var(--gray); margin-top: 4px; min-height: 16px; }
+/* Holders tab: real wallets vs pools / contracts / lockers / burned (09-30) */
+.hl-sum { font-size: 12.5px; color: var(--gray); margin: 2px 0 8px; }
+.hl-sum b { color: var(--white); font-family: var(--disp); }
+.hl-sum-pool b { color: #6ea8ff; } .hl-sum-ctr b { color: #b8a3ff; } .hl-sum-lock b { color: #4ecb71; } .hl-sum-burn b { color: #ff8a5a; }
