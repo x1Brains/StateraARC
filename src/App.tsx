@@ -16,6 +16,7 @@ import { TokenPage } from './components/TokenPage';
 import { Disclaimer, disclaimerAcked } from './components/Disclaimer';
 import { VisitCounter } from './components/VisitCounter';
 import { WalletButton } from './components/WalletButton';
+import { isStateraImpersonator } from './lib/rules';
 import { WalletPicker } from './components/WalletPicker';
 import { IconArrowRight, IconArrowLeft, IconX, IconChevronDown } from './components/icons';
 
@@ -592,6 +593,7 @@ export default function App() {
                     <span className="num spark-cell" data-l="Last 24h"><Sparkline data={t.spark} price={t.price} change24h={t.change24h} /></span>
                     <span className="flags">
                       {(() => { const c = confScore(t); return c != null ? <span className={`badge conf ${c >= 70 ? 'good' : c >= 40 ? 'mid' : 'bad'}`} title="Confidence — liquidity depth, holders, stability">{c}</span> : null; })()}
+                      {isStateraImpersonator(t) && <span className="badge b-fake" title="Uses the Statera name — NOT made by or associated with Statera">FAKE · NOT STATERA</span>}
                       {t.launchpad && <span className="badge b-lp" title={t.launchpad}>{t.launchpad}</span>}
                       {t.isEcosystem && <span className="badge b-gray">ECO</span>}
                     </span>

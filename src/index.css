@@ -2126,3 +2126,8 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .hl-sum { font-size: 12.5px; color: var(--gray); margin: 2px 0 8px; }
 .hl-sum b { color: var(--white); font-family: var(--disp); }
 .hl-sum-pool b { color: #6ea8ff; } .hl-sum-ctr b { color: #b8a3ff; } .hl-sum-lock b { color: #4ecb71; } .hl-sum-burn b { color: #ff8a5a; }
+/* Statera impersonator warning (09-30) */
+.fake-banner { display: flex; flex-direction: column; gap: 4px; margin: 0 0 14px; padding: 14px 18px; border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255,60,60,.16), rgba(255,60,60,.07)); border: 1px solid rgba(255,90,90,.6); color: #ffd6d6; font-size: 13.5px; line-height: 1.5; }
+.fake-banner b { font: 700 15px var(--disp); letter-spacing: .6px; color: #ff6b6b; text-transform: uppercase; }
+.badge.b-fake { color: #fff; background: #d63a3a; border: 1px solid #ff6b6b; font-weight: 700; }

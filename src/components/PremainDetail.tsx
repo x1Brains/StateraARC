@@ -6,6 +6,7 @@ import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { v2Enabled, v2TokenDetail, type V2TokenDetail } from '../lib/v2';
+import { isStateraImpersonator, stateraHasToken } from '../lib/rules';
 import { fetchWalletTokenTrades, type WalletTrade } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX, IconLink, IconCamera } from './icons';
 import { useNames, displayName } from '../lib/names';
@@ -442,6 +443,13 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
         <div className="tdx-main">
           {/* HERO (09-28 v2, owner: "the banner is kinda ugly… the huge trade button is too much"): the token's own logo, blurred,
               tints the strip; identity left, price + changes right, a compact Trade button. */}
+          {/* 09-30 owner: a token using the Statera name that is not ours gets an unmissable warning */}
+          {isStateraImpersonator({ address, name: name || seed?.name, symbol: sym }) && (
+            <div className="fake-banner" role="alert">
+              <b>FAKE — not associated with Statera.</b>
+              <span>This token uses the Statera name but was not created by us. {stateraHasToken() ? 'The only official Statera token is listed on our $STR page.' : 'Statera has not launched a token yet — any token calling itself Statera is not ours.'} Do not buy it thinking it is Statera.</span>
+            </div>
+          )}
           <div className="tx-hero">
             {(() => { const u = warp?.image ?? seed?.iconUrl ?? null; return u ? <div className="tx-hero-tint" style={{ backgroundImage: `url("${u}")` }} /> : null; })()}
             <div className="tx-hero-id">

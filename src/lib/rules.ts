@@ -82,6 +82,19 @@ export const ECOSYSTEM_ADDRS = new Set<string>([NATIVE_USDC_ADDR.toLowerCase(), 
 // USD", 99 holders), and a fake "CRCL" (25,745 airdropped holders) outranked the real one. The snapshot builder applies the
 // same rules; this is the last line, so a bad build can never reach the screen. ═════════
 // Real tokens pinned BY ADDRESS: for their ticker they are always the canonical one, however many holders a copycat airdrops.
+// ── Statera impersonators (owner 09-30: "add a FAKE — not associated with us banner") ──
+// Statera has not launched a token yet ($STR is announced, not deployed), so ANY token using the Statera name is not
+// ours. When $STR ships, put its address in OFFICIAL_STATERA and it is never flagged. KNOWN_FAKES = copycats seen
+// without the exact name (0x1101… 'StateraARC' / STRT, 09-30).
+export const OFFICIAL_STATERA = new Set<string>([]);
+const KNOWN_FAKES = new Set<string>(['0x1101ece603b96f5e5db610b63be9807fbb544235']);
+export const isStateraImpersonator = (t: { address: string; name?: string | null; symbol?: string | null }): boolean => {
+  const a = (t.address || '').toLowerCase();
+  if (OFFICIAL_STATERA.has(a)) return false;
+  return KNOWN_FAKES.has(a) || /statera/i.test(`${t.name || ''} ${t.symbol || ''}`);
+};
+export const stateraHasToken = () => OFFICIAL_STATERA.size > 0;
+
 export const PINNED = new Set<string>([NATIVE_USDC_ADDR, ...ECOSYSTEM_TOKENS.map((e) => e.address), ...MAINNET_CORE.map((t) => t.address)].map((a) => a.toLowerCase()));
 // Impersonator = claims to BE a Circle / major asset: that exact ticker, or a name that starts like the real one. (Was any
 // name containing circle/usdc — the 09-25 audit found it hid meme tokens that only MENTION Circle: "Circled" 2,076 holders,

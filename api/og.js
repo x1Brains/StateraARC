@@ -2,6 +2,7 @@ import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import FONT_B64 from '../lib/ogfont.js';
 import WASM_B64 from '../lib/ogwasm.js';
 import { liveToken, within } from '../lib/livetoken.js';
+import { isStateraImpersonator } from '../lib/fakes.js';
 
 // Dynamic social card for a token: paste stateraarc.com/token/0x… anywhere and it unfurls into this.
 // Rasterised with the WASM build of resvg. The NATIVE @resvg/resvg-js renders blank text under
@@ -120,6 +121,9 @@ export default async function handler(req, res) {
       <text x="${x}" y="508" font-family="Open Sans" font-size="23" fill="#8f8478" letter-spacing="2">${label}</text>
       <text x="${x}" y="564" font-family="Open Sans" font-size="46" fill="#ffffff">${value}</text>`;
 
+    // a red FAKE strip across the top of a Statera impersonator's card (09-30)
+    const fake = isStateraImpersonator(addr, t?.name, t?.symbol);
+    const fakeStrip = (w) => fake ? `<rect x="0" y="0" width="${w}" height="64" fill="#d63a3a"/><text x="${w / 2}" y="43" text-anchor="middle" font-family="Open Sans" font-size="${w > 700 ? 30 : 22}" fill="#ffffff">FAKE — NOT ASSOCIATED WITH STATERA</text>` : '';
     const wideSvg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="630">
       <defs>
         <radialGradient id="glow" cx="82%" cy="0%" r="70%">
@@ -149,6 +153,7 @@ export default async function handler(req, res) {
 
       <text x="64" y="602" font-family="Open Sans" font-size="26" fill="#6a635a">stateraarc.com</text>
       <text x="1136" y="602" text-anchor="end" font-family="Open Sans" font-size="26" fill="#6a635a">Screener · Swap · Portfolio</text>
+      ${fakeStrip(1200)}
     </svg>`;
 
     // Square 600x600 for X's `summary` card — a small thumbnail (logo + $sym + price), short by design; the
@@ -167,6 +172,7 @@ export default async function handler(req, res) {
       <text x="300" y="456" text-anchor="middle" font-family="Open Sans" font-size="62" fill="#ffffff">${priceInner(t?.price, 62)}</text>
       ${chStr ? `<text x="300" y="516" text-anchor="middle" font-family="Open Sans" font-size="38" fill="${chColor}">${esc(chStr)}</text>` : ''}
       <text x="300" y="568" text-anchor="middle" font-family="Open Sans" font-size="22" fill="#8f8478">Arc Mainnet · stateraarc.com</text>
+      ${fakeStrip(600)}
     </svg>`;
 
     const png = new Resvg(square ? sqSvg : wideSvg, {

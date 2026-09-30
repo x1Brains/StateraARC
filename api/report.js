@@ -2,6 +2,7 @@ import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import FONT_B64 from '../lib/ogfont.js';
 import WASM_B64 from '../lib/ogwasm.js';
 import { fetchUpstream } from '../lib/upstream.js';
+import { isStateraImpersonator } from '../lib/fakes.js';
 
 // ARC NETWORK REPORT — the whole Network page as one image, drawn from the live /v2 data (chain, lending, where) at request
 // time. Owner 09-28: "a full snapshot report image I can just post on X". Same renderer as the token cards (resvg WASM +
@@ -235,6 +236,8 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc) {
   s += T(W - P, ly + 62, priceInner(t?.price, 58), 58, C.white, 'text-anchor="end"');
   const chips = [['1H', day?.change1h ?? t?.change1h], ['6H', day?.change6h], ['24H', day?.change24h ?? t?.change24h]].filter(([, v]) => v != null);
   let cx = W - P; [...chips].reverse().forEach(([k, v]) => { const txt = `${k} ${chg(v)}`, tw = 22 + txt.length * 9.4; cx -= tw; s += `<rect x="${cx}" y="${ly + 84}" width="${tw}" height="32" rx="9" fill="${C.tile}" stroke="${chgCol(v)}" stroke-opacity="0.45"/>` + T(cx + tw / 2, ly + 106, esc(txt), 16, chgCol(v), 'text-anchor="middle"'); cx -= 8; });
+  // FAKE warning over a Statera impersonator's snapshot (09-30)
+  if (isStateraImpersonator(addr, t?.name, t?.symbol)) s += `<rect x="${P}" y="12" width="${IW}" height="30" rx="8" fill="#d63a3a"/>` + T(W / 2, 33, 'FAKE — NOT ASSOCIATED WITH STATERA', 18, '#ffffff', 'text-anchor="middle" letter-spacing="2"');
   // ── stats row
   y = 284; const sw = (IW - 4 * 12) / 5;
   [['MARKET CAP', usd(t?.mcap)], ['LIQUIDITY', usd(t?.liq)], ['VOLUME 24H', usd(day?.volume24h ?? t?.volume24h)], (d?.holdersOver?.over > 0 ? ['HOLDERS $0.10+', `${num(d.holdersOver.over)}${d.holdersOver.capped ? '+' : ''}`] : ['HOLDERS', t?.holders != null ? num(t.holders) : '—']), ['TXNS 24H', day?.txns24 != null ? num(day.txns24) : '—']]
