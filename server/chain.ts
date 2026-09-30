@@ -34,7 +34,7 @@ const SUPPLY: { sym: string; addr: string; dec: number }[] = [
 ];
 
 interface Blk { n: number; ts: number; miner: string; txs: number; gas: number; baseFee: number }
-interface Flow { n: number; ts: number; dir: 'in' | 'out'; usd: number; domain: number | null }
+interface Flow { n: number; h?: string; ts: number; dir: 'in' | 'out'; usd: number; domain: number | null } // h = tx hash (09-30)
 const blocks = new Map<number, Blk>();
 let flows: Flow[] = [];
 let head = 0, lastBlock = 0, lastLogBlock = 0;
@@ -64,6 +64,9 @@ async function readFlows(rpc: Rpc, from: number, to: number) {
     rpc('eth_getLogs', [{ address: MESSAGE_TRANSMITTER, topics: [TOPIC_MESSAGE_RECEIVED], fromBlock: hex(from), toBlock: hex(to) }]),
   ]);
   if (!Array.isArray(tm)) throw new Error('cctp logs unavailable');
+  // ⛔ 09-30: a failed MessageReceived read was ignored, and every inflow in that range was labelled "unknown" ($2.79M of 24 h).
+  // On chain EVERY MintAndWithdraw has its MessageReceived in the same tx (1,130 / 1,130 checked) — so a failed read = retry.
+  if (!Array.isArray(mt)) throw new Error('cctp receive logs unavailable');
   // A received message's source domain, keyed by tx (MintAndWithdraw and MessageReceived share the receive tx).
   const srcByTx = new Map<string, number>();
   if (Array.isArray(mt)) for (const l of mt) { try { srcByTx.set(l.transactionHash, Number(word(l.data, 0))); } catch { /* skip */ } }
@@ -78,10 +81,10 @@ async function readFlows(rpc: Rpc, from: number, to: number) {
     try {
       if (l.topics[0] === TOPIC_DEPOSIT_FOR_BURN) {
         // non-indexed: amount, mintRecipient, destinationDomain, … (USDC ERC-20 face, 6 dec)
-        flows.push({ n, ts: tsOf(n) ?? 0, dir: 'out', usd: Number(word(l.data, 0)) / 1e6, domain: Number(word(l.data, 2)) });
+        flows.push({ n, h: l.transactionHash, ts: tsOf(n) ?? 0, dir: 'out', usd: Number(word(l.data, 0)) / 1e6, domain: Number(word(l.data, 2)) });
       } else {
         // non-indexed: amount, feeCollected
-        flows.push({ n, ts: tsOf(n) ?? 0, dir: 'in', usd: Number(word(l.data, 0)) / 1e6, domain: srcByTx.get(l.transactionHash) ?? null });
+        flows.push({ n, h: l.transactionHash, ts: tsOf(n) ?? 0, dir: 'in', usd: Number(word(l.data, 0)) / 1e6, domain: srcByTx.get(l.transactionHash) ?? null });
       }
     } catch { /* skip malformed */ }
   }
@@ -119,6 +122,9 @@ export function loadChain() {
     // page claimed 52 h of cover and showed ~12 h of flows as "24 hours". Such state restarts from its oldest KEPT flow.
     // Rule on every load: flowsFrom can never be older than the oldest KEPT flow (at worst a quiet stretch with no flows is
     // read again — no duplicates, those blocks have none).
+    // flows saved before 09-30's fix (no tx hash) may carry false "unknown" sources: drop them and rebuild (1 h at start, then the
+    // background backfill to 25 h — ~3 minutes)
+    if (flows.some((f) => !(f as any).h)) { flows = []; flowsFrom = 0; lastLogBlock = 0; }
     if (flows.length) flowsFrom = Math.max(flowsFrom, Math.min(...flows.map((f) => f.n))); else flowsFrom = 0;
   } catch { /* fresh start */ }
 }
