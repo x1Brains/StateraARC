@@ -152,7 +152,7 @@ export function Network() {
               ? <div className="nx-tabs">{flowTabs.map(([k, l]) => <button key={k} type="button" className={flowKey === k ? 'on' : ''} onClick={() => setFlowTab(k)}>{l}</button>)}</div>
               : <span className="nx-when">{flowPeriod}</span>}
           </div>
-          <p className="nx-sub">USDC moved between Arc and other blockchains through Circle's official bridge (CCTP), {flowPeriod}. Read from the bridge's own events on Arc.</p>
+          <p className="nx-sub">USDC moved between Arc and other blockchains through Circle's official bridge (CCTP), {flowPeriod}{c ? ` — to ${new Date(c.headTs * 1000).toUTCString().slice(17, 22)} UTC, block ${c.head.toLocaleString()}` : ''}. Every bridge event on Arc, read from the bridge contract itself; "24 hours" is measured by the blocks' own timestamps.</p>
           <div className="nx-flow">
             <div className="nx-flow-side in"><div className="v">{usd(flows.in.usd)}</div><div className="t">bridged INTO Arc · {flows.in.count} transfer{flows.in.count === 1 ? '' : 's'}, {flowPeriod}</div></div>
             <div className="nx-flow-side out"><div className="v">{usd(flows.out.usd)}</div><div className="t">bridged OUT of Arc · {flows.out.count} transfer{flows.out.count === 1 ? '' : 's'}, {flowPeriod}</div></div>
