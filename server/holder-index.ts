@@ -14,8 +14,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
 
-const WIDE = ['https://arc.gateway.tenderly.co', 'https://rpc.blockdaemon.mainnet.arc.io']; // allow 95k-block getLogs
-const MAIN = ['https://rpc.mainnet.arc.io', 'https://arc.drpc.org'];
+// ⛔ 09-30 from the VPS: Tenderly answers 429 (the box's IP is busy with the bots), Arc's public RPC 429s wide getLogs, dRPC
+// caps getLogs at 10k blocks — Blockdaemon serves 95k-block ranges. So Blockdaemon first, and every read retries on the
+// next node instead of failing the whole token (97 of 98 attempts failed in the first hour).
+const WIDE = ['https://rpc.blockdaemon.mainnet.arc.io', 'https://arc.gateway.tenderly.co']; // allow 95k-block getLogs
+const MAIN = ['https://rpc.blockdaemon.mainnet.arc.io', 'https://rpc.mainnet.arc.io', 'https://arc.drpc.org'];
 const MC = '0xca11bde05977b3631167028862be2a173976ca11';
 const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const ZERO = '0x0000000000000000000000000000000000000000';
@@ -31,16 +34,17 @@ async function call(url: string, method: string, params: unknown[]): Promise<any
   return j.result;
 }
 async function main(method: string, params: unknown[]): Promise<any> {
-  for (let i = 0; i < 4; i++) { try { return await call(MAIN[i % MAIN.length], method, params); } catch { await sleep(250 * (i + 1)); } }
+  for (let i = 0; i < 8; i++) { try { return await call(MAIN[i % MAIN.length], method, params); } catch { await sleep(200 * (i + 1)); } }
   throw new Error('rpc unavailable');
 }
 let rr = 0;
 /** Logs for [lo, hi]; null = the range returned too much (the caller splits it). Throws if the RPCs are unreachable. */
 async function logs(token: string, lo: number, hi: number): Promise<any[] | null> {
   let last = '';
-  for (let i = 0; i < 5; i++) {
-    try { return await call(WIDE[rr++ % WIDE.length], 'eth_getLogs', [{ address: token, topics: [TRANSFER], fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) }]); }
-    catch (e) { last = (e as Error).message; if (/too many|limit|exceed|range|size/i.test(last) && hi - lo > 1000) return null; await sleep(300 * (i + 1)); }
+  for (let i = 0; i < 8; i++) {
+    await sleep(120); // paced — one wide read at a time, a breath between them
+    try { return await call(WIDE[(rr + i) % WIDE.length], 'eth_getLogs', [{ address: token, topics: [TRANSFER], fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) }]); }
+    catch (e) { last = (e as Error).message; if (/too many|exceed|range|size|results/i.test(last) && !/rate limit/i.test(last) && hi - lo > 1000) return null; await sleep(300 * (i + 1)); }
   }
   throw new Error(`getLogs failed: ${last}`);
 }
@@ -72,7 +76,9 @@ function save(t: string, s: State) {
 }
 async function deployBlock(t: string, head: number): Promise<number> {
   let lo = 0, hi = head;
-  while (lo < hi) { const mid = Math.floor((lo + hi) / 2); const c = await main('eth_getCode', [t, '0x' + mid.toString(16)]).catch(() => '0x'); if (c && c !== '0x') hi = mid; else lo = mid + 1; }
+  // ⛔ a FAILED read must never count as "no code yet" — that would start the scan too late and miss early transfers.
+  // main() retries across nodes and throws; the whole token then waits for the next pass.
+  while (lo < hi) { const mid = Math.floor((lo + hi) / 2); const c = await main('eth_getCode', [t, '0x' + mid.toString(16)]); if (c && c !== '0x') hi = mid; else lo = mid + 1; }
   return lo;
 }
 
