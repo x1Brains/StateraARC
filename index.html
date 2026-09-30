@@ -1,6 +1,17 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <!-- 09-30: a cached token/network page can name the PREVIOUS deploy's script (gone after a deploy) → blank page.
+         If a site script fails to load, reload once with a fresh url (a session flag stops any loop). -->
+    <script>
+      window.addEventListener('error', function (e) {
+        var t = e && e.target;
+        if (!t || t.tagName !== 'SCRIPT' || !/\/assets\//.test(t.src || '')) return;
+        try { if (sessionStorage.getItem('statera-reloaded')) return; sessionStorage.setItem('statera-reloaded', '1'); } catch (_) { return; }
+        var u = new URL(location.href); u.searchParams.set('r', Date.now().toString(36)); location.replace(u.toString());
+      }, true);
+      window.addEventListener('load', function () { setTimeout(function () { try { sessionStorage.removeItem('statera-reloaded'); } catch (_) {} }, 5000); });
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/statera-s.png" />

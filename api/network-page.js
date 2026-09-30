@@ -25,6 +25,8 @@ export default async function handler(req, res) {
   html = html.replace(/\s*<meta[^>]+(property="og:[^"]*"|name="twitter:[^"]*")[^>]*>/gi, '');
   html = html.replace('</head>', meta + '\n</head>');
   res.setHeader('content-type', 'text/html; charset=utf-8');
-  res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
+  // 09-30: stale-while-revalidate was 300 s — after a deploy the edge kept serving HTML that named the OLD script
+  // (404 → blank page) for up to ~6 min. 10 s now; index.html also reloads once if a script fails.
+  res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=10');
   res.status(200).send(html);
 }
