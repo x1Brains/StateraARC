@@ -10,7 +10,9 @@ type Rpc = (method: string, params: unknown[]) => Promise<any>;
 
 const WINDOW_S = 6 * 3600;                 // rolling window kept in memory (6 h of blocks ≈ 43k small rows)
 // CCTP flows are kept for 24 h (owner 09-30: "why not last 24 hrs, 12 hours, 1 hour?") — a few thousand rows, not blocks.
-const FLOW_WINDOW_S = 24 * 3600;
+// kept (and backfilled) for 25 h so the 24-h window is always fully covered — at exactly 24 h the trim kept cutting coverage
+// just under 24 h and the 24H tab flickered on and off (09-30)
+const FLOW_WINDOW_S = 25 * 3600;
 const BACKFILL_S = 3600;                   // on start, read back 1 h so the page is useful at once
 const TOKEN_MESSENGER = '0x28b5a0e9c621a5badaa536219b3a228c8168cf5d';
 const TOPIC_DEPOSIT_FOR_BURN = '0x0c8c1cbdc5190613ebd485511d4e2812cfa45eecb79d845893331fedad5130a5'; // USDC out of Arc
