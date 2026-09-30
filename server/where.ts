@@ -5,6 +5,7 @@
 // ⛔ arc-scan has NO holder list for native USDC and marks contracts (e.g. the Aave Hub) as wallets — so contract/pool status
 // is checked on chain here (eth_getCode, token0()), never taken from arc-scan.
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
+import { indexedHolders } from './holder-index.ts';
 
 type Rpc = (method: string, params: unknown[]) => Promise<any>;
 const MC = '0xca11bde05977b3631167028862be2a173976ca11';
@@ -48,7 +49,11 @@ export async function refreshWhere(rpc: Rpc, poolAddrs: string[], priceOf: (a: s
     // candidates: named contracts + the V4 PoolManager + every known pool + (EURC/cirBTC) the top 100 holders from arc-scan
     const cands = new Set<string>([...Object.keys(LENDING), ...Object.keys(BRIDGE), V4_POOL_MANAGER, ...pools]);
     if (as.sym !== 'USDC') {
-      try {
+      // top holders from OUR on-chain holder index (09-30 — arc-scan was the only source and went down); arc-scan only if
+      // the token isn't indexed yet
+      const own = await indexedHolders(as.addr, as.dec, null, 100).catch(() => null);
+      if (own && own.top.length) for (const h of own.top) cands.add(h.address.toLowerCase());
+      else try {
         const j: any = await fetch(`https://api.arc-scan.org/v1/tokens/${as.addr}/holders?limit=100`, { signal: AbortSignal.timeout(10000) }).then((r) => r.json());
         for (const h of j.items || []) { const a = (h.address?.address || h.address || '').toLowerCase(); if (/^0x[0-9a-f]{40}$/.test(a)) cands.add(a); }
       } catch { /* the known places still count */ }

@@ -23,7 +23,7 @@ import zlib from 'node:zlib';
 import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
-import { indexHolders, indexStats, indexedAt } from './holder-index.ts';
+import { indexHolders, indexStats, indexBatch, batchStats, holderCountOf } from './holder-index.ts';
 import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
@@ -166,7 +166,7 @@ http.createServer((req, res) => {
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
@@ -248,12 +248,29 @@ const indexLoop = async () => {
   let did = false;
   try {
     const rows = listed(), now = Date.now();
-    const next = rows.map((t) => ({ t, at: indexedAt(t.address) })).filter((x) => now - x.at > 10 * 60_000).sort((a, b) => a.at - b.at)[0];
+    // freshness from the small counts list (holderCountOf) — never parse 100 token files per tick
+    const next = rows.map((t) => ({ t, at: holderCountOf(t.address)?.at ?? 0 })).filter((x) => now - x.at > 10 * 60_000).sort((a, b) => a.at - b.at)[0];
     if (next) { await indexHolders(next.t.address); did = true; }
   } catch { /* next tick */ }
   setTimeout(indexLoop, did ? 2_000 : 20_000);
 };
 setTimeout(indexLoop, 30_000);
+// Every LIQUID token (≥ $100 in pools, ~800) — the screener's holder counts, no longer from arc-scan (09-30). Batches of 40:
+// never-indexed first, then any count older than 30 min. The listed tokens above also refresh every 10 min on their own.
+const batchLoop = async () => {
+  let did = false;
+  try {
+    if (view) {
+      const now = Date.now();
+      const all = view.tokens.filter((t) => (t.liq ?? 0) >= 100).map((t) => t.address.toLowerCase());
+      let pick = all.filter((a) => !holderCountOf(a)).slice(0, 40);
+      if (!pick.length) pick = all.map((a) => ({ a, at: holderCountOf(a)?.at ?? 0 })).filter((x) => now - x.at > 30 * 60_000).sort((x, y) => x.at - y.at).slice(0, 40).map((x) => x.a);
+      if (pick.length) { await indexBatch(pick); did = true; }
+    }
+  } catch { /* next tick */ }
+  setTimeout(batchLoop, did ? 3_000 : 60_000);
+};
+setTimeout(batchLoop, 90_000);
 setInterval(saveCaches, 5 * 60_000);
 // The Network page's chain follower: every block, one poll at a time, every 15 s.
 let chaining = false;

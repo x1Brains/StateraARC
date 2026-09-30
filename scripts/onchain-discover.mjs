@@ -553,6 +553,15 @@ async function main() {
   // challenge-blocked even with a browser UA, so it is NOT usable as a source. Cached ~6h in state; capped
   // per run (highest-liquidity first) so the cache fills over a couple runs without hammering arc-scan.
   const HOLDERS_TTL = 6 * 3600 * 1000, HOLDERS_MAX_PER_RUN = Number(process.env.ONCHAIN_HOLDERS_MAX || 800);
+  // 09-30: OUR OWN counts first — statera-api's on-chain holder index (server/holder-index.ts) writes holder-counts.json;
+  // only counts whose balances summed to totalSupply() (supplyOk) are used. arc-scan is a fallback for the rest.
+  {
+    let own = {};
+    try { own = JSON.parse(fs.readFileSync(process.env.HOLDER_COUNTS || '/root/statera-api-state/holder-counts.json', 'utf8')); } catch { /* not on this box */ }
+    let used = 0;
+    for (const x of rows) { const c = own[x.addr]; if (c && c.supplyOk && Date.now() - c.at < 24 * 3600 * 1000) { state.tokens[x.addr].holders = c.count; state.tokens[x.addr].holdersAt = Date.now(); state.tokens[x.addr].holdersFrom = 'chain'; used++; } }
+    console.log(`[disc] holders from our own on-chain index: ${used} tokens`);
+  }
   const needH = rows.filter((x) => x.liq >= MIN_LIQ).sort((a, b) => b.liq - a.liq)
     .filter((x) => { const st = state.tokens[x.addr]; return !st.holders || (Date.now() - (st.holdersAt || 0) > HOLDERS_TTL); })
     .slice(0, HOLDERS_MAX_PER_RUN);
