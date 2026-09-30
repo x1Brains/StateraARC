@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { IconClose, IconExternal, IconChevronDown } from './icons';
-import { isAddress, type Token } from '../lib/arc';
+import { isAddress, tprice, type Token } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 
 // Statera-styled token selector — a pill button that opens a themed modal (search + list +
@@ -62,12 +62,12 @@ export function TokenPicker({ value, tokens, exclude, onSelect, onAddAddress, ad
             {pasteHit && (
               <button type="button" className="tk-add-row" onClick={addPasted} disabled={adding}>
                 <TokenLogo symbol="?" seed={q.trim()} url={null} />
-                <div className="tk-row-id"><b>{adding ? 'Adding…' : 'Add this token'}</b><span className="tk-row-addr">{q.trim().slice(0, 10)}…{q.trim().slice(-6)}</span></div>
-                <span className="tk-row-go">Import <IconExternal className="i" /></span>
+                <div className="tk-row-id"><b>{adding ? 'Checking…' : 'Find this token'}</b><span className="tk-row-addr">{q.trim().slice(0, 10)}…{q.trim().slice(-6)}</span></div>
+                <span className="tk-row-go">Load <IconExternal className="i" /></span>
               </button>
             )}
             <div className="tk-list">
-              {list.length === 0 && !pasteHit && <div className="tk-empty">No tokens match. Paste a token address to import it.</div>}
+              {list.length === 0 && !pasteHit && <div className="tk-empty">No listed token matches. Paste a contract address to find a listed token by address.</div>}
               {list.map((t) => (
                 <button type="button" key={t.address} className={`tk-row ${value?.address.toLowerCase() === t.address.toLowerCase() ? 'on' : ''}`} onClick={() => pick(t)}>
                   <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
@@ -75,7 +75,7 @@ export function TokenPicker({ value, tokens, exclude, onSelect, onAddAddress, ad
                     <b>{t.symbol}</b>
                     <span className="tk-row-addr">{t.name !== t.symbol ? t.name : `${t.address.slice(0, 6)}…${t.address.slice(-4)}`}</span>
                   </div>
-                  {t.price != null && <span className="tk-row-px mono">${t.price < 0.01 ? t.price.toPrecision(2) : t.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}
+                  {t.price != null && <span className="tk-row-px mono">{tprice(t.price)}</span>}
                 </button>
               ))}
             </div>

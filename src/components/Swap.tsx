@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { PINNED } from '../lib/rules';
+import { MIN_VOL_24H } from '../lib/board';
 import { compact, usd, CHAIN, fetchPortfolioMainnet, fetchHoldingsOnchain, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx, activeEth } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 import { IconSwapVertical, IconExternal } from './icons';
@@ -76,6 +78,13 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     return list;
   }, [tokens, extra]);
 
+  // What the pickers OFFER (owner 09-29: "just trade indexed tokens and filter out all the other"): the screener's own
+  // tokens — traded in the last 24h, ecosystem or pinned (109 of the 384 real tokens) — plus anything already loaded here
+  // (your own holdings tapped from the side panel, a token page's Trade button, the current pair).
+  const pickList = useMemo(() => universe.filter((t) => {
+    const k = t.address.toLowerCase();
+    return k === USDC.address.toLowerCase() || t.isEcosystem || PINNED.has(k) || (t.volume24h ?? 0) >= MIN_VOL_24H || extra.some((x) => x.address.toLowerCase() === k);
+  }), [universe, extra]);
   const [fromA, setFromA] = useState(USDC.address);
   const [toA, setToA] = useState('');
   const [amt, setAmt] = useState('');
@@ -360,7 +369,9 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   const addToken = async (addr: string, side: 'from' | 'to') => {
     const a = addr.trim();
     const existing = universe.find((t) => t.address.toLowerCase() === a.toLowerCase());
-    if (existing) { (side === 'from' ? setFromA : setToA)(existing.address); return; }
+    if (existing) { setExtra((p) => (p.some((x) => x.address.toLowerCase() === a.toLowerCase()) ? p : [existing, ...p])); (side === 'from' ? setFromA : setToA)(existing.address); return; }
+    // Not in Statera's index (spam, a fake ticker, or a token with no real pool): not tradeable here — say so plainly.
+    if (tokens.length) { setQErr("That token isn't listed on Statera. Only indexed tokens (the ones on the screener) can be traded here."); return; }
     setAdding(true);
     const [sym, d] = await Promise.all([symbolOf(a), decimalsOf(a)]);
     setAdding(false);
@@ -620,7 +631,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
             </div>
             <div className="swap-in">
               <input className="swap-amt" placeholder="0.0" value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="decimal" />
-              <TokenPicker value={from} tokens={universe} exclude={toA} onSelect={(t) => setFromA(t.address)} onAddAddress={(a) => addToken(a, 'from')} adding={adding} />
+              <TokenPicker value={from} tokens={pickList} exclude={toA} onSelect={(t) => setFromA(t.address)} onAddAddress={(a) => addToken(a, 'from')} adding={adding} />
             </div>
           </div>
 
@@ -633,7 +644,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
             </div>
             <div className="swap-in">
               <input className="swap-amt" placeholder="0.0" value={outHuman != null ? amtFmt(outHuman) : ''} readOnly />
-              <TokenPicker value={to} tokens={universe} exclude={fromA} onSelect={(t) => setToA(t.address)} onAddAddress={(a) => addToken(a, 'to')} adding={adding} />
+              <TokenPicker value={to} tokens={pickList} exclude={fromA} onSelect={(t) => setToA(t.address)} onAddAddress={(a) => addToken(a, 'to')} adding={adding} />
             </div>
           </div>
 
