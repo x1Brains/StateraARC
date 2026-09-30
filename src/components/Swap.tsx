@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PINNED } from '../lib/rules';
 import { MIN_VOL_24H } from '../lib/board';
-import { compact, usd, CHAIN, fetchPortfolioMainnet, fetchHoldingsOnchain, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx, activeEth } from '../lib/arc';
+import { tprice, compact, usd, CHAIN, fetchPortfolioMainnet, fetchHoldingsOnchain, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx, activeEth } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 import { IconSwapVertical, IconExternal } from './icons';
 import {
@@ -12,6 +12,7 @@ import {
   quoteCurveSell, buildCurveSellTx, quoteV3, buildV3SwapTx, v3PoolFor, V3_ROUTER,
   quoteV4, buildV4SwapTx, v4Permit2Status, buildPermit2ApproveTx, PERMIT2,
   findV3Pool, findV4Route, type V4Cfg, findCLPools, quoteCL, buildCLSwapTx, type CLRoute,
+  networkFeeUsdc, clPoolFeeBps, hookTaxBps, ROUTER_FEE_BPS, VENUE_GAS,
 } from '../lib/swap';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenPicker } from './TokenPicker';
@@ -326,14 +327,81 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     const p = tokSide ? universe.find((t) => t.address.toLowerCase() === tokSide.address.toLowerCase())?.price : null;
     const n = parseFloat(amt);
     if (!tokSide || !p || !(p > 0) || !outHuman || !n || estimate) return null;
-    const eff = fromA.toLowerCase() === usdcK ? n / outHuman : outHuman / n; // USD per token actually paid / received
-    return fromA.toLowerCase() === usdcK ? (eff / p - 1) * 100 : (1 - eff / p) * 100; // + = worse than market
+    // VALUE lost vs market (09-29): what you get is worth X% less than what you pay, both at the market price — the same
+    // number as the % under 'You receive'. (Was 'extra price paid per token': ARCAT showed 75% here and -42.86% there.)
+    return fromA.toLowerCase() === usdcK ? (1 - (outHuman * p) / n) * 100 : (1 - outHuman / (n * p)) * 100; // + = worse
   })();
   const mktRow = mkt != null && Math.abs(mkt) >= 0.5 ? (
-    <div className={`sq-row${mkt >= 5 ? ' warn' : ''}`}><span>vs market price</span><span className="mono" style={mkt >= 5 ? { color: '#ff5a5a' } : undefined}>{mkt >= 0 ? `${mkt.toFixed(1)}% worse` : `${(-mkt).toFixed(1)}% better`}{mkt >= 5 ? ' — thin pool / high fee' : ''}</span></div>
+    <div className={`sq-row${mkt >= 5 ? ' warn' : ''}`}><span>Total cost vs market</span><span className="mono" style={mkt >= 5 ? { color: '#ff5a5a' } : undefined}>{mkt >= 0 ? `${mkt.toFixed(1)}% worse` : `${(-mkt).toFixed(1)}% better`}{mkt >= 5 ? ' — thin pool / high fee' : ''}</span></div>
+  ) : null;
+
+  // ── Trade details (09-29, owner: "ticker, balance, USD price, price impact, fees — how much they pay and receive") ──
+  // One panel for every venue: the winning fill, its pool fee (read or measured, never assumed), an Argus hook's tax,
+  // price impact (the same venue quoted at 1/1000 of the size — fees and taxes cancel out, what's left is the slippage the
+  // pool itself causes), the network fee, and USD on both sides.
+  const isBuy = fromA.toLowerCase() === usdcK;
+  const hooked = !!(v4CfgSel && v4CfgSel.hooks && !/^0x0+$/.test(v4CfgSel.hooks));
+  const fill = quote ? { kind: 'v2' as const, out: quote.amountOutRaw, label: `${quote.routerName === 'WarpV2' ? 'Warp V2' : quote.routerName} · ${quote.hops === 1 ? 'direct' : `${quote.hops} hops`}`,
+      feeBps: quote.kind === 'pair' ? (quote.feeBps ?? null) : (ROUTER_FEE_BPS[quote.routerName] ?? null) }
+    : v3q ? { kind: 'v3' as const, out: v3q.outRaw, label: 'Uniswap V3 · direct', feeBps: v3q.fee / 100 }
+    : clq ? { kind: 'cl' as const, out: clq.outRaw, label: `${clq.route.venue.name} · direct`, feeBps: null as number | null }
+    : v4q ? { kind: 'v4' as const, out: v4q.outRaw, label: `Uniswap V4${hooked ? ' · hooked pool' : ''} · direct`, feeBps: v4CfgSel ? v4CfgSel.fee / 100 : null }
+    : curveOut != null ? { kind: 'curve' as const, out: curveOut, label: 'Warp bonding curve', feeBps: null }
+    : curveSellOut != null ? { kind: 'curve' as const, out: curveSellOut, label: 'Warp bonding curve', feeBps: null }
+    : null;
+  const [det, setDet] = useState<{ key: string; impact: number | null; clFee: number | null; tax: number | null; gasUsd: number | null } | null>(null);
+  const detKey = fill ? `${fill.kind}:${fromA}:${toA}:${amt}:${fill.out}` : '';
+  useEffect(() => {
+    if (!fill || decIn == null || !parseFloat(amt)) { setDet(null); return; }
+    let alive = true; const key = detKey;
+    (async () => {
+      const inRaw = BigInt(toRawStr(amt, decIn)); const small = inRaw / 1000n > 0n ? inRaw / 1000n : 1n;
+      const smallQ = async (): Promise<bigint | null> => {
+        if (fill.kind === 'v2') return (await bestQuote(from.address, to!.address, small).catch(() => null))?.amountOutRaw ?? null;
+        if (fill.kind === 'v3') return (await quoteV3(from.address, to!.address, small, v3PoolSel).catch(() => null))?.outRaw ?? null;
+        if (fill.kind === 'v4') return (await quoteV4(from.address, to!.address, small, v4CfgSel).catch(() => null))?.outRaw ?? null;
+        if (fill.kind === 'cl') return (await quoteCL(from.address, to!.address, small, [clq!.route]).catch(() => null))?.outRaw ?? null;
+        return null; // curve: quoted per wallet; impact shown as — rather than a guess
+      };
+      const [outS, clFee, tax, gasUsd] = await Promise.all([
+        smallQ(),
+        fill.kind === 'cl' ? clPoolFeeBps(clq!.route.pool) : Promise.resolve(null),
+        fill.kind === 'v4' && hooked ? hookTaxBps(v4CfgSel!.hooks, isBuy) : Promise.resolve(fill.kind === 'v4' ? 0 : null),
+        networkFeeUsdc(VENUE_GAS[fill.kind]),
+      ]);
+      let impact: number | null = null;
+      if (outS && outS > 0n) { const r = (Number(fill.out) / Number(inRaw)) / (Number(outS) / Number(small)); impact = Math.max(0, (1 - r) * 100); }
+      if (alive) setDet({ key, impact, clFee, tax, gasUsd });
+    })();
+    return () => { alive = false; };
+  }, [detKey]); // eslint-disable-line
+  const d0 = det && det.key === detKey ? det : null;
+  const priceOf = (a?: string) => { const k = (a || '').toLowerCase(); if (!k) return null; if (k === usdcK) return 1; const t = universe.find((x) => x.address.toLowerCase() === k); return t?.price ?? warpPx[k] ?? null; };
+  const payUsd = parseFloat(amt) > 0 && priceOf(from?.address) != null ? parseFloat(amt) * priceOf(from?.address)! : null;
+  const recvUsd = outHuman != null && priceOf(to?.address) != null ? outHuman * priceOf(to?.address)! : null;
+  const feeBps = fill ? (fill.kind === 'cl' ? d0?.clFee ?? null : fill.feeBps) : null;
+  const usdS = (v: number | null) => (v == null || !isFinite(v) ? '—' : v > 0 && v < 0.01 ? '<$0.01' : usd(v));
+  const tokSide = isBuy ? to : from;
+  const details = fill && rate != null ? (
+    <div className="swap-quote">
+      {tokSide && priceOf(tokSide.address) != null && <div className="sq-row"><span>Price</span><span className="mono">1 {tokSide.symbol} = {tprice(priceOf(tokSide.address)!)}</span></div>}
+      <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
+      <div className={`sq-row${d0?.impact != null && d0.impact >= 3 ? ' warn' : ''}`}><span>Price impact</span>
+        <span className="mono" style={d0?.impact != null ? { color: d0.impact >= 3 ? '#ff5a5a' : d0.impact >= 1 ? '#ffb14a' : '#4ecb71' } : undefined}>
+          {d0 ? (d0.impact != null ? (d0.impact < 0.01 ? '<0.01%' : `${d0.impact.toFixed(2)}%`) : '—') : '…'}</span></div>
+      <div className="sq-row"><span>Pool fee</span><span className="mono">{feeBps != null ? `${(feeBps / 100).toFixed(feeBps < 10 ? 3 : 2)}% · ${usdS(payUsd != null ? payUsd * feeBps / 10000 : null)}` : fill.kind === 'curve' ? 'included in the curve price' : d0 ? '—' : '…'}</span></div>
+      {fill.kind === 'v4' && hooked && (
+        <div className="sq-row"><span>Token tax</span><span className="mono">{d0 ? (d0.tax != null ? `${(d0.tax / 100).toFixed(2)}% ${isBuy ? 'buy' : 'sell'} tax · ${usdS(payUsd != null ? payUsd * d0.tax / 10000 : null)}` : 'hooked pool — may charge a tax') : '…'}</span></div>
+      )}
+      <div className="sq-row"><span>Network fee</span><span className="mono">{d0 ? (d0.gasUsd != null ? `≈ $${d0.gasUsd < 0.01 ? d0.gasUsd.toFixed(4) : d0.gasUsd.toFixed(2)} (paid in USDC)` : '—') : '…'}</span></div>
+      <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? `${amtFmt(minRecv)} ${to?.symbol}${priceOf(to?.address) != null ? ` · ${usdS(minRecv * priceOf(to?.address)!)}` : ''}` : '—'}</span></div>
+      <div className="sq-row"><span>Route</span><span className="mono">{fill.label}</span></div>
+      {mktRow}
+    </div>
   ) : null;
 
   const fromBalRaw = from ? bal[from.address.toLowerCase()] : undefined;
+  const notEnough = (() => { try { return !!(wallet && fromBalRaw != null && decIn != null && parseFloat(amt) > 0 && BigInt(toRawStr(amt, decIn)) > fromBalRaw); } catch { return false; } })();
   const toBalRaw = to ? bal[to.address.toLowerCase()] : undefined;
   const fromBal = fromBalRaw != null && decIn != null ? fromRaw(fromBalRaw, decIn) : null;
   const toBal = toBalRaw != null && decOut != null ? fromRaw(toBalRaw, decOut) : null;
@@ -633,6 +701,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               <input className="swap-amt" placeholder="0.0" value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="decimal" />
               <TokenPicker value={from} tokens={pickList} exclude={toA} onSelect={(t) => setFromA(t.address)} onAddAddress={(a) => addToken(a, 'from')} adding={adding} />
             </div>
+            <div className="swap-usd">{payUsd != null ? `≈ ${usdS(payUsd)}` : '\u00a0'}</div>
           </div>
 
           <button className="swap-flip" onClick={flip} aria-label="flip"><IconSwapVertical /></button>
@@ -646,6 +715,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
               <input className="swap-amt" placeholder="0.0" value={outHuman != null ? amtFmt(outHuman) : ''} readOnly />
               <TokenPicker value={to} tokens={pickList} exclude={fromA} onSelect={(t) => setToA(t.address)} onAddAddress={(a) => addToken(a, 'to')} adding={adding} />
             </div>
+            <div className="swap-usd">{recvUsd != null ? `≈ ${usdS(recvUsd)}${payUsd != null && payUsd > 0 ? ` (${recvUsd >= payUsd ? '+' : '−'}${Math.abs((recvUsd / payUsd - 1) * 100).toFixed(2)}%)` : ''}` : '\u00a0'}</div>
           </div>
 
           <div className="swap-settings">
@@ -656,46 +726,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
           </div>
 
           {quoting && <div className="swap-info"><span>Finding best route…</span><span /></div>}
-          {quote && rate != null && (
-            <div className="swap-quote">
-              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? amtFmt(minRecv) : '—'} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Route</span><span className="mono">{quote.routerName} · {quote.hops === 1 ? 'direct' : `${quote.hops} hops`}</span></div>
-              {mktRow}
-            </div>
-          )}
-          {v3q != null && rate != null && (
-            <div className="swap-quote">
-              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? amtFmt(minRecv) : '—'} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Route</span><span className="mono">Uniswap V3 · {(v3q.fee / 10000).toFixed(2)}% fee</span></div>
-              {mktRow}
-            </div>
-          )}
-          {clq != null && rate != null && (
-            <div className="swap-quote">
-              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? amtFmt(minRecv) : '—'} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Route</span><span className="mono">{clq.route.venue.name} · tick spacing {clq.route.tickSpacing}</span></div>
-              {mktRow}
-            </div>
-          )}
-          {v4q != null && rate != null && (
-            <div className="swap-quote">
-              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? amtFmt(minRecv) : '—'} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Route</span><span className="mono">Uniswap V4{v4CfgSel ? ` · ${(v4CfgSel.fee / 10000).toFixed(2)}% fee` : ''}{v4CfgSel && v4CfgSel.hooks !== '0x0000000000000000000000000000000000000000' ? ' · hooked' : ''}</span></div>
-              {mktRow}
-            </div>
-          )}
-          {(curveOut != null || curveSellOut != null) && rate != null && (
-            <div className="swap-quote">
-              <div className="sq-row"><span>Rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Min received</span><span className="mono">{minRecv != null ? amtFmt(minRecv) : '—'} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Route</span><span className="mono">Warp bonding curve</span></div>
-              {mktRow}
-            </div>
-          )}
+          {details}
           {estimate && rate != null && (
             <div className="swap-quote">
               <div className="sq-row"><span>Est. rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
@@ -707,6 +738,9 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
 
           {!wallet
             ? <button className="btn solid swap-cta" onClick={onConnect}>Connect Wallet</button>
+            // 09-29: more than the wallet holds → say so (the button used to stay live and the tx would just revert)
+            : (notEnough && !busy)
+              ? <button className="btn solid swap-cta" disabled>Not enough {from?.symbol}</button>
             : (clq != null)
               ? <button className="btn solid swap-cta" onClick={executeCL} disabled={busy}>
                   {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : `Swap ${from?.symbol} to ${to?.symbol}`}

@@ -2120,3 +2120,5 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .sort-caret.up { transform: rotate(180deg); }
 .nx-verify .i, .nx-big-go .arw { width: 11px; height: 11px; vertical-align: -1px; }
 .dd-caret svg, .tk-caret svg { width: 11px; height: 11px; vertical-align: -1px; }
+/* swap: USD value under each amount (09-29) */
+.swap-usd { font: 12px var(--mono); color: var(--gray); margin-top: 4px; min-height: 16px; }

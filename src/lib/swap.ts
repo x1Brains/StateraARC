@@ -796,3 +796,28 @@ export function buildCLSwapTx(rt: CLRoute, tokenIn: string, tokenOut: string, am
   const data = rt.venue.selSwap + padA(tokenIn) + padA(tokenOut) + padI(rt.tickSpacing) + padA(recipient) + padU(deadline) + padU(amountInRaw) + padU(amountOutMinRaw) + padU(0n);
   return { to: rt.venue.router, from: recipient, data, value: '0x0' };
 }
+
+// ── Trade details (09-29, owner: "price impact, fees, everything gotta be covered") ─────────────────────────────────
+// Everything below is READ on chain; a failed read returns null and the row shows "—" (never a guessed number).
+/** Network fee in USDC for `gas` units at the current gas price (USDC is Arc's gas token, 18-dec native accounting). */
+export async function networkFeeUsdc(gas: number): Promise<number | null> {
+  const j = await rpc('eth_gasPrice', []).catch(() => null); // rpc() returns the JSON-RPC envelope, not the result
+  try { return j?.result ? (Number(BigInt(j.result)) * gas) / 1e18 : null; } catch { return null; }
+}
+/** A concentrated-liquidity pool's fee in basis points (fee() is in hundredths of a bip: 3000 = 0.30%). */
+export async function clPoolFeeBps(pool: string): Promise<number | null> {
+  const r = await ethCall(pool, '0xddca3f43').catch(() => null);
+  try { return r && r !== '0x' ? Number(BigInt(r)) / 100 : null; } catch { return null; }
+}
+/** An Argus launch hook's fixed tax: buyTaxBps() / sellTaxBps() (arguspad/argus-world LaunchHook.sol). null = not an
+ *  Argus hook (or unreadable) — the page then says the hooked pool MAY charge a tax, without a number. */
+export async function hookTaxBps(hooks: string, isBuy: boolean): Promise<number | null> {
+  if (!hooks || /^0x0+$/.test(hooks)) return 0;
+  const r = await ethCall(hooks, isBuy ? '0xc473413a' : '0xcffd129c').catch(() => null);
+  try { if (!r || r === '0x') return null; const v = Number(BigInt(r)); return v >= 0 && v <= 5000 ? v : null; } catch { return null; }
+}
+// Pool fee of the stock UniV2-style routers, MEASURED 09-29: router.getAmountsOut == constant-product at this fee on
+// live USDC pairs (Uniswap V2 0.30% on 2 pairs; WarpV2 1.00% on 2 pairs).
+export const ROUTER_FEE_BPS: Record<string, number> = { 'Uniswap V2': 30, WarpV2: 100 };
+// Typical gas per venue (used only for the network-fee estimate; approvals are extra, one-time per token).
+export const VENUE_GAS: Record<string, number> = { v2: 150_000, v3: 165_000, cl: 175_000, v4: 230_000, curve: 140_000 };
