@@ -82,9 +82,9 @@ function tall(c, l, w, st, logos) {
   tk.forEach((t, i) => { s += T(P + 26, y + 42 + i * 38, esc(t), 22, C.white); });
   // ── pulse
   y = 262; const pw = (IW - 3 * 14) / 4, fee = c ? (21000 * c.baseFeeGwei * 1e9) / 1e18 : null;
-  [[c?.h1 ? `${c.h1.blockTime.toFixed(2)}s` : '—', 'NEW BLOCK', 'final — no reorgs', C.white],
-   [c?.m5 ? num(c.m5.tps) : '—', 'TX / SECOND', c?.h1 ? `${num(c.h1.txs)} in the last hour` : '', C.white],
-   [fee != null ? (fee < 0.01 ? '$' + fee.toFixed(4) : usd(fee)) : '—', 'TO SEND MONEY', 'gas is paid in USDC', C.green],
+  [[c?.h1 ? `${c.h1.blockTime.toFixed(2)}s` : '—', 'SECONDS PER BLOCK', 'avg, last hour · final', C.white],
+   [c?.m5 ? num(c.m5.tps) : '—', 'TX PER SECOND', c?.h1 ? `last 5 min · ${num(c.h1.txs)} in last hour` : 'last 5 min', C.white],
+   [fee != null ? (fee < 0.01 ? '$' + fee.toFixed(4) : usd(fee)) : '—', 'FEE TO SEND USDC', 'one transfer, paid in USDC', C.green],
    [c ? String(c.validatorCount) : '—', 'VALIDATORS', 'taking equal turns', C.white]]
     .forEach(([v, k, d, col], i) => { const x = P + i * (pw + 14); s += panel(x, y, pw, 112) + T(x + 20, y + 50, esc(v), 38, col) + T(x + 20, y + 78, k, 15, C.gold, 'letter-spacing="2"') + T(x + 20, y + 100, esc(d), 16, C.gray); });
   // ── money on Arc
@@ -104,14 +104,15 @@ function tall(c, l, w, st, logos) {
     }
   });
   // ── bridge + lending
-  y = 778; const hw = (IW - 14) / 2, bh = 296, f = c?.cctp?.h1;
-  s += panel(P, y, hw, bh) + T(P + 22, y + 44, 'BRIDGED · LAST HOUR', 20, C.white, 'letter-spacing="2"') + T(P + 22, y + 68, "Circle's CCTP bridge, in and out of Arc", 15, C.gray);
+  // 24 h of bridge flows once the server's history covers it (09-30), else the last hour — the heading says which
+  y = 778; const hw = (IW - 14) / 2, bh = 296, f = c?.cctp?.h24 || c?.cctp?.h1, fPer = c?.cctp?.h24 ? 'LAST 24 HOURS' : 'LAST HOUR';
+  s += panel(P, y, hw, bh) + T(P + 22, y + 44, `USDC BRIDGED · ${fPer}`, 20, C.white, 'letter-spacing="2"') + T(P + 22, y + 68, "Circle's official bridge (CCTP), into and out of Arc", 15, C.gray);
   if (f) {
     const net = f.in.usd - f.out.usd, sum = f.in.usd + f.out.usd || 1;
-    s += T(P + 22, y + 118, usd(f.in.usd), 34, C.green) + T(P + 22, y + 140, `in · ${f.in.count} transfers`, 15, C.gray);
-    s += T(P + hw - 22, y + 118, usd(f.out.usd), 34, C.red, 'text-anchor="end"') + T(P + hw - 22, y + 140, `out · ${f.out.count} transfers`, 15, C.gray, 'text-anchor="end"');
+    s += T(P + 22, y + 118, usd(f.in.usd), 34, C.green) + T(P + 22, y + 140, `INTO Arc · ${f.in.count} transfers`, 15, C.gray);
+    s += T(P + hw - 22, y + 118, usd(f.out.usd), 34, C.red, 'text-anchor="end"') + T(P + hw - 22, y + 140, `OUT of Arc · ${f.out.count} transfers`, 15, C.gray, 'text-anchor="end"');
     s += bar(P + 22, y + 154, hw - 44, 12, [[f.in.usd / sum, C.green], [f.out.usd / sum, C.red]]);
-    s += T(P + 22, y + 196, `Net ${net >= 0 ? '+' : '−'}${usd(Math.abs(net))} ${net >= 0 ? 'into' : 'out of'} Arc`, 20, net >= 0 ? C.green : C.red);
+    s += T(P + 22, y + 196, `Net ${usd(Math.abs(net))} more bridged ${net >= 0 ? 'INTO' : 'OUT of'} Arc`, 20, net >= 0 ? C.green : C.red);
     const ins = f.in.byChain.slice(0, 3), outs = f.out.byChain.slice(0, 3);
     // (no arrow glyphs: the embedded font has none — they rendered as nothing)
     ins.forEach((x, i) => { s += T(P + 22, y + 228 + i * 21, esc(`from ${x.chain} ${usd(x.usd)}`), 15, C.gray); });
@@ -120,8 +121,8 @@ function tall(c, l, w, st, logos) {
   const lx0 = P + hw + 14; s += panel(lx0, y, hw, bh) + T(lx0 + 22, y + 44, 'LENDING', 20, C.white, 'letter-spacing="2"') + T(lx0 + 22, y + 68, 'Deposits earn interest; borrowers post collateral', 15, C.gray);
   if (l) {
     const mOk = !!l.morpho?.complete, lent = l.aave.supplyUsd + (mOk ? l.morpho.supplyUsd : 0), bor = l.aave.borrowUsd + (mOk ? l.morpho.borrowUsd : 0);
-    s += T(lx0 + 22, y + 118, usd(lent), 34) + T(lx0 + 22, y + 140, 'lent', 15, C.gray);
-    s += T(lx0 + hw - 22, y + 118, usd(bor), 34, C.gold, 'text-anchor="end"') + T(lx0 + hw - 22, y + 140, `borrowed · ${lent > 0 ? Math.round((bor / lent) * 100) : 0}% used`, 15, C.gray, 'text-anchor="end"');
+    s += T(lx0 + 22, y + 118, usd(lent), 34) + T(lx0 + 22, y + 140, 'deposited (Aave + Morpho)', 15, C.gray);
+    s += T(lx0 + hw - 22, y + 118, usd(bor), 34, C.gold, 'text-anchor="end"') + T(lx0 + hw - 22, y + 140, `borrowed out · ${lent > 0 ? Math.round((bor / lent) * 100) : 0}% of deposits`, 15, C.gray, 'text-anchor="end"');
     const rows = [['Aave', l.aave.supplyUsd, l.aave.borrowUsd], ...(mOk ? [['Morpho', l.morpho.supplyUsd, l.morpho.borrowUsd]] : [])];
     rows.forEach(([n, a, b], i) => { const yy = y + 184 + i * 50, u = a > 0 ? b / a : 0;
       s += T(lx0 + 22, yy, n, 19) + T(lx0 + hw - 22, yy, `${usd(a)} · ${Math.round(u * 100)}% borrowed`, 16, C.gray, 'text-anchor="end"');
@@ -154,12 +155,12 @@ function wide(c, l, w, when) {
   const tot = c?.supplyUsd ? ['USDC', 'EURC', 'cirBTC'].reduce((a, k) => a + (c.supplyUsd[k] || 0), 0) : null;
   const stable = c?.supplyUsd ? (c.supplyUsd.USDC || 0) + (c.supplyUsd.EURC || 0) : null, btc = c?.supplyUsd?.cirBTC ?? null;
   const mOk = !!l?.morpho?.complete, lent = l ? l.aave.supplyUsd + (mOk ? l.morpho.supplyUsd : 0) : null, bor = l ? l.aave.borrowUsd + (mOk ? l.morpho.borrowUsd : 0) : null;
-  const f = c?.cctp?.h1, net = f ? f.in.usd - f.out.usd : null;
+  const f = c?.cctp?.h24 || c?.cctp?.h1, net = f ? f.in.usd - f.out.usd : null; // 24h once covered (label follows)
   const cells = [
     [usd(tot), 'MONEY ON ARC', `${usd(stable)} stables · ${usd(btc)} BTC`, C.fire],
     [usd(lent), 'LENT', bor != null ? `${usd(bor)} borrowed · ${lent ? Math.round((bor / lent) * 100) : 0}%` : '', C.white],
     [c?.m5 ? `${num(c.m5.tps)} tx/s` : '—', 'THROUGHPUT', c?.h1 ? `${num(c.h1.txs)} tx/hr · ${c.h1.blockTime.toFixed(2)}s blocks` : '', C.white],
-    [net == null ? '—' : `${net >= 0 ? '+' : '−'}${usd(Math.abs(net))}`, 'BRIDGED NET · 1H', f ? `${usd(f.in.usd)} in · ${usd(f.out.usd)} out` : '', net != null && net >= 0 ? C.green : C.red],
+    [net == null ? '—' : `${net >= 0 ? '+' : '−'}${usd(Math.abs(net))}`, `NET BRIDGED ${net != null && net < 0 ? 'OUT' : 'IN'} · ${c?.cctp?.h24 ? '24H' : '1H'}`, f ? `${usd(f.in.usd)} into Arc · ${usd(f.out.usd)} out` : '', net != null && net >= 0 ? C.green : C.red],
   ];
   const cw = (W - 2 * P - 3 * 14) / 4;
   cells.forEach(([v, k, d, col], i) => { const x = P + i * (cw + 14); s += panel(x, 148, cw, 150) + T(x + 18, 206, esc(v), 36, col) + T(x + 18, 236, k, 15, C.gold, 'letter-spacing="2"') + T(x + 18, 268, esc(d), 15, C.gray); });

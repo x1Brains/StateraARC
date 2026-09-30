@@ -56,7 +56,14 @@ export function Network() {
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  const h1 = c?.h1, m5 = c?.m5, flows = c?.cctp.h1;
+  const h1 = c?.h1, m5 = c?.m5;
+  // Bridge flows: 1H / 12H / 24H tabs (owner 09-30). A window appears only once the server's history covers it.
+  const flowTabs = ([['h24', '24H', 'last 24 hours'], ['h12', '12H', 'last 12 hours'], ['h1', '1H', 'last hour']] as const)
+    .filter(([k]) => !!(c?.cctp as any)?.[k]);
+  const [flowTab, setFlowTab] = useState<'h24' | 'h12' | 'h1' | null>(null);
+  const flowKey = flowTab && flowTabs.some(([k]) => k === flowTab) ? flowTab : (flowTabs[0]?.[0] ?? 'h1');
+  const flows = (c?.cctp as any)?.[flowKey] as V2Chain['cctp']['h1'] | undefined;
+  const flowPeriod = flowKey === 'h24' ? 'last 24 hours' : flowKey === 'h12' ? 'last 12 hours' : (c && c.coveredSeconds < 3500 ? `last ${span(c.coveredSeconds)}` : 'last hour');
   const hourLabel = c && c.coveredSeconds < 3500 ? `last ${span(c.coveredSeconds)}` : 'last hour';
   // A plain USDC transfer is ~21,000 gas at the base fee; gas is paid in USDC (18-decimal native units).
   const transferFee = c ? (21000 * c.baseFeeGwei * 1e9) / 1e18 : null;
@@ -92,9 +99,9 @@ export function Network() {
       {c && <>
         {/* 1 · The pulse */}
         <div className="nx-pulse">
-          <div className="nx-big"><div className="v">{h1 ? `${h1.blockTime.toFixed(2)}s` : '—'}</div><div className="t">New block</div><div className="d">A new block of transactions every half second. Once in a block, a payment is final — it can't be reversed.</div></div>
-          <div className="nx-big"><div className="v">{m5 ? n0(m5.tps, 0) : '—'}</div><div className="t">TX per second</div><div className="d">{h1 ? `${n0(h1.txs)} transactions in the ${hourLabel}.` : 'Counting…'}</div></div>
-          <div className="nx-big"><div className="v">{transferFee == null ? '—' : transferFee < 0.01 ? `$${transferFee.toFixed(4)}` : usd(transferFee)}</div><div className="t">To send money</div><div className="d">Typical fee for a transfer. Fees on Arc are paid in dollars (USDC), not a separate gas coin.</div></div>
+          <div className="nx-big"><div className="v">{h1 ? `${h1.blockTime.toFixed(2)}s` : '—'}</div><div className="t">Seconds per block</div><div className="d">{h1 ? `Average time between blocks over the ${hourLabel}, measured from ${n0(h1.blocks)} blocks.` : 'Measuring…'} Once in a block, a payment is final — it can't be reversed.</div></div>
+          <div className="nx-big"><div className="v">{m5 ? n0(m5.tps, 0) : '—'}</div><div className="t">Transactions per second</div><div className="d">{`Average over the last 5 minutes.${h1 ? ` ${n0(h1.txs)} transactions in the ${hourLabel}.` : ''}`}</div></div>
+          <div className="nx-big"><div className="v">{transferFee == null ? '—' : transferFee < 0.01 ? `$${transferFee.toFixed(4)}` : usd(transferFee)}</div><div className="t">Fee to send USDC</div><div className="d">Network fee for one plain USDC transfer (21,000 gas) at the current base fee{c ? ` of ${c.baseFeeGwei.toFixed(0)} gwei` : ''}. Fees on Arc are paid in USDC, not a separate gas coin.</div></div>
           <button type="button" className="nx-big nx-big-btn" onClick={() => openVals(true)} aria-label="Show the validators"><div className="v">{vals.length || '—'}</div><div className="t">Validators <span className="nx-big-go">see all <IconArrowRight className="arw" /></span></div><div className="d">Approved institutions take turns confirming blocks{even ? ', each an equal share' : ''}.</div></button>
         </div>
 
@@ -139,27 +146,33 @@ export function Network() {
 
         {/* 3 · Money moving */}
         {flows && <div className="nx-card">
-          <div className="nx-head"><h3>Money moving in and out</h3><span className="nx-when">{hourLabel}</span></div>
-          <p className="nx-sub">Dollars bridged between Arc and other blockchains through Circle's official bridge.</p>
+          {/* 09-30 owner: "came in / went out / more came in — be more specific": every label says what, which way, and when */}
+          <div className="nx-head"><h3>USDC bridged in and out of Arc</h3>
+            {flowTabs.length > 1
+              ? <div className="nx-tabs">{flowTabs.map(([k, l]) => <button key={k} type="button" className={flowKey === k ? 'on' : ''} onClick={() => setFlowTab(k)}>{l}</button>)}</div>
+              : <span className="nx-when">{flowPeriod}</span>}
+          </div>
+          <p className="nx-sub">USDC moved between Arc and other blockchains through Circle's official bridge (CCTP), {flowPeriod}. Read from the bridge's own events on Arc.</p>
           <div className="nx-flow">
-            <div className="nx-flow-side in"><div className="v">{usd(flows.in.usd)}</div><div className="t">came in · {flows.in.count} transfers</div></div>
-            <div className="nx-flow-side out"><div className="v">{usd(flows.out.usd)}</div><div className="t">went out · {flows.out.count} transfers</div></div>
-            <div className={`nx-flow-side net ${net != null && net >= 0 ? 'in' : 'out'}`}><div className="v">{net == null ? '—' : `${net >= 0 ? '+' : '−'}${usd(Math.abs(net))}`}</div><div className="t">{net != null && net >= 0 ? 'more came in' : 'more went out'}</div></div>
+            <div className="nx-flow-side in"><div className="v">{usd(flows.in.usd)}</div><div className="t">bridged INTO Arc · {flows.in.count} transfer{flows.in.count === 1 ? '' : 's'}, {flowPeriod}</div></div>
+            <div className="nx-flow-side out"><div className="v">{usd(flows.out.usd)}</div><div className="t">bridged OUT of Arc · {flows.out.count} transfer{flows.out.count === 1 ? '' : 's'}, {flowPeriod}</div></div>
+            <div className={`nx-flow-side net ${net != null && net >= 0 ? 'in' : 'out'}`}><div className="v">{net == null ? '—' : `${net >= 0 ? '+' : '−'}${usd(Math.abs(net))}`}</div>
+              <div className="t">{net == null ? '' : net >= 0 ? `net INTO Arc: ${usd(Math.abs(net))} more USDC bridged in than out, ${flowPeriod}` : `net OUT of Arc: ${usd(Math.abs(net))} more USDC bridged out than in, ${flowPeriod}`}</div></div>
           </div>
           <div className="nx-cols">
-            <div><div className="nx-mini">Came in from</div>{flows.in.byChain.slice(0, 5).map((x) => <div className="nx-row sm" key={x.chain}><span>{x.chain}</span><span className="num mono up">{usd(x.usd)}</span></div>)}{!flows.in.byChain.length && <div className="nx-row sm"><span>—</span></div>}</div>
-            <div><div className="nx-mini">Went out to</div>{flows.out.byChain.slice(0, 5).map((x) => <div className="nx-row sm" key={x.chain}><span>{x.chain}</span><span className="num mono down">{usd(x.usd)}</span></div>)}{!flows.out.byChain.length && <div className="nx-row sm"><span>—</span></div>}</div>
+            <div><div className="nx-mini">Bridged into Arc from</div>{flows.in.byChain.slice(0, 5).map((x) => <div className="nx-row sm" key={x.chain}><span>{x.chain}</span><span className="num mono up">{usd(x.usd)}</span></div>)}{!flows.in.byChain.length && <div className="nx-row sm"><span>—</span></div>}</div>
+            <div><div className="nx-mini">Bridged out of Arc to</div>{flows.out.byChain.slice(0, 5).map((x) => <div className="nx-row sm" key={x.chain}><span>{x.chain}</span><span className="num mono down">{usd(x.usd)}</span></div>)}{!flows.out.byChain.length && <div className="nx-row sm"><span>—</span></div>}</div>
           </div>
         </div>}
 
         {/* 4 · Lending */}
         {lend && <div className="nx-card">
-          <div className="nx-head"><h3>Lending</h3>{lentTotal != null && lentTotal > 0 && <span className="nx-total">{usd(lentTotal)} lent</span>}</div>
+          <div className="nx-head"><h3>Lending</h3>{lentTotal != null && lentTotal > 0 && <span className="nx-total">{usd(lentTotal)} deposited</span>}</div>
           <p className="nx-sub">People deposit dollars to earn interest; others borrow them against collateral like Bitcoin.{borrowedTotal != null && lentTotal ? ` Right now ${usd(borrowedTotal)} is borrowed — ${Math.round((borrowedTotal / lentTotal) * 100)}% of what is lent.` : ''}</p>
-          <div className="nx-row"><span>Aave <small className="sub">lending app</small></span><span className="num mono">{usd(lend.aave.supplyUsd)}<small className="sub">{usd(lend.aave.borrowUsd)} borrowed</small></span></div>
+          <div className="nx-row"><span>Aave V4 <small className="sub">lending app on Arc</small></span><span className="num mono">{usd(lend.aave.supplyUsd)} deposited<small className="sub">{usd(lend.aave.borrowUsd)} borrowed out ({lend.aave.supplyUsd > 0 ? Math.round((lend.aave.borrowUsd / lend.aave.supplyUsd) * 100) : 0}% of deposits)</small></span></div>
           <div className="nx-row"><span>Morpho <small className="sub">lending app</small></span>
             {morphoReady
-              ? <span className="num mono">{usd(lend.morpho.supplyUsd)}<small className="sub">{usd(lend.morpho.borrowUsd)} borrowed</small></span>
+              ? <span className="num mono">{usd(lend.morpho.supplyUsd)} deposited<small className="sub">{usd(lend.morpho.borrowUsd)} borrowed out ({lend.morpho.supplyUsd > 0 ? Math.round((lend.morpho.borrowUsd / lend.morpho.supplyUsd) * 100) : 0}% of deposits)</small></span>
               : <span className="num mono nx-dim">counting markets… {Math.round((lend.morpho.progress ?? 0) * 100)}%</span>}
           </div>
           {/* 09-30: was a fixed sentence ("the biggest holders of Bitcoin are Morpho and Aave") — now shown only while the live

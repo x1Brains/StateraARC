@@ -27,7 +27,7 @@ import * as Board from '../src/lib/board.ts';
 import { indexHolders, indexStats, indexBatch, batchStats, holderCountOf } from './holder-index.ts';
 import { walletTransfers, walletStats, blockTimes } from './wallet-index.ts';
 import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
-import { pollChain, chainSummary, chainStats, backfillStep, saveChain, loadChain } from './chain.ts';
+import { pollChain, chainSummary, chainStats, backfillStep, flowsBackfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
 import { refreshWhere, whereSummary, whereStats } from './where.ts';
 
@@ -331,6 +331,9 @@ loadChain(); tickChain(); setInterval(tickChain, 15_000);
 // History in the background, paced under the public RPC burst limit; state saved every minute (survives deploys).
 const backfill = async () => { try { if (await backfillStep(rpcBatch)) { setTimeout(backfill, 2500); return; } } catch { chainStats.errors++; setTimeout(backfill, 10_000); return; } setTimeout(backfill, 30_000); };
 setTimeout(backfill, 5_000);
+// Bridge flows back to 24 h (Network page 1H / 12H / 24H) — 9,000 blocks per step, paced, behind the block backfill.
+const flowsBackfill = async () => { let more = false; try { more = await flowsBackfillStep(rpc); } catch { chainStats.errors++; } setTimeout(flowsBackfill, more ? 3_000 : 60_000); };
+setTimeout(flowsBackfill, 20_000);
 setInterval(saveChain, 60_000);
 // Lending (Network page): every 5 min. getLogs over ~95k blocks needs the nodes that allow it (address-filtered, few results).
 const BIG_RPCS = ['https://rpc.blockdaemon.mainnet.arc.io', 'https://rpc.blockdaemon.mainnet.arc.io', 'https://arc.gateway.tenderly.co'];

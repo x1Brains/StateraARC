@@ -66,7 +66,8 @@ export interface V2Chain {
   at: number; head: number; headTs: number; baseFeeGwei: number; coveredSeconds: number;
   m5: V2ChainWin | null; h1: V2ChainWin | null; h6: V2ChainWin | null;
   validators: { address: string; blocks: number; share: number; lastBlock: number; behind: number }[]; validatorCount: number;
-  cctp: { h1: { in: V2Flows; out: V2Flows }; h6: { in: V2Flows; out: V2Flows } | null };
+  cctp: { h1: { in: V2Flows; out: V2Flows }; h6: { in: V2Flows; out: V2Flows } | null;
+    h12?: { in: V2Flows; out: V2Flows } | null; h24?: { in: V2Flows; out: V2Flows } | null; coveredSeconds?: number };
   supplies: Record<string, number | null>; suppliesAt: number; supplyUsd?: Record<string, number | null>;
 }
 export const v2Chain = () => get<V2Chain>('chain', 8000).then((c) => { if (!c || typeof c.head !== 'number') throw new Error('v2 chain: bad shape'); return c; });

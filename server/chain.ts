@@ -9,6 +9,8 @@ import path from 'node:path';
 type Rpc = (method: string, params: unknown[]) => Promise<any>;
 
 const WINDOW_S = 6 * 3600;                 // rolling window kept in memory (6 h of blocks ≈ 43k small rows)
+// CCTP flows are kept for 24 h (owner 09-30: "why not last 24 hrs, 12 hours, 1 hour?") — a few thousand rows, not blocks.
+const FLOW_WINDOW_S = 24 * 3600;
 const BACKFILL_S = 3600;                   // on start, read back 1 h so the page is useful at once
 const TOKEN_MESSENGER = '0x28b5a0e9c621a5badaa536219b3a228c8168cf5d';
 const TOPIC_DEPOSIT_FOR_BURN = '0x0c8c1cbdc5190613ebd485511d4e2812cfa45eecb79d845893331fedad5130a5'; // USDC out of Arc
@@ -64,8 +66,11 @@ async function readFlows(rpc: Rpc, from: number, to: number) {
   const srcByTx = new Map<string, number>();
   if (Array.isArray(mt)) for (const l of mt) { try { srcByTx.set(l.transactionHash, Number(word(l.data, 0))); } catch { /* skip */ } }
   const headTs = blocks.get(head)?.ts ?? null;
-  // A log in a block not read yet (the backfill is behind): time it from the head at ~0.5 s/block until the block lands.
-  const tsOf = (n: number) => blocks.get(n)?.ts ?? (headTs != null ? Math.round(headTs - (head - n) * 0.5) : null);
+  // A log in a block we don't hold: interpolate between two REAL block times (the flows anchor ~24 h back, read from
+  // chain, and the head) — not an assumed 0.5 s/block, which drifts by tens of minutes over a day.
+  const tsOf = (n: number) => blocks.get(n)?.ts ?? (headTs != null && anchor && anchor.n < head
+    ? Math.round(anchor.ts + ((n - anchor.n) * (headTs - anchor.ts)) / (head - anchor.n))
+    : headTs != null ? Math.round(headTs - (head - n) * 0.5) : null);
   for (const l of tm) {
     const n = parseInt(l.blockNumber, 16);
     try {
@@ -92,11 +97,12 @@ async function readSupplies(rpc: Rpc) {
 const STATE_FILE = process.env.CHAIN_STATE || '/root/statera-api-state/chain.json';
 let firstBlock = 0;            // oldest block read so far; the background backfill walks it back to head − 1 h
 let flowsFrom = 0;             // oldest block whose CCTP logs are in `flows`
+let anchor: { n: number; ts: number } | null = null; // a real block time ~24 h back, for timing flows outside the block map
 export function saveChain() {
   try {
     fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
     const tmp = STATE_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ v: 1, lastBlock, lastLogBlock, firstBlock, flowsFrom, blocks: [...blocks.values()], flows, supplies, suppliesAt }));
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, lastBlock, lastLogBlock, firstBlock, flowsFrom, anchor, flowBlockTime, blocks: [...blocks.values()], flows, supplies, suppliesAt }));
     fs.renameSync(tmp, STATE_FILE);
   } catch { /* next time */ }
 }
@@ -106,7 +112,7 @@ export function loadChain() {
     if (j.v !== 1) return;
     for (const b of j.blocks as Blk[]) blocks.set(b.n, b);
     flows = j.flows || []; Object.assign(supplies, j.supplies || {}); suppliesAt = 0; // supplies re-read on the first poll
-    lastBlock = j.lastBlock || 0; lastLogBlock = j.lastLogBlock || 0; firstBlock = j.firstBlock || 0; flowsFrom = j.flowsFrom || 0;
+    lastBlock = j.lastBlock || 0; lastLogBlock = j.lastLogBlock || 0; firstBlock = j.firstBlock || 0; flowsFrom = j.flowsFrom || 0; anchor = j.anchor || null; flowBlockTime = j.flowBlockTime || 0.5;
   } catch { /* fresh start */ }
 }
 
@@ -147,8 +153,29 @@ function trim() {
   const newest = blocks.get(head)?.ts ?? Math.max(0, ...[...blocks.values()].slice(-1).map((b) => b.ts));
   for (const f of flows) if (!f.ts) f.ts = blocks.get(f.n)?.ts ?? 0;
   for (const [n, b] of blocks) if (b.ts < newest - WINDOW_S) blocks.delete(n);
-  flows = flows.filter((f) => !f.ts || f.ts >= newest - WINDOW_S);
+  flows = flows.filter((f) => !f.ts || f.ts >= newest - FLOW_WINDOW_S);
 }
+/** Background: read CCTP logs back to 24 h before the head, 9,000 blocks per step (the start only reads the last hour).
+ *  The first step fixes a real block time ~24 h back (the anchor every older flow is timed against). */
+export async function flowsBackfillStep(rpc: Rpc): Promise<boolean> {
+  if (!head || !flowsFrom) return false;
+  const headTs = blocks.get(head)?.ts; if (!headTs) return false;
+  if (!anchor || head - anchor.n > 300_000) {
+    const guess = head - Math.round(FLOW_WINDOW_S / 0.5) - 5000;
+    const b = await rpc('eth_getBlockByNumber', [hex(guess), false]);
+    if (!b?.timestamp) return false;
+    anchor = { n: guess, ts: parseInt(b.timestamp, 16) };
+    // the real block time over the day, from two real timestamps
+    flowBlockTime = (headTs - anchor.ts) / (head - anchor.n);
+  }
+  const target = head - Math.ceil(FLOW_WINDOW_S / Math.max(0.05, flowBlockTime)) - 200;
+  if (flowsFrom <= target) return false;
+  const to = flowsFrom - 1, from = Math.max(target, to - 8999);
+  await readFlows(rpc, from, to);
+  flowsFrom = from;
+  return true;
+}
+let flowBlockTime = 0.5;
 
 /** The Network page payload: windows 5 min / 1 h / (up to) 6 h, validators by blocks produced, CCTP flows, supplies. */
 export function chainSummary() {
@@ -168,6 +195,8 @@ export function chainSummary() {
   for (const b of hour) { const p = prod.get(b.miner) || { blocks: 0, last: 0 }; p.blocks++; p.last = Math.max(p.last, b.n); prod.set(b.miner, p); }
   const validators = [...prod.entries()].map(([address, p]) => ({ address, blocks: p.blocks, share: p.blocks / hour.length, lastBlock: p.last, behind: last.n - p.last }))
     .sort((a, b) => b.blocks - a.blocks);
+  // How far back flows really go (the oldest block read) — a window is shown only once history covers it.
+  const flowCover = anchor && flowsFrom ? last.ts - (anchor.ts + ((flowsFrom - anchor.n) * (last.ts - anchor.ts)) / Math.max(1, last.n - anchor.n)) : 0;
   const flowWin = (sec: number) => {
     const fs = flows.filter((f) => f.ts > last.ts - sec);
     const agg = (dir: 'in' | 'out') => {
@@ -182,7 +211,9 @@ export function chainSummary() {
     at: Date.now(), head: last.n, headTs: last.ts, baseFeeGwei: last.baseFee / 1e9, coveredSeconds: cover,
     m5: win(300), h1: win(3600), h6: cover >= 5 * 3600 ? win(6 * 3600) : null,
     validators, validatorCount: validators.length,
-    cctp: { h1: flowWin(3600), h6: cover >= 5 * 3600 ? flowWin(6 * 3600) : null, fromBlock: flowsFrom },
+    cctp: { h1: flowWin(3600), h6: cover >= 5 * 3600 ? flowWin(6 * 3600) : null,
+      h12: flowCover >= 12 * 3600 - 120 ? flowWin(12 * 3600) : null, h24: flowCover >= 24 * 3600 - 120 ? flowWin(24 * 3600) : null,
+      coveredSeconds: Math.max(0, Math.round(flowCover)), fromBlock: flowsFrom },
     backfilling: !chainStats.backfilled,
     supplies: { ...supplies }, suppliesAt,
   };
