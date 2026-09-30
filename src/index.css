@@ -2131,3 +2131,6 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
   background: linear-gradient(180deg, rgba(255,60,60,.16), rgba(255,60,60,.07)); border: 1px solid rgba(255,90,90,.6); color: #ffd6d6; font-size: 13.5px; line-height: 1.5; }
 .fake-banner b { font: 700 15px var(--disp); letter-spacing: .6px; color: #ff6b6b; text-transform: uppercase; }
 .badge.b-fake { color: #fff; background: #d63a3a; border: 1px solid #ff6b6b; font-weight: 700; }
+
+/* pools card: with 1-3 pools the header is a plain title (always open, no toggle) */
+.pl-head.pl-fixed { cursor: default; }

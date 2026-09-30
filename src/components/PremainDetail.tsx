@@ -59,7 +59,9 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   // "My trades" and marked on the chart.
   const [mine, setMine] = useState<WalletTrade[] | null>(null);
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
-  const [poolsOpen, setPoolsOpen] = useState(false);
+  // 09-30 owner: the pools list is always shown OPEN; only with 4+ pools can it be collapsed (and it starts open then too)
+  const [poolsOpen, setPoolsOpen] = useState(true);
+  useEffect(() => { setPoolsOpen(true); }, [address]);
   const [calcAmt, setCalcAmt] = useState('');
   // Loading scene (owner 09-29: "a nice loading scene … Statera fading in and out"): the page stays hidden behind the
   // breathing S until its first chain data lands, then fades in whole — no panels jumping in one by one. Never longer
@@ -666,15 +668,16 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
           {/* All pools for this token — directly under Liquidity & Pool (aggregated depth + per-pair, click to expand). */}
           {allPools.length > 0 && (
             <div className="panel side-card pl-card">
-              <button className="pl-head" onClick={() => setPoolsOpen((o) => !o)}>
+              <button className={`pl-head${allPools.length >= 4 ? '' : ' pl-fixed'}`} onClick={() => { if (allPools.length >= 4) setPoolsOpen((o) => !o); }}
+                aria-expanded={allPools.length >= 4 ? poolsOpen : undefined}>
                 <h3>Pools · {allPools.length}</h3>
                 <span className="pl-sum">
                   {poolsTotalLiq != null && <b>{usd(poolsTotalLiq)}</b>}
                   <span className="pl-cnt">total liq</span>
-                  <IconChevronDown className={`pl-chev i ${poolsOpen ? 'open' : ''}`} />
+                  {allPools.length >= 4 && <IconChevronDown className={`pl-chev i ${poolsOpen ? 'open' : ''}`} />}
                 </span>
               </button>
-              {poolsOpen && (
+              {(poolsOpen || allPools.length < 4) && (
                 <div className="pl-list">
                   <div className="pl-row pl-head-row"><span>Pair</span><span className="pl-price">Price</span><span className="pl-liq">Liquidity</span><span className="pl-tx">Tx</span></div>
                   {allPools.map((p) => (
