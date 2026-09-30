@@ -13,7 +13,8 @@ WALLET = '0x398c96b846966eaa7fdf56f89a028de9e8c9598a'  # the lab wallet (public 
 TOKENS = {'cirBTC': '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', 'ARGUS': '0xece5ca8bf9220718e5727754026757512212cb3c',
           'WETH': '0x128cc466b61f542da60c70e3aa11c10e19b84edb', 'EURC': '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1'}
 # scientific notation only as a standalone number (not inside a 0x… address / hash, which caused false positives)
-JUNK = re.compile(r'NaN|Infinity|undefined|\bnull\b|(?<![0-9a-fA-Fx])\d(\.\d+)?[eE][+-]?\d{2,}(?![0-9a-fA-F])|\$\d{1,3}(,\d{3}){4,}')
+# ('…' excluded too: a shortened address like 0x18dd…8e25 is not '8e25' scientific notation — 09-29 false positive)
+JUNK = re.compile(r'NaN|Infinity|undefined|\bnull\b|(?<![0-9a-fA-Fx…])\d(\.\d+)?[eE][+-]?\d{2,}(?![0-9a-fA-F])|\$\d{1,3}(,\d{3}){4,}')
 # expected fallbacks: a token with no cached logo, or one RadarDEX / Warp don't index → the page tries the next source
 EXPECTED = re.compile(r'^404 .*/api/(logo|radar/token|warp/tokens)/')
 findings, numbers = [], {}
@@ -97,9 +98,12 @@ with sync_playwright() as p:
             try:
                 pg.locator('.swap-card input, input[inputmode="decimal"]').first.fill('5'); pg.wait_for_timeout(1000)
                 # pick the receive token: open the picker and choose WETH if present
-                btns = pg.locator('button', has_text='Select');
-                if btns.count(): btns.first.click(); pg.wait_for_timeout(800); pg.keyboard.type('WETH'); pg.wait_for_timeout(1200); pg.locator('.tp-row, .tp-item, .picker-row, [class*=picker] button').first.click(); pg.wait_for_timeout(9000)
-                out['quote'] = re.sub(r'\s+', ' ', pg.evaluate("(document.querySelector('.swap-quote')||document.querySelector('.swap-info')||{}).innerText||''"))[:200]
+                # 09-29: the picker is TokenPicker (.tk-modal / .tk-list) — the old selectors never matched, so swap was never tested
+                btns = pg.locator('button:has(.tk-caret)')
+                if btns.count() >= 2: btns.nth(1).click(); pg.wait_for_timeout(800); pg.locator('.tk-modal input').first.fill('ARGUS'); pg.wait_for_timeout(1500); pg.locator('.tk-list button').first.click(); pg.wait_for_timeout(9000)
+                body = pg.evaluate('document.body.innerText')
+                m = re.search(r'YOU RECEIVE[\s\S]{0,60}|Rate[\s\S]{0,160}', body, re.I)
+                out['quote'] = re.sub(r'\s+', ' ', m.group(0))[:220] if m else 'NO QUOTE'
             except Exception as e: out['err'] = str(e)[:120]
             return out
         numbers[f'swap-{tag}'] = audit(c, f'swap-{tag}', '/swap', act=swap)
