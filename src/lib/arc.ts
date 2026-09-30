@@ -241,6 +241,14 @@ export async function fetchRadarPortfolio(addr: string): Promise<{ total: number
 // same shape as fetchRadarPortfolio. RadarDEX's /portfolio proved unreliable (frequently returned only
 // USDC and dropped the rest of the bag), so this explorer call is now the PRIMARY portfolio source.
 export async function fetchPortfolioMainnet(addr: string): Promise<{ total: number | null; holdings: RadarHolding[] }> {
+  // 09-30: OUR OWN holdings first (/api/v2/wallet/<addr>/holdings — the wallet's tokens from its on-chain transfer history,
+  // balances re-read now); the explorer's token-balances (Cloudflare-blocked from browsers anyway) only as a fallback
+  if (typeof window !== 'undefined') {
+    try {
+      const r = await fetch(`/api/v2/wallet/${addr.toLowerCase()}/holdings`, { signal: AbortSignal.timeout(25000) });
+      if (r.status === 200) { const j = await r.json(); if (Array.isArray(j.holdings)) { const sane = saneHoldings((j.holdings as RadarHolding[]).sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0) || b.amount - a.amount)); return { total: sane.total, holdings: sane.holdings }; } }
+    } catch { /* fallback below */ }
+  }
   try {
     const j = await req(`${CHAIN.api}/addresses/${addr.toLowerCase()}/token-balances`);
     const arr: any[] = Array.isArray(j) ? j : (j?.items || []);

@@ -19,6 +19,7 @@
 //   /v2/list                          the whole live list (v1-compatible shape: { generatedAt, tokens })
 import http from 'node:http';
 import fs from 'node:fs';
+import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
 import zlib from 'node:zlib';
 import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
@@ -220,6 +221,33 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     }
     const m = path.match(/^\/token\/(0x[0-9a-fA-F]{40})$/);
     if (m) { const t = v.byAddr.get(m[1].toLowerCase()); send(req, res, t ? 200 : 404, JSON.stringify(t ? { asOf, token: t } : { error: 'not listed' })); return; }
+    // A wallet's CURRENT holdings from our own data: the tokens in its transfer history, balances re-read now with one
+    // Multicall3 balanceOf, priced from our token list (09-30 — the Portfolio's quick view came from explorer/RadarDEX)
+    const hm = path.match(/^\/wallet\/(0x[0-9a-fA-F]{40})\/holdings$/);
+    if (hm) {
+      const wallet = hm[1].toLowerCase();
+      const w = await Promise.race([walletTransfers(wallet), new Promise<null>((r) => setTimeout(() => r(null), 20_000))]);
+      if (!w) { send(req, res, 202, JSON.stringify({ building: true }), undefined, 0); return; }
+      const toks = [...new Set(w.x.map((x) => x.t))].slice(0, 300);
+      const pad = wallet.slice(2).padStart(64, '0');
+      const calls = toks.flatMap((t) => [{ target: t, data: '0x70a08231' + pad }, { target: t, data: '0x313ce567' }, { target: t, data: '0x95d89b41' }]);
+      let out: (string | null)[] = [];
+      try { const r = await rpc('eth_call', [{ to: '0xca11bde05977b3631167028862be2a173976ca11', data: encAggregate3(calls) }, 'latest']); out = r && r.length > 2 ? decAggregate3(r) : []; } catch { /* */ }
+      const str = (h: string | null) => { if (!h || h.length < 130) return null; try { const n = Number(BigInt('0x' + h.slice(66, 130))); return Buffer.from(h.slice(130, 130 + n * 2), 'hex').toString('utf8').replace(/\0+$/, ''); } catch { return null; } };
+      const holdings = toks.map((t, i) => {
+        const bh = out[i * 3], dh = out[i * 3 + 1];
+        if (!bh || bh.length < 66) return null;
+        const row = v.byAddr.get(t) as any;
+        const decimals = row?.decimals ?? (dh && dh.length >= 66 ? Number(BigInt(dh.slice(0, 66))) : null);
+        if (decimals == null) return null;
+        const amount = Number(BigInt(bh.slice(0, 66))) / 10 ** decimals;
+        if (!(amount > 0)) return null;
+        const price = t === '0x3600000000000000000000000000000000000000' ? 1 : (row?.price ?? null);
+        return { address: t, symbol: row?.symbol || str(out[i * 3 + 2]) || '?', name: row?.name || row?.symbol || str(out[i * 3 + 2]) || '?', decimals,
+          icon: row?.iconUrl ?? null, price, amount, usd: price != null ? amount * price : null };
+      }).filter(Boolean);
+      send(req, res, 200, JSON.stringify({ wallet, at: w.at, holdings }), undefined, 0); return;
+    }
     // A wallet's token transfers from OUR chain read (server/wallet-index.ts) — Portfolio P&L, swap activity, holdings
     const wm = path.match(/^\/wallet\/(0x[0-9a-fA-F]{40})\/transfers$/);
     if (wm) {
