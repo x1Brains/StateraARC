@@ -108,7 +108,7 @@ export function Network() {
               <div className="nx-subtotals">
                 <span>Stablecoins (USDC + EURC) <b>{usd(stable)}</b></span>
                 <span>Bitcoin (cirBTC) <b>{usd(btc)}</b></span>
-                <span className="nx-cmp">DefiLlama's ~$450–520M for Arc is its stablecoin count or its TVL (money deposited in apps) — neither includes the cirBTC.</span>
+                <span className="nx-cmp">DefiLlama's Arc figure counts only stablecoins or money deposited in apps (TVL) — neither includes cirBTC, so it is lower than the total here.</span>
               </div>
             );
           })()}
@@ -162,7 +162,10 @@ export function Network() {
               ? <span className="num mono">{usd(lend.morpho.supplyUsd)}<small className="sub">{usd(lend.morpho.borrowUsd)} borrowed</small></span>
               : <span className="num mono nx-dim">counting markets… {Math.round((lend.morpho.progress ?? 0) * 100)}%</span>}
           </div>
-          <div className="nx-note">Why the biggest "holders" of Bitcoin on Arc are Morpho and Aave: that Bitcoin is collateral people posted to borrow dollars.</div>
+          {/* 09-30: was a fixed sentence ("the biggest holders of Bitcoin are Morpho and Aave") — now shown only while the live
+              numbers say so, with the live share */}
+          {(() => { const bt = where?.assets.find((a) => a.sym === 'cirBTC'); const lp = bt && bt.supply > 0 ? (bt.buckets.lending / bt.supply) * 100 : null;
+            return lp != null && lp >= 50 ? <div className="nx-note">{lp.toFixed(0)}% of the Bitcoin on Arc sits in the lending apps — it is collateral people posted to borrow dollars.</div> : null; })()}
         </div>}
 
         {/* 5 · Who runs it */}

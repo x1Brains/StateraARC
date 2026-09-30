@@ -22,6 +22,16 @@ interface Detail {
   reservedCheck: string | null;
 }
 
+// Hover text for the "Holders $0.10+" stat (09-30 owner: the old text always said "most of them dust" — ARGUS is 15,449 of
+// 20,755 = 74% ABOVE ten cents). States the real split, both parts from the same on-chain holder count.
+function holdersTip(h: { over: number; total: number | null; minUsd: number; capped: boolean }, fallbackTotal: number | null): string {
+  const total = h.total ?? fallbackTotal;
+  const over = `${h.over.toLocaleString()}${h.capped ? '+' : ''}`;
+  if (total == null || total <= 0 || h.capped) return `${over} wallets hold at least $${h.minUsd.toFixed(2)} of this token.`;
+  const under = Math.max(0, total - h.over), pct = (n: number) => `${Math.round((n / total) * 100)}%`;
+  return `${over} of ${total.toLocaleString()} holders (${pct(h.over)}) hold at least $${h.minUsd.toFixed(2)} of it; ${under.toLocaleString()} (${pct(under)}) hold less than that.`;
+}
+
 const VENUE_NAME: Record<string, string> = { V4: 'Uniswap V4', V3: 'Uniswap V3', V2: 'Uniswap V2', WarpV2: 'Warp V2', Warp: 'Warp curve', Aero: 'Aerodrome', Archery: 'Archery', UniV2: 'Uniswap V2' };
 export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wallet, onConnect }: { address: string; seed?: Token; ready?: boolean; onBack: () => void; onTrade?: (t: { address: string; symbol: string; name?: string; price?: number | null }) => void; wallet?: string | null; onConnect?: () => void }) {
   const [d, setD] = useState<Detail | null>(null);
@@ -479,7 +489,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
             <div><span>Volume 24h</span><b>{vol != null ? usd(vol) : '—'}</b></div>
             {/* 09-29 (GLITCH dev): arc-scan counts every dust wallet — lead with holders worth over $0.10, keep the total */}
             {holdersOver && holdersOver.over > 0
-              ? <div title={`${holdersOver.over.toLocaleString()}${holdersOver.capped ? '+' : ''} wallets hold at least $${holdersOver.minUsd.toFixed(2)} of it — ${holdersTotal != null ? fmtNum(holdersTotal) : '?'} addresses in total, most of them dust`}><span>Holders $0.10+</span><b>{fmtNum(holdersOver.over)}{holdersOver.capped ? '+' : ''}</b></div>
+              ? <div title={holdersTip(holdersOver, holdersTotal)}><span>Holders $0.10+</span><b>{fmtNum(holdersOver.over)}{holdersOver.capped ? '+' : ''}</b></div>
               : <div><span>Holders</span><b>{fmtNum(holdersTotal)}</b></div>}
             <div><span>FDV</span><b>{fdv != null ? usd(fdv) : '—'}</b></div>
           </div>

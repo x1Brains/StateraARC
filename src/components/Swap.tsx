@@ -824,7 +824,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
           <details className="sp-how">
             <summary>How routing works</summary>
             <p className="side-note">{warpMode
-              ? <>Graduated tokens fill through WarpV2; bonding-curve &amp; Uniswap-v3/v4 tokens route on their own pools in-app. Native USDC (0x3600) is the gas token. Paste any Arc ERC-20 in a token menu to import it — no pool shows "no route", never a bad fill. Min received enforced on-chain.</>
+              ? <>Every trade is quoted across Uniswap V2, V3 and V4, Warp V2 and its bonding curve, Aerodrome and Archery, and the best fill wins. Only tokens listed on the Statera screener can be traded here (or ones you already hold). Native USDC (0x3600) is the gas token. Min received is enforced on-chain at your slippage.</>
               : <>Quoted against every live router on {CHAIN.name} ({SWAP_CFG.routers.length} tracked) for the deepest fill. Native USDC (0x3600) is Arc's gas token. Paste any ERC-20 to import it. Min received enforced on-chain at your slippage.</>}</p>
           </details>
         </aside>
