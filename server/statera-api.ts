@@ -232,6 +232,11 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
       send(req, res, 200, JSON.stringify({ wallet: wm[1].toLowerCase(), last: w.last, at: w.at, count: w.x.length, firstBlock: first, tokens,
         transfers: list.map((x) => ({ ...x, ts: ts.get(x.b) || null })) }), undefined, 0); return;
     }
+    // Our own visit counter (09-30 — was a third-party counter service). ?hit=1 counts one visit; saved to disk.
+    if (path === '/visits') {
+      if (u.searchParams.get('hit') === '1') { visits.n++; visitsDirty = true; }
+      send(req, res, 200, JSON.stringify({ value: visits.n }), undefined, 0); return;
+    }
     if (path === '/tokens') {
       const addrs = (u.searchParams.get('addrs') || '').toLowerCase().split(',').filter((a) => /^0x[0-9a-f]{40}$/.test(a)).slice(0, 300);
       send(req, res, 200, JSON.stringify({ asOf, tokens: addrs.map((a) => v.byAddr.get(a)).filter(Boolean) })); return;
@@ -286,6 +291,11 @@ const batchLoop = async () => {
 };
 setTimeout(batchLoop, 90_000);
 setInterval(saveCaches, 5 * 60_000);
+// visit counter state (continues from the old counter's 1,885 on 09-30)
+const VISITS_FILE = '/root/statera-api-state/visits.json';
+const visits: { n: number } = (() => { try { return JSON.parse(fs.readFileSync(VISITS_FILE, 'utf8')); } catch { return { n: 1885 }; } })();
+let visitsDirty = false;
+setInterval(() => { if (!visitsDirty) return; visitsDirty = false; try { fs.writeFileSync(VISITS_FILE + '.tmp', JSON.stringify(visits)); fs.renameSync(VISITS_FILE + '.tmp', VISITS_FILE); } catch { /* */ } }, 10_000);
 // The Network page's chain follower: every block, one poll at a time, every 15 s.
 let chaining = false;
 const tickChain = async () => { if (chaining) return; chaining = true; try { await pollChain(rpc, rpcBatch); } catch (e) { chainStats.errors++; console.error('[chain]', (e as Error).message); } finally { chaining = false; } };

@@ -612,8 +612,9 @@ export const fmt = (n: number | null) => (n == null ? '—' : n.toLocaleString()
 export interface MarketPx { sym: string; price: number | null; logo: string | null }
 // The wider financial world — live via Coinbase spot (no key). Gold = PAXG (tokenized gold).
 const MARKET_ASSETS = [
-  { cb: 'BTC', sym: 'BTC', logo: '/coins/BTC.png' },
-  { cb: 'ETH', sym: 'ETH', logo: '/coins/ETH.png' },
+  // arc = the asset's own token ON ARC — its price is read from Arc's pools (our data); Coinbase only if that's missing.
+  { cb: 'BTC', sym: 'BTC', logo: '/coins/BTC.png', arc: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0' }, // cirBTC
+  { cb: 'ETH', sym: 'ETH', logo: '/coins/ETH.png', arc: '0x128cc466b61f542da60c70e3aa11c10e19b84edb' }, // WETH
   { cb: 'SOL', sym: 'SOL', logo: '/coins/SOL.png' },
   { cb: 'XRP', sym: 'XRP', logo: '/coins/XRP.png' },
   { cb: 'SUI', sym: 'SUI', logo: '/coins/SUI.png' },
@@ -623,8 +624,8 @@ const MARKET_ASSETS = [
   { cb: 'PAXG', sym: 'GOLD', logo: '/coins/PAXG.png' },
   // Arc's own money, live too: EURC floats with EUR/USD (the old fixed 1.08 sat next to a live $1.14 on the board).
   { cb: 'USDC', sym: 'USDC', logo: '/coins/USDC.svg' },
-  { cb: 'EURC', sym: 'EURC', logo: '/coins/EURC.svg' },
-];
+  { cb: 'EURC', sym: 'EURC', logo: '/coins/EURC.svg', arc: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1' },
+] as { cb: string; sym: string; logo: string; arc?: string }[];
 // XNT (X1's native token) — live USD price via XDEX. CORS-blocked, so proxied at /api/xdex
 // (Vercel rewrite in prod, vite proxy in dev). Mint So111…112 = X1 native.
 async function fetchXnt(): Promise<number | null> {
@@ -636,8 +637,17 @@ async function fetchXnt(): Promise<number | null> {
 }
 export async function fetchMarket(): Promise<MarketPx[]> {
   const out: MarketPx[] = [];
+  // 09-30: Arc's own assets priced from Arc's own pools (Statera's token data), not Coinbase. USDC is Arc's unit = $1.
+  const arcPx: Record<string, number> = {};
+  try {
+    const addrs = MARKET_ASSETS.filter((a) => a.arc).map((a) => a.arc).join(',');
+    const j = await (await fetch(`/api/v2/tokens?addrs=${addrs}`, { signal: AbortSignal.timeout(6000) })).json();
+    for (const t of j.tokens || []) if (t?.price > 0 && t.price < 1e6) arcPx[String(t.address).toLowerCase()] = t.price;
+  } catch { /* Coinbase below */ }
   const [, xnt] = await Promise.all([
     Promise.all(MARKET_ASSETS.map(async (a) => {
+      if (a.sym === 'USDC') { out.push({ sym: a.sym, price: 1, logo: a.logo }); return; }
+      if (a.arc && arcPx[a.arc]) { out.push({ sym: a.sym, price: arcPx[a.arc], logo: a.logo }); return; }
       try {
         const r = await fetch(`https://api.coinbase.com/v2/prices/${a.cb}-USD/spot`);
         const j = await r.json();

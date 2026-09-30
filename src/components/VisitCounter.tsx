@@ -5,8 +5,10 @@ import { useEffect, useState } from 'react';
 // reads. Fails silently — if the counter is unreachable, we render nothing rather than a broken 0.
 const NS = 'stateraarc.com';
 const KEY = 'visits';
-const HIT = `https://abacus.jasoncameron.dev/hit/${NS}/${KEY}`;
-const GET = `https://abacus.jasoncameron.dev/get/${NS}/${KEY}`;
+// 09-30: our own counter on the Statera server (/api/v2/visits), continuing from the old third-party count.
+void NS; void KEY;
+const HIT = '/api/v2/visits?hit=1';
+const GET = '/api/v2/visits';
 let counted = false; // one increment per page load
 
 export function VisitCounter() {
