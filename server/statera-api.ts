@@ -204,7 +204,8 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     if (dm) {
       const a = dm[1].toLowerCase();
       tokenDetail(a, v.byAddr.get(a))
-        .then((d) => send(req, res, 200, JSON.stringify(d), undefined, 15))
+        // lookalike = our own impersonator check (a ticker copied from a more-liquid real token), not arc-scan's flag
+        .then((d) => { const row = v.byAddr.get(a); send(req, res, 200, JSON.stringify({ ...d, lookalike: row ? Board.isDupTicker(v.ix, row) : null }), undefined, 15); })
         .catch((e) => send(req, res, 502, JSON.stringify({ error: 'detail failed: ' + (e as Error).message }), undefined, 0));
       return;
     }

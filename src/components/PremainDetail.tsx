@@ -104,6 +104,12 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
           }, 10_000);
           setDec(v.dec);
           rdP.then((detail) => { if (alive) setRd(detail); });
+          // extended contract details from OUR chain read; arc-scan only if the chain read is missing
+          if (v.contract) setD({ symbol: v.contract.symbol || seed?.symbol || '?', name: (v.contract.name || seed?.name || '').trim(),
+            decimals: v.contract.decimals ?? v.dec, standard: 'erc20', holders: v.holderCount ?? seed?.holders ?? null,
+            supply: v.contract.supply != null ? String(v.contract.supply) : null, transfers24h: v.contract.transfers24h,
+            creator: v.contract.creator, size: v.contract.size, lookalike: !!v.lookalike, reservedName: false, reservedCheck: null } as any);
+          else setScanFallback((x) => x + 1);
           setOcPool(v.ocPool); setOcPools(v.ocPools); setDayStats(v.dayStats); setBurn(v.burn); setTxs(v.txs ?? []); setLocks(v.locks ?? null); setHoldersOver(v.holdersOver ?? null); setChainHolders(v.holderCount ?? null);
           if (v.holders && v.holders.length) setHolders(v.holders);
           else fetchRadarHolders(address, v.dec, 100).then((h) => { if (alive) { setHolders(h.holders); if (h.holderCount != null) setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
@@ -156,9 +162,13 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
     return () => { alive = false; };
   }, [wallet, address, dec]);
 
+  // 09-30: extended contract details now come from OUR chain read (v2 detail .contract); arc-scan's REST is only the
+  // fallback — called from the v2 handler when the chain read is missing, or here when v2 is off.
+  const [scanFallback, setScanFallback] = useState(0);
   useEffect(() => {
     let alive = true;
     setD(null); setErr(null);
+    if (v2Enabled && !scanFallback) return () => { alive = false; };
     (async () => {
       // This only adds EXTENDED contract details (creator, size, lookalike flags). Price/liq/mcap/holders
       // come from the screener seed and are unaffected if this flaky indexer (arc-scan.org) is down —
@@ -189,7 +199,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
       }
     })();
     return () => { alive = false; };
-  }, [address]); // eslint-disable-line
+  }, [address, scanFallback]); // eslint-disable-line
 
   // Share: a freshly stamped url per click (see tokenShareUrl) so X/Discord/Telegram crawl the card at the LIVE price.
   const [linkCopied, setLinkCopied] = useState(false);

@@ -12,6 +12,7 @@ import {
 import type { Candle } from '../src/lib/warp.ts';
 import { holderBadges, tokenLocks, holdersOver, POOL_MANAGER_V4, BURN, LOCKERS, type HolderKind, type TokenLocks, type HoldersOver } from './holder-intel.ts';
 import { indexedHolders, indexedHoldersOver, isIndexed } from './holder-index.ts';
+import { contractInfo, type ContractInfo } from './contract-info.ts';
 
 export interface TokenDetail {
   address: string; at: number; ms: number; dec: number;
@@ -24,6 +25,7 @@ export interface TokenDetail {
   holdersOver?: HoldersOver | null;     // holders worth ≥ $0.10 (arc-scan counts every dust wallet)
   holderCount?: number | null;          // every address with a balance, from our own on-chain index
   holdersFrom?: 'chain' | 'arc-scan' | null;
+  contract?: ContractInfo | null;       // creator, size, 24h transfers, name/symbol/decimals/supply — all from chain
   swaps: Awaited<ReturnType<typeof fetchPoolTrades>> | null;
   txs: Awaited<ReturnType<typeof fetchTokenTransfers>> | null;
 }
@@ -78,15 +80,17 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     // so a waiting visitor gets the cached one and the background run (warmer / stale refresh) does the paging.
     const poolAddrs = (ocPools || []).map((q) => q.pool).filter((a): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a));
     const price = seed?.price ?? ocPool?.price ?? null;
-    const [badges, locks, over] = await Promise.all([
+    const [badges, locks, over, contract] = await Promise.all([
       holders ? settle(holderBadges(holders.slice(0, 100).map((h) => h.address), poolAddrs)) : null, // every shown holder gets its badge
       settle(tokenLocks(address, dec, burn?.supply ?? null)),
       // from the index when we have it (no paging); else arc-scan paging, background only (price null = cached value)
+      // (4th) contract details from chain — replaced arc-scan's /tokens REST (09-30)
       idx ? Promise.resolve(indexedHoldersOver(address, dec, price, new Set([...poolAddrs.map((a) => a.toLowerCase()), POOL_MANAGER_V4, ...BURN, ...LOCKERS.map((l) => l.address)]))) : settle(holdersOver(address, urgent ? null : price, poolAddrs)),
+      settle(contractInfo(address)),
     ]);
     if (urgent && !idx) holdersOver(address, price, poolAddrs).catch(() => {}); // fills the cache for the next read
     if (holders && badges) holders = holders.map((h) => { const b = badges.get(h.address.toLowerCase()); return b ? { ...h, kind: b.kind, label: b.label, isPool: h.isPool || b.kind === 'v4' || b.kind === 'pool' } : h; });
-    const d: TokenDetail = { address, at: Date.now(), ms: Date.now() - t0, dec, ocPool, ocPools, dayStats, burn, holders, swaps, txs, locks, holdersOver: over, holderCount: idx ? idx.count : null, holdersFrom };
+    const d: TokenDetail = { address, at: Date.now(), ms: Date.now() - t0, dec, ocPool, ocPools, dayStats, burn, holders, swaps, txs, locks, holdersOver: over, holderCount: idx ? idx.count : null, holdersFrom, contract };
     cache.set(address, d); detailStats.computed++; detailStats.lastMs = d.ms;
     if (tradeOpts.partial) { detailStats.partial++; setTimeout(() => refresh(address, seed, false).catch(() => {}), 0); }
     if (cache.size > MAX_CACHED) { const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]; if (oldest) cache.delete(oldest[0]); }

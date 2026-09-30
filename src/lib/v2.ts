@@ -51,6 +51,8 @@ export interface V2TokenDetail {
   ocPools: OnchainPool[] | null; dayStats: DayStats | null; burn: { burnt: number; supply: number | null; pct: number | null } | null;
   holders: RadarHolder[] | null; swaps: RadarSwap[] | null; txs: TokenTransfer[] | null;
   holderCount?: number | null; holdersFrom?: 'chain' | 'arc-scan' | null;
+  contract?: { name: string | null; symbol: string | null; decimals: number | null; supply: number | null; deployBlock: number | null; creator: string | null; size: number | null; transfers24h: number | null } | null;
+  lookalike?: boolean | null;
   locks?: V2Lock[] | null; holdersOver?: { over: number; total: number | null; minUsd: number; capped: boolean; at: number } | null;
 }
 export interface V2Lock { locker: string; label: string; locked: number; pct: number | null; nextUnlock: number | null; lastUnlock: number | null; parts: { amount: number; unlock: number }[]; expiredNotWithdrawn: number }
