@@ -377,6 +377,17 @@ export async function fetchRadarHolders(addr: string, decimals = 18, limit = 50)
 // the native precompile 0xffff…fe (18-dec) and once as the 0x3600 ERC-20 (6-dec) for the SAME amount —
 // so we take the 0x3600 leg when present, else the native, never both. Verified vs a known wallet 2026-09-16.
 const ARCSCAN_REST = 'https://api.arc-scan.org/v1';
+// OUR OWN wallet history (server/wallet-index.ts via /api/v2/wallet/<addr>/transfers) — read from chain on the VPS.
+// 09-30: arc-scan's /address/txs was the only source and went down. null = not built yet / unreachable (callers fall back).
+export interface OwnXfer { h: string; b: number; i: number; t: string; f: string; to: string; v: string; ts: number | null }
+async function ownWalletTransfers(w: string, limit = 500): Promise<{ transfers: OwnXfer[]; firstBlock: number | null } | null> {
+  if (typeof window === 'undefined') return null;
+  try {
+    const r = await fetch(`/api/v2/wallet/${w.toLowerCase()}/transfers?limit=${limit}`, { signal: AbortSignal.timeout(25000) });
+    if (r.status !== 200) return null; // 202 = still building on the server
+    const j = await r.json(); return Array.isArray(j.transfers) ? { transfers: j.transfers, firstBlock: j.firstBlock ?? null } : null;
+  } catch { return null; }
+}
 const NATIVE_USDC_LOG = '0xfffffffffffffffffffffffffffffffffffffffe';
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 export interface TokenPnl { invested: number; qtyBought: number; proceeds: number; qtySold: number; avgCost: number | null; realized: number; }
@@ -444,6 +455,15 @@ const listMem: Map<string, { at: number; hashes: string[] }> = new Map();
 async function walletTxHashes(w: string, maxTxs: number): Promise<string[]> {
   const mem = listMem.get(w);
   if (mem && Date.now() - mem.at < 60000) return mem.hashes;   // phase-1 -> phase-2 re-run: don't re-page
+  // our own chain read first: every tx that moved a token in or out of the wallet (swaps included), newest first
+  const own = await ownWalletTransfers(w, 5000);
+  if (own && own.transfers.length) {
+    const seenH = new Set<string>(), all: string[] = [];
+    for (const x of own.transfers) { if (x.ts) txTs.set(x.h, x.ts); if (!seenH.has(x.h)) { seenH.add(x.h); all.push(x.h); } }
+    const outList = all.slice(0, maxTxs);
+    listMem.set(w, { at: Date.now(), hashes: outList });
+    return outList;
+  }
   const cached: string[] = (lsGet(PNL_LIST_KEY) || {})[w] || [];
   const hashes: string[] = [];
   let cursor = '', joined = false;
@@ -543,6 +563,20 @@ export async function fetchWalletPnl(wallet: string, decimalsByToken: Record<str
 // ── Wallet activity feed (arc-scan REST) — the connected wallet's recent transactions ─────────────
 export interface WalletTx { hash: string; ts: number; method: string; value: number | null; symbol: string | null; status: boolean; to: string | null; from: string | null; }
 export async function fetchAddressTxs(addr: string, limit = 12): Promise<WalletTx[]> {
+  // our own chain read first — one row per transaction: a swap (tokens both out and in), a send or a receive
+  const own = await ownWalletTransfers(addr, 200);
+  if (own && own.transfers.length) {
+    const w = addr.toLowerCase(), byTx = new Map<string, OwnXfer[]>();
+    for (const x of own.transfers) { const a = byTx.get(x.h) || []; a.push(x); byTx.set(x.h, a); }
+    return [...byTx.entries()].slice(0, limit).map(([hash, xs]): WalletTx => {
+      const out = xs.filter((x) => x.f === w), inn = xs.filter((x) => x.to === w);
+      const main = inn[0] || out[0];
+      // the USDC side of the tx (6-dec, as the wallet check showed: in - out == balanceOf for every token)
+      const usdcLeg = xs.find((x) => x.t === '0x3600000000000000000000000000000000000000');
+      return { hash, ts: xs.find((x) => x.ts)?.ts ?? 0, method: out.length && inn.length ? 'swap' : out.length ? 'send' : 'receive',
+        value: usdcLeg ? Number(usdcLeg.v) / 1e6 : null, symbol: usdcLeg ? 'USDC' : null, status: true, to: main?.to ?? null, from: main?.f ?? null };
+    });
+  }
   try {
     const r = await fetch(`https://api.arc-scan.org/v1/address/${addr.toLowerCase()}/txs`, { headers: { accept: 'application/json' } });
     if (!r.ok) return [];

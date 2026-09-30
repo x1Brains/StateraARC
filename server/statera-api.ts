@@ -24,6 +24,7 @@ import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
 import { indexHolders, indexStats, indexBatch, batchStats, holderCountOf } from './holder-index.ts';
+import { walletTransfers, walletStats, blockTimes } from './wallet-index.ts';
 import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
@@ -166,7 +167,7 @@ http.createServer((req, res) => {
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, wallets: walletStats, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
@@ -218,6 +219,18 @@ http.createServer((req, res) => {
     }
     const m = path.match(/^\/token\/(0x[0-9a-fA-F]{40})$/);
     if (m) { const t = v.byAddr.get(m[1].toLowerCase()); send(req, res, t ? 200 : 404, JSON.stringify(t ? { asOf, token: t } : { error: 'not listed' })); return; }
+    // A wallet's token transfers from OUR chain read (server/wallet-index.ts) — Portfolio P&L, swap activity, holdings
+    const wm = path.match(/^\/wallet\/(0x[0-9a-fA-F]{40})\/transfers$/);
+    if (wm) {
+      const limit = intIn(u.searchParams.get('limit'), 500, 1, 5000);
+      const w = await Promise.race([walletTransfers(wm[1]), new Promise<null>((r) => setTimeout(() => r(null), 20_000))]);
+      if (!w) { send(req, res, 202, JSON.stringify({ building: true }), undefined, 0); return; } // first read still running
+      const tokens = [...new Set(w.x.map((x) => x.t))];
+      const list = w.x.slice(0, limit), first = w.x.length ? w.x[w.x.length - 1].b : null;
+      const ts = await blockTimes(list.slice(0, 60).map((x) => x.b)); // exact times for the newest 60
+      send(req, res, 200, JSON.stringify({ wallet: wm[1].toLowerCase(), last: w.last, at: w.at, count: w.x.length, firstBlock: first, tokens,
+        transfers: list.map((x) => ({ ...x, ts: ts.get(x.b) || null })) }), undefined, 0); return;
+    }
     if (path === '/tokens') {
       const addrs = (u.searchParams.get('addrs') || '').toLowerCase().split(',').filter((a) => /^0x[0-9a-f]{40}$/.test(a)).slice(0, 300);
       send(req, res, 200, JSON.stringify({ asOf, tokens: addrs.map((a) => v.byAddr.get(a)).filter(Boolean) })); return;

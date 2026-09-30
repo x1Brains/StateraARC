@@ -126,7 +126,14 @@ export default async function handler(req, res) {
     // Arc is only ~4 days old (~900k blocks), so scan back to at least the whole possible wallet lifetime
     // — that guarantees complete coverage without ever scanning the whole 21M-block chain.
     let oldest = null, page = '', guard = 0;
-    do {
+    // 09-30: OUR OWN wallet history first (statera-api /v2/wallet/<addr>/transfers, read from chain) — its first transfer
+    // block is the real start of the wallet. arc-scan was the only source, went down, and the 1M-block floor below
+    // (~6 days, set when Arc was 4 days old) then silently dropped older holdings.
+    try {
+      const ow = await fetch(`https://www.stateraarc.com/api/v2/wallet/${addr}/transfers?limit=1`, { signal: AbortSignal.timeout(20000) });
+      if (ow.status === 200) { const j = await ow.json(); if (j.firstBlock != null) { oldest = j.firstBlock; guard = 99; } }
+    } catch { /* fall back to arc-scan */ }
+    if (guard < 99) do {
       const j = await fetch(`https://api.arc-scan.org/v1/address/${addr}/txs?limit=100${page ? '&page=' + page : ''}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) }).then((r) => r.json()).catch(() => ({}));
       const items = j.items || []; if (items.length) oldest = items[items.length - 1].block;
       page = j.page && j.page.next ? j.page.next : ''; guard++;
