@@ -113,6 +113,11 @@ export function loadChain() {
     for (const b of j.blocks as Blk[]) blocks.set(b.n, b);
     flows = j.flows || []; Object.assign(supplies, j.supplies || {}); suppliesAt = 0; // supplies re-read on the first poll
     lastBlock = j.lastBlock || 0; lastLogBlock = j.lastLogBlock || 0; firstBlock = j.firstBlock || 0; flowsFrom = j.flowsFrom || 0; anchor = j.anchor || null; flowBlockTime = j.flowBlockTime || 0.5;
+    // ⛔ 09-30: state saved by the 6-h code kept an OLD flowsFrom (never moved forward while it trimmed flows at 6 h), so the
+    // page claimed 52 h of cover and showed ~12 h of flows as "24 hours". Such state restarts from its oldest KEPT flow.
+    // Rule on every load: flowsFrom can never be older than the oldest KEPT flow (at worst a quiet stretch with no flows is
+    // read again — no duplicates, those blocks have none).
+    if (flows.length) flowsFrom = Math.max(flowsFrom, Math.min(...flows.map((f) => f.n))); else flowsFrom = 0;
   } catch { /* fresh start */ }
 }
 
@@ -153,7 +158,10 @@ function trim() {
   const newest = blocks.get(head)?.ts ?? Math.max(0, ...[...blocks.values()].slice(-1).map((b) => b.ts));
   for (const f of flows) if (!f.ts) f.ts = blocks.get(f.n)?.ts ?? 0;
   for (const [n, b] of blocks) if (b.ts < newest - WINDOW_S) blocks.delete(n);
+  const before = flows.length;
   flows = flows.filter((f) => !f.ts || f.ts >= newest - FLOW_WINDOW_S);
+  // flowsFrom must never claim history that was trimmed: move it up to the oldest KEPT flow's block when anything was cut
+  if (flows.length < before && flows.length) flowsFrom = Math.max(flowsFrom, Math.min(...flows.map((f) => f.n)));
 }
 /** Background: read CCTP logs back to 24 h before the head, 9,000 blocks per step (the start only reads the last hour).
  *  The first step fixes a real block time ~24 h back (the anchor every older flow is timed against). */
