@@ -2,7 +2,6 @@ import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import FONT_B64 from '../lib/ogfont.js';
 import WASM_B64 from '../lib/ogwasm.js';
 import { liveToken, within } from '../lib/livetoken.js';
-import { noEmoji } from '../lib/clean.js';
 
 // Dynamic social card for a token: paste stateraarc.com/token/0x… anywhere and it unfurls into this.
 // Rasterised with the WASM build of resvg. The NATIVE @resvg/resvg-js renders blank text under
@@ -104,8 +103,8 @@ export default async function handler(req, res) {
     const vpsLogo = within(logoDataUri(vpsLogoTries(addr)), 1500, '');
     const t = addr ? await within(liveToken(origin, addr), 3000) : null;
 
-    const sym = esc(noEmoji(t?.symbol) || 'TOKEN');
-    const name = esc((noEmoji(t?.name) || 'Arc token').slice(0, 42));
+    const sym = esc(t?.symbol || 'TOKEN');
+    const name = esc((t?.name || 'Arc token').slice(0, 42));
     const ch = t?.change24h;
     const chStr = ch == null ? '' : `${ch >= 0 ? '+' : '-'}${Math.abs(ch).toFixed(1)}% 24h`;
     const chColor = ch == null ? '#8f8478' : ch >= 0 ? '#4ecb71' : '#ff5a5a';
