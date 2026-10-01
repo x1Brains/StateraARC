@@ -1321,6 +1321,10 @@ export async function fetchOnchainPoolStats(token: string, decimals = 18): Promi
 // with eth_getBalance because USDC is Arc's native gas token (balanceOf reads dust).
 export interface OnchainPool { pool: string; version: string; feeTier: number | null; quote: string; liquidityUsdc: number | null; price: number | null; tokenReserve: number | null; usdcReserve: number | null; }
 const allPoolsCache = new Map<string, { at: number; v: OnchainPool[] }>();
+const UNIV2_FACTORY = '0x89e5db8b5aa49aa85ac63f691524311aeb649eba'; // Uniswap V2 on Arc (indexer V2_FACTORIES 'UniV2')
+const CL_FACTORIES: [string, string][] = [['Aerodrome', '0xb89df768af2cfe637ceb352c587fe8edaf491d03'], ['Archery', '0xc481038c013fe96f38ce7a2dc417b2b1b78b16a4']]; // same as swap.ts CL_VENUES
+const CL_SPACINGS = [1, 10, 50, 100, 200, 2000];
+const CL_NAMES = new Set(CL_FACTORIES.map(([n]) => n));
 export async function fetchAllOnchainPools(token: string, decimals = 18): Promise<OnchainPool[]> {
   const t = token.toLowerCase();
   const hit = allPoolsCache.get(t); if (hit && Date.now() - hit.at < 60000) return hit.v;
@@ -1331,10 +1335,21 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
     mCall(V2_FACTORY, '0xe6a43905' + pad(t) + pad(NATIVE_USDC_ADDR)).catch(() => null),
     mCall(WARPV2_FACTORY, '0xe6a43905' + pad(t) + pad(NATIVE_USDC_ADDR)).catch(() => null),
   ]);
+  // Uniswap's own V2 factory (09-30: CINU / DT trade only there; the card read DyorSwap's + Warp's and showed no pool at all)
+  const uv2 = await mCall(UNIV2_FACTORY, '0xe6a43905' + pad(t) + pad(NATIVE_USDC_ADDR)).catch(() => null);
   const found: { pool: string; version: string; feeTier: number | null }[] = [];
   v3.forEach((r, i) => { const p = r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR) found.push({ pool: p, version: 'V3', feeTier: fees[i] }); });
   { const p = v2 && v2.length >= 42 ? ('0x' + v2.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR) found.push({ pool: p, version: 'V2', feeTier: null }); }
   { const p = wv2 && wv2.length >= 42 ? ('0x' + wv2.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR) found.push({ pool: p, version: 'WarpV2', feeTier: null }); }
+  { const p = uv2 && uv2.length >= 42 ? ('0x' + uv2.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR && !found.some((f) => f.pool === p)) found.push({ pool: p, version: 'UniV2', feeTier: null }); }
+  // Aerodrome / Archery CL pools (V3-style: native USDC balance, slot0 price). ⛔ 09-30: the card never read them, so WETH
+  // showed $29K of the $896K the screener counts and EURC $150K of $752K (the indexer sums CL depth; RadarDEX used to add it).
+  const clHits = await Promise.all(CL_FACTORIES.flatMap(([name, f]) => CL_SPACINGS.map(async (ts) => {
+    const r = await mCall(f, '0x28af8d0b' + pad(t) + pad(NATIVE_USDC_ADDR) + (ts >>> 0).toString(16).padStart(64, '0')).catch(() => null);
+    const p = r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null;
+    return p && p !== ZERO_ADDR ? { pool: p, version: name, feeTier: null } : null;
+  })));
+  for (const h of clHits) if (h && !found.some((f) => f.pool === h.pool)) found.push(h);
   const dexp = 10 ** (decimals - 6);
   const out = await Promise.all(found.map(async (f): Promise<OnchainPool> => {
     const [natB, tokB, t0] = await Promise.all([
@@ -1347,7 +1362,7 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
     try { if (tokB) tokRes = Number(BigInt(tokB)) / 10 ** decimals; } catch { /* */ }
     const usdcIsToken0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR : null; // null = unknown → no V3 price
     let price: number | null = null;
-    if (f.version === 'V3' && usdcIsToken0 != null) {
+    if ((f.version === 'V3' || CL_NAMES.has(f.version)) && usdcIsToken0 != null) {
       const slot0 = await mCall(f.pool, '0x3850c7bd').catch(() => null); // slot0(): sqrtPriceX96 in word 0
       if (slot0 && slot0.length >= 66) { try { const sqrtP = BigInt(slot0.slice(0, 66)); if (sqrtP > 0n) { const ratio = (Number(sqrtP) / 2 ** 96) ** 2; price = (usdcIsToken0 ? 1 / ratio : ratio) * dexp; } } catch { /* */ } }
     } else if (usdc != null && tokRes) { price = usdc / tokRes; } // V2 / WarpV2: constant product → reserve ratio is the price
