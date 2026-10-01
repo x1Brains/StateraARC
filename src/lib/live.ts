@@ -40,6 +40,7 @@ export const snapshotRow = (t: any): Token => ({
   createdAt: rnum(t.createdAt), source: t.source ?? null,
   pool: t.pool ?? null, poolId: t.poolId ?? null, usdcIsC0: !!t.usdcIsC0, decimals: t.decimals ?? 18, hooked: !!t.hooked,
   v4fee: t.v4fee ?? null, v4tick: t.v4tick ?? null, hooks: t.hooks ?? null,
+  v4PoolId: t.v4PoolId ?? null, v4UsdcIsC0: !!t.v4UsdcIsC0, // the token's V4 pool when pool/poolId point at V3 (pools card)
   priceFrom: t.priceFrom ?? null,
 });
 
