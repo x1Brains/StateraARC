@@ -1225,9 +1225,13 @@ const poolDiscovery = new Map<string, string | null>();
 // ⛔ 09-25: a V4-tagged row used to short-circuit V3 discovery to null, so cirBTC's page charted/traded/counted its thin
 // V4 side pool ($71K 24h) and never saw its real market, a $6M V3 pool ($5.8M 24h). V3 discovery now still runs
 // (5 cheap calls) and wins only with real money in it — see V3_OVER_V4_MIN in findTokenPoolUncached.
-export function primePool(token: string, seed: { pool?: string | null; poolId?: string | null; usdcIsC0?: boolean }): void {
+export function primePool(token: string, seed: { pool?: string | null; poolId?: string | null; usdcIsC0?: boolean; v4PoolId?: string | null; v4UsdcIsC0?: boolean }): void {
   const t = token.toLowerCase();
   if (seed.poolId) v4PoolCache.set(t, { poolId: seed.poolId, usdcIsC0: !!seed.usdcIsC0 });
+  // ⛔ 09-30: a token whose row points at its V3 pool can ALSO trade on a V4 pool (ARGUS: V3 $615K + V4 $650K). findV4Pool's
+  // own Initialize scan only reaches back ~900k blocks, so an older V4 pool was never found and the pools card dropped it.
+  // The indexer records the token's busiest V4 pool on the row — use it.
+  else if (seed.v4PoolId && !v4PoolCache.get(t)) v4PoolCache.set(t, { poolId: seed.v4PoolId, usdcIsC0: !!seed.v4UsdcIsC0 });
   if (seed.pool) poolDiscovery.set(t, seed.pool.toLowerCase());
 }
 // A token that also has a real V4 pool only uses a V3 pool holding at least this much USDC — a leftover dust V3

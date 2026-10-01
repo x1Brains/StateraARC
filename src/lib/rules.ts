@@ -30,6 +30,8 @@ export interface Token {
   source?: string | null;    // top DEX / pool version (e.g. Uni V3, WarpV2)
   pool?: string | null;      // on-chain: the token's V3 pool address (for live re-pricing)
   poolId?: string | null;    // on-chain: the token's V4 poolId (for live re-pricing)
+  v4PoolId?: string | null;  // on-chain: the token's busiest V4 USDC pool — kept also when pool/poolId point at a V3 pool
+  v4UsdcIsC0?: boolean;      // on-chain: USDC is currency0 in that V4 pool
   usdcIsC0?: boolean;        // on-chain: USDC is currency0/token0 in that pool
   decimals?: number;         // on-chain: token decimals (for live re-pricing)
   hooked?: boolean;          // on-chain: V4 pool has a hook (may charge a swap tax)

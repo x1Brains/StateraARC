@@ -86,7 +86,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
     if (!ready) return;
     let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null); setDayStats(null); setBurn(null); setDec(null); setLocks(null); setHoldersOver(null); setChainHolders(null);
     // Prime the pool cache from the snapshot so every panel skips the slow ~900k-block pool-discovery scan.
-    if (seed && (seed.pool || seed.poolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0 });
+    if (seed && (seed.pool || seed.poolId || seed.v4PoolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0, v4PoolId: seed.v4PoolId, v4UsdcIsC0: seed.v4UsdcIsC0 });
     // 09-29: the chart mounts once `dec` is known — it waited for the whole detail response (up to ~10 s on a cold token)
     // although the list row already carries the decimals (the same value the server uses). Start it now.
     if (seed?.decimals != null) setDec(seed.decimals);

@@ -642,7 +642,7 @@ async function main() {
   for (const x of liquid) {
     try {
       const { pools, extraUsdc } = await poolsOf(x);
-      let vol = 0; let primaryPts = [];
+      let vol = 0; let primaryPts = []; let v4best = null, v4bestN = -1;
       for (const pool of pools) {
         const spec = pool.kind === 'v4' ? { address: PM_V4, topics: [T_V4_SWAP, pool.poolId] } : pool.kind === 'v2' ? { address: pool.address, topics: [[T_V2_SWAP]] } : { address: pool.address, topics: [[T_V3_SWAP]] };
         const res = await Promise.all(ranges.map(([f, to]) => rpc('eth_getLogs', [{ ...spec, fromBlock: '0x' + f.toString(16), toBlock: '0x' + to.toString(16) }], true)));
@@ -672,6 +672,7 @@ async function main() {
           if (isFinite(usd) && usd >= 0) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
         }
         vol += pts.reduce((s, p) => s + p.usd, 0);
+        if (pool.kind === 'v4' && pts.length > v4bestN) { v4bestN = pts.length; v4best = { poolId: pool.poolId, usdcIsC0: !!pool.usdcIsC0 }; }
         if (pool.primary && pts.length) primaryPts = pts;
       }
       primaryPts.sort((a, b) => a.bn - b.bn);
@@ -683,7 +684,7 @@ async function main() {
       let spark = null;
       if (primaryPts.length >= 4) { const N = 24, step = primaryPts.length / N; spark = []; for (let i = 0; i < N; i++) spark.push(primaryPts[Math.min(primaryPts.length - 1, Math.floor(i * step))].price); }
       if (process.env.DEBUG_VOL) console.log('VOL', x.t.symbol, 'pools', pools.length, 'vol', Math.round(vol), 'chg1h', chg1h == null ? '-' : chg1h.toFixed(1));
-      dayMap.set(x.addr, { vol, chg, chg1h, spark, extraUsdc });
+      dayMap.set(x.addr, { vol, chg, chg1h, spark, extraUsdc, v4best });
     } catch (e) { if (process.env.DEBUG_VOL) console.log('VOLERR', x.t.symbol, e.message); dayMap.set(x.addr, { vol: 0, chg: null, chg1h: null, spark: null, extraUsdc: 0 }); }
   }
 
@@ -715,6 +716,9 @@ async function main() {
       iconUrl: t.iconUrl || null,
       // pool identity so the client can re-price the row LIVE (kills the ~15-min screener staleness).
       pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: !!t.usdcIsC0, decimals: dec,
+      // The token's busiest V4 USDC pool, ALSO when its primary market is a V3 pool (09-30: ARGUS's page listed only its V3
+      // pool, $615K of $1.26M — the snapshot points the row at V3 and the page's own V4 search only reaches back ~5 days).
+      v4PoolId: ds?.v4best?.poolId || t.poolId || null, v4UsdcIsC0: ds?.v4best ? ds.v4best.usdcIsC0 : !!t.usdcIsC0,
       v4fee: t.poolId && t.v4fee != null ? t.v4fee : null, v4tick: t.poolId && t.v4tick != null ? t.v4tick : null, hooks: t.poolId && t.hooks ? t.hooks : null,
       hooked: !!(t.hooks && t.hooks !== ZERO && /[1-9a-f]/.test(t.hooks.slice(2))),
       source: t.kind === 'v2' ? (t.dex || 'V2') : t.kind === 'v3' && t.dex ? t.dex : t.kind.toUpperCase(), launchpad: null }); // ⛔ was 'onchain' on every V4 row — a source, not a launchpad (09-26); the snapshot tags real pads
