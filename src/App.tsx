@@ -204,7 +204,11 @@ export default function App() {
   async function loadV2(silent = false) {
     if (!silent) setLoading(true);
     try { const h = await v2Home(); setHome(h); setAsOf(h.asOf); setErr(null); }
-    catch (e) { fallBack(e); }
+    // ⛔ 10-02 (owner: landing "not loading fully on the phone"): a failed BACKGROUND refresh used to switch the tab to the
+    // heavy v1 path for good — a locked phone / app switch times the 20 s refresh out, and the tab came back doing ~160
+    // chain calls + 1.9 MB itself (reproduced in a phone browser). Now a silent refresh keeps what is on screen and the
+    // next tick tries again; only a failed FIRST load falls back, and v1 keeps trying v2 (below).
+    catch (e) { if (!silent) fallBack(e); }
     finally { if (!silent) setLoading(false); }
   }
   const load = (silent = false) => { fetchMarket().then(setMarket).catch(() => {}); return mode === 'v2' ? loadV2(silent) : loadV1(silent); };
@@ -212,13 +216,18 @@ export default function App() {
     load();
     if (mode === 'v1') {
       const a = setInterval(refreshLive, 40000); refreshLive();
+      // v1 is the emergency path: keep checking the v2 API and switch back the moment it answers (10-02)
+      const back = v2Enabled ? setInterval(() => { v2Home().then((h) => { setHome(h); setAsOf(h.asOf); setErr(null); setMode('v2'); }).catch(() => {}); }, 30000) : null;
       const b = setInterval(() => load(true), 60000); // silently refresh prices/mcap/liquidity (no loading flicker)
-      return () => { clearInterval(a); clearInterval(b); };
+      return () => { clearInterval(a); clearInterval(b); if (back) clearInterval(back); };
     }
     // v2: the server re-prices every 40-60 s; the tab just re-reads the small summary.
     const c = setInterval(() => loadV2(true), 20000);
     const d = setInterval(() => fetchMarket().then(setMarket).catch(() => {}), 60000);
-    return () => { clearInterval(c); clearInterval(d); };
+    // back on the tab (phone unlocked, app switched back): refresh now instead of showing up-to-20 s-old numbers
+    const vis = () => { if (document.visibilityState === 'visible') loadV2(true); };
+    document.addEventListener('visibilitychange', vis);
+    return () => { clearInterval(c); clearInterval(d); document.removeEventListener('visibilitychange', vis); };
   }, [mode]); // eslint-disable-line
 
   // v2 screener page: the server filters/sorts/paginates; a sequence number drops stale answers (fast typing, paging).
