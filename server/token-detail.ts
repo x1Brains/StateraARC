@@ -57,13 +57,18 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     const dec = seed?.decimals ?? (await fetchTokenDecimals(address)) ?? 18;
     // A visitor waiting → the trade scan stops going back after ~3.5 s; the full scan then runs in the background and
     // the page's 10 s re-read picks it up (09-29: cold pages took 5–20 s, one quiet token's empty 900k-block walk = 16 s).
-    const tradeOpts: { deadline?: number; partial?: boolean } = urgent ? { deadline: t0 + 3500 } : {};
+    const tradeOpts: { deadline?: number; partial?: boolean; fromBlock?: number; head?: number } = urgent ? { deadline: t0 + 3500 } : {};
+    // ⚡ 10-02 (owner: "landing page and token profiles taking forever"): the day's trade list is kept and only the blocks
+    // since the last read are scanned; a full rescan at most every 30 min (and on a token's first compute).
+    const prevTrades = tradesCache.get(address);
+    const incremental = !!prevTrades && prevTrades.head > 0 && Date.now() - prevTrades.full < TRADES_FULL_MS;
+    if (incremental) { tradeOpts.fromBlock = prevTrades!.head + 1; delete tradeOpts.deadline; }
     // ⛔ makers24 must run AFTER the day stats: it samples the tx list fetchOnchainDayStats builds (dayTxList). 09-29 I ran
     // them in parallel to save ~2 s and makers came back empty on a first compute ("makers not loading on any" — GLITCH
     // dev). It now starts the moment the day stats land, still alongside the slower lookups.
     const dayP = settle(fetchOnchainDayStats(address, dec));
     const makersP = dayP.then((day) => (day ? settle(fetchOnchainMakers24(address)) : null));
-    const [ocPool, ocPools, day, burn, holdersRaw, trades, txs, makers] = await Promise.all([
+    const [ocPool, ocPools, day, burn, holdersRaw, tradesRaw, txs, makers] = await Promise.all([
       settle(fetchOnchainPoolStats(address, dec)), settle(fetchAllOnchainPools(address, dec)), dayP,
       settle(fetchTokenBurn(address, dec)), settle(fetchTokenHolders(address, 100)), settle(fetchPoolTrades(address, dec, TRADES_MAX, tradeOpts)),
       settle(fetchTokenTransfers(address, 18, 40)), makersP,
@@ -71,7 +76,13 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     let dayStats: TokenDetail['dayStats'] = day;
     if (day && makers) dayStats = { ...day, makers24: makers.makers, makersSample: makers.sample, makersIsFloor: makers.sample < makers.total };
     // The whole day's trades stay here (served 100 a page by tokenTrades); the detail carries the newest page only.
-    if (trades) tradesCache.set(address, { at: Date.now(), rows: trades });
+    let trades = tradesRaw;
+    if (tradesRaw && tradeOpts.head) {
+      if (incremental) trades = mergeTrades(tradesRaw, prevTrades!.rows);
+      else trades = mergeTrades(tradesRaw, []);
+      if (!tradeOpts.partial) putTrades(address, { head: tradeOpts.head, full: incremental ? prevTrades!.full : Date.now(), rows: trades });
+    } else if (!tradesRaw && incremental) trades = prevTrades!.rows; // the new blocks failed to read: keep the list, retry them next time
+    else if (tradesRaw && !tradeOpts.partial) putTrades(address, { head: 0, full: 0, rows: tradesRaw }); // no pool list yet: kept for paging, rebuilt in full next time
     const first = trades ? trades.slice(0, TRADES_PAGE) : null;
     const swaps = first && first.length ? (await settle(resolveMakers(first.map((x) => ({ ...x }))))) ?? first.map((x) => ({ ...x, trader: '' })) : first;
     // Biggest trades (10-02 owner: "the top three biggest buys and sells … last 24 hours, 12 hours and one hour"): from the
@@ -132,10 +143,25 @@ export async function tokenDetail(address: string, seed: Token | undefined): Pro
 // ── Trades, paged (10-02 owner: "at least five pages of 100 … the whole history of the day"). compute() keeps the token's
 // full 24h list here; a page resolves its 100 makers (cached per tx in arc.ts) when it is asked for.
 export const TRADES_PAGE = 100;
-const tradesCache = new Map<string, { at: number; rows: Awaited<ReturnType<typeof fetchPoolTrades>> }>();
+type TradeRows = Awaited<ReturnType<typeof fetchPoolTrades>>;
+const TRADES_FULL_MS = 30 * 60_000, TRADES_KEEP = 120; // lists kept for the 120 most recently computed tokens
+const tradesCache = new Map<string, { head: number; full: number; rows: TradeRows }>();
+function putTrades(a: string, v: { head: number; full: number; rows: TradeRows }) {
+  tradesCache.delete(a); tradesCache.set(a, v);
+  while (tradesCache.size > TRADES_KEEP) tradesCache.delete(tradesCache.keys().next().value!);
+}
+// new rows first, deduped by block:log (a range edge can be read twice), newest first, the last 24h (a quiet token keeps
+// its older rows until it has TRADES_MIN today), capped
+function mergeTrades(fresh: TradeRows, old: TradeRows): TradeRows {
+  const seen = new Set<string>(); const out: TradeRows = [];
+  for (const x of [...fresh, ...old]) { const k = x.bn != null ? `${x.bn}:${x.li}` : `${x.tx}:${x.side}:${x.amount}`; if (seen.has(k)) continue; seen.add(k); out.push(x); }
+  out.sort((a, b) => (b.bn ?? 0) - (a.bn ?? 0) || (b.li ?? 0) - (a.li ?? 0) || b.time - a.time);
+  const cut = Date.now() / 1000 - 86400, today = out.filter((x) => x.time >= cut);
+  return (today.length >= 100 ? today : out).slice(0, TRADES_MAX);
+}
 export async function tokenTrades(address: string, seed: Token | undefined, page: number, side: 'all' | 'buy' | 'sell') {
   const a = address.toLowerCase();
-  if (!tradesCache.has(a)) await tokenDetail(a, seed);
+  if (!tradesCache.has(a)) await refresh(a, seed, true); // evicted / never computed: build it (the cached detail alone has no list)
   const all = tradesCache.get(a)?.rows ?? [];
   const rows = side === 'all' ? all : all.filter((x) => x.side === side);
   const pages = Math.max(1, Math.ceil(rows.length / TRADES_PAGE));

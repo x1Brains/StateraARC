@@ -364,7 +364,7 @@ export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDet
 
 // Real DEX trades for the token (RadarDEX indexes every swap): the Transactions table's live feed.
 // side buy/sell, usd = trade value in USD, amount = token qty, price = execution price, trader = maker.
-export interface RadarSwap { side: 'buy' | 'sell'; usd: number | null; amount: number; price: number | null; trader: string; tx: string; time: number; venue?: string; }
+export interface RadarSwap { side: 'buy' | 'sell'; usd: number | null; amount: number; price: number | null; trader: string; tx: string; time: number; venue?: string; bn?: number; li?: number; }
 export async function fetchRadarSwaps(addr: string, decimals = 18, limit = 40): Promise<RadarSwap[]> {
   try {
     const j = await radarGet(`/token/${addr.toLowerCase()}/swaps?limit=${limit}`);
@@ -1684,7 +1684,7 @@ export async function resolveMakers(trades: RadarSwap[]): Promise<RadarSwap[]> {
     try {
       const txs = await mrpcBatchByHash('eth_getTransactionByHash', uniq);
       for (const h of uniq) if (txs[h]?.from) makerOf.set(h, String(txs[h].from).toLowerCase());
-      if (makerOf.size > 200_000) { const drop = makerOf.size - 150_000; let i = 0; for (const k of makerOf.keys()) { if (i++ >= drop) break; makerOf.delete(k); } }
+      if (makerOf.size > 60_000) { const drop = makerOf.size - 45_000; let i = 0; for (const k of makerOf.keys()) { if (i++ >= drop) break; makerOf.delete(k); } }
     } catch { /* keep the router address rather than fail the whole table */ }
   }
   for (const t of trades) { const o = makerOf.get(t.tx); if (o) t.trader = o; }
@@ -1701,7 +1701,11 @@ export async function resolveMakers(trades: RadarSwap[]): Promise<RadarSwap[]> {
 export const TRADES_MAX = 10000; // ARGUS ≈ 4,900 trades/day, WETH ≈ 5,000 (10-02) — the server pages them 100 at a time
 const TRADES_MIN = 100;
 const MIN_TRADE_POOL_LIQ = 100; // same floor as the pools card — a $16 dust pool's trades are noise
-export async function fetchPoolTrades(token: string, decimals = 18, want = TRADES_MAX, opts?: { deadline?: number; partial?: boolean }): Promise<RadarSwap[]> {
+// `opts.fromBlock` (10-02): read ONLY blocks fromBlock..head — the server keeps the day's list and adds the new trades on each
+// refresh (a full-day rescan every 10 s per open page made every compute ~8 s and queued cold pages for 15 s). In that mode a
+// failed read THROWS (so the caller keeps its list and retries the same blocks) instead of quietly returning fewer rows.
+// `opts.head` is set to the block the read went up to.
+export async function fetchPoolTrades(token: string, decimals = 18, want = TRADES_MAX, opts?: { deadline?: number; partial?: boolean; fromBlock?: number; head?: number }): Promise<RadarSwap[]> {
   const all = await fetchAllOnchainPools(token, decimals).catch(() => [] as OnchainPool[]);
   let pools = all.filter((p) => (p.liquidityUsdc ?? 0) >= MIN_TRADE_POOL_LIQ);
   if (!pools.length && all.length) pools = all.slice(0, 1);
@@ -1716,20 +1720,23 @@ export async function fetchPoolTrades(token: string, decimals = 18, want = TRADE
   const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
   const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
   const dayFrom = head - BigInt(Math.ceil(86400 / blockTime));
+  const onlyFrom = opts?.fromBlock != null ? BigInt(opts.fromBlock) : null;
+  if (opts) opts.head = Number(head);
+  if (onlyFrom != null && onlyFrom > head) return [];
   const label = (p: OnchainPool) => p.version === 'V3' && p.feeTier ? `V3 ${(p.feeTier / 1e4).toFixed(2).replace(/\.?0+$/, '')}%` : p.version;
   const lists = await Promise.all(pools.map((p) => (p.version === 'V4'
-    ? (async () => { const v4 = await findV4Pool(token); return v4 && v4.poolId === p.pool ? fetchV4Trades(v4, decimals, want, { dayFrom, head, headTs, blockTime }) : []; })()
-    : poolTrades(p.pool, decimals, want, opts, { dayFrom, head, headTs, blockTime })).then((r) => r.map((x) => ({ ...x, venue: label(p) }))).catch(() => [] as RadarSwap[])));
+    ? (async () => { const v4 = await findV4Pool(token); return v4 && v4.poolId === p.pool ? fetchV4Trades(v4, decimals, want, { dayFrom, head, headTs, blockTime, onlyFrom }) : []; })()
+    : poolTrades(p.pool, decimals, want, opts, { dayFrom, head, headTs, blockTime, onlyFrom })).then((r) => r.map((x) => ({ ...x, venue: label(p) }))).catch((e) => { if (onlyFrom != null) throw e; return [] as RadarSwap[]; })));
   // a trade whose price is >20x off the deepest pool's is a broken read, not a trade (same filter as the indexer's volume)
   const ref = pools.find((p) => p.price != null)?.price ?? null;
   let out = lists.flat().filter((x) => ref == null || x.price == null || (x.price < ref * 20 && x.price > ref / 20));
   out.sort((a, b) => b.time - a.time);
   // the scan reads whole 95k-block ranges; keep exactly the last 24h — older rows only for a quiet token (< TRADES_MIN today)
   const dayTs = headTs - 86400, today = out.filter((x) => x.time >= dayTs);
-  if (today.length >= Math.min(want, TRADES_MIN)) out = today;
+  if (onlyFrom == null && today.length >= Math.min(want, TRADES_MIN)) out = today;
   return out.slice(0, want);
 }
-type TradeCtx = { dayFrom: bigint; head: bigint; headTs: number; blockTime: number } | null;
+type TradeCtx = { dayFrom: bigint; head: bigint; headTs: number; blockTime: number; onlyFrom?: bigint | null } | null;
 async function poolTrades(pool: string, decimals: number, want: number, opts: { deadline?: number; partial?: boolean } | undefined, ctx: TradeCtx): Promise<RadarSwap[]> {
   const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), ctx ? Promise.resolve('0x' + ctx.head.toString(16)) : mrpc('eth_blockNumber', [])]);
   if (!t0hex || !headHex) return [];
@@ -1764,14 +1771,26 @@ async function poolTrades(pool: string, decimals: number, want: number, opts: { 
   const floor = head - 80000n < 0n ? 0n : head - 80000n;
   const windows: [bigint, bigint][] = [[head - 20000n < floor ? floor : head - 20000n, head], [floor, head - 20001n]];
   for (let hi = floor - 1n; hi > head - 900000n && hi > 0n; hi -= 95000n) windows.push([hi - 95000n < 0n ? 0n : hi - 95000n, hi]);
+  const onlyFrom = ctx?.onlyFrom ?? null;
+  if (onlyFrom != null) { // just the new blocks; a failed read throws (the caller retries these blocks next time)
+    windows.length = 0;
+    for (let lo = onlyFrom; lo <= head; lo += 95000n) windows.push([lo, lo + 94999n > head ? head : lo + 94999n]);
+  }
   for (const [wi, [lo, hi]] of windows.entries()) {
+    if (onlyFrom != null) {
+      const logs = await getLogsBig({ ...spec, fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) });
+      if (!Array.isArray(logs)) throw new Error('trades: getLogs failed');
+      take(logs); continue;
+    }
     if (hi <= lo) break;
     // the whole last 24h is always read; past it, only until the pool has TRADES_MIN (a quiet token) or `want`
     if (hi < dayFrom && out.length >= Math.min(want, TRADES_MIN)) break;
     if (out.length >= want) break;
     // 09-29: a quiet token (DUKE) spent 16 s walking back 900k blocks and found nothing — the first visitor waited for it.
     if (wi >= 2 && opts?.deadline && Date.now() > opts.deadline) { opts.partial = true; break; }
-    const logs = await windowLogs(lo, hi);
+    take(await windowLogs(lo, hi));
+  }
+  function take(logs: any[]) {
     for (const l of logs) {
       const topic = (l.topics?.[0] || '').toLowerCase();
       const dec = decodeSwap(l.data, topic, usdcIsToken0);
@@ -1790,6 +1809,7 @@ async function poolTrades(pool: string, decimals: number, want: number, opts: { 
         trader: ('0x' + (l.topics?.[2] || l.topics?.[1] || '').slice(-40)).toLowerCase(),
         tx: l.transactionHash || '',
         time: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime),
+        bn: Number(BigInt(l.blockNumber)), li: parseInt(l.logIndex, 16),
       });
     }
   }
@@ -1813,14 +1833,15 @@ async function fetchV4Trades(v4: V4Pool, decimals: number, want: number, ctx: Tr
     blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
   }
   const dayFrom = ctx ? ctx.dayFrom : head - BigInt(Math.ceil(86400 / blockTime));
+  const onlyFrom = ctx?.onlyFrom ?? null;
   const dexp = 10 ** (decimals - 6);
   const tokIdx = v4.usdcIsC0 ? 1 : 0; // token is the non-USDC currency
   const out: RadarSwap[] = [];
   const CH = BigInt(BIG_LOG_RANGE);
-  for (let hi = head; hi > head - 900000n && out.length < want && (hi > dayFrom || out.length < Math.min(want, TRADES_MIN)); hi -= CH) { // whole 24h, then back to ~5 days for a quiet token
-    const lo = hi - CH < 0n ? 0n : hi - CH;
+  for (let hi = head; onlyFrom != null ? hi >= onlyFrom : (hi > head - 900000n && out.length < want && (hi > dayFrom || out.length < Math.min(want, TRADES_MIN))); hi -= CH) { // whole 24h, then back to ~5 days for a quiet token (incremental: just the new blocks)
+    const lo = onlyFrom != null ? (hi - CH < onlyFrom ? onlyFrom : hi - CH) : (hi - CH < 0n ? 0n : hi - CH);
     const logs = await getLogsBig({ address: PM_V4, topics: [V4_SWAP_TOPIC, v4.poolId], fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) });
-    if (!Array.isArray(logs)) continue;
+    if (!Array.isArray(logs)) { if (onlyFrom != null) throw new Error('v4 trades: getLogs failed'); continue; }
     for (const l of logs) {
       const d = l.data.slice(2);
       const sword = (i: number) => { let x = BigInt('0x' + d.slice(i * 64, i * 64 + 64)); if (x >= (1n << 255n)) x -= (1n << 256n); return x; };
@@ -1836,8 +1857,10 @@ async function fetchV4Trades(v4: V4Pool, decimals: number, want: number, ctx: Tr
         trader: ('0x' + (l.topics?.[2] || '').slice(-40)).toLowerCase(),
         tx: l.transactionHash || '',
         time: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime),
+        bn: Number(BigInt(l.blockNumber)), li: parseInt(l.logIndex, 16),
       });
     }
+    if (lo === 0n || (onlyFrom != null && lo <= onlyFrom)) break;
   }
   out.sort((a, b) => b.time - a.time);
   return out.slice(0, want).filter((s) => s.tx); // makers resolved by the caller (resolveMakers), see fetchPoolTrades
