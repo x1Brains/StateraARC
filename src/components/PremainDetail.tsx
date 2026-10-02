@@ -5,7 +5,7 @@ import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
-import { v2Enabled, v2TokenDetail, type V2TokenDetail } from '../lib/v2';
+import { v2Enabled, v2TokenDetail, v2Trades, type V2TokenDetail, type V2Trades } from '../lib/v2';
 import { isStateraImpersonator, stateraHasToken } from '../lib/rules';
 import { fetchWalletTokenTrades, type WalletTrade } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX, IconLink, IconCamera } from './icons';
@@ -59,6 +59,10 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   // "My trades" and marked on the chart.
   const [mine, setMine] = useState<WalletTrade[] | null>(null);
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
+  // Trades paging (10-02): the detail carries the newest 100 + the day's counts; any other page / filter asks the server.
+  const [tradeSum, setTradeSum] = useState<{ total: number; buys: number; sells: number; since: number | null } | null>(null);
+  const [txPage, setTxPage] = useState(0);
+  const [pageRows, setPageRows] = useState<{ key: string; d: V2Trades } | null>(null);
   // 09-30 owner: the pools list is always shown OPEN; only with 4+ pools can it be collapsed (and it starts open then too)
   const [poolsOpen, setPoolsOpen] = useState(true);
   useEffect(() => { setPoolsOpen(true); }, [address]);
@@ -84,6 +88,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
     // that picked the pool with the most USDC, which has no swaps: empty 24h stats after 13.9s, 5m/6h change never shown.
     // Wait for the list (`ready`, well under a second) so every visitor gets the snapshot's pool.
     if (!ready) return;
+    setTradeSum(null); setTxPage(0); setPageRows(null);
     let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null); setDayStats(null); setBurn(null); setDec(null); setLocks(null); setHoldersOver(null); setChainHolders(null);
     // Prime the pool cache from the snapshot so every panel skips the slow ~900k-block pool-discovery scan.
     if (seed && (seed.pool || seed.poolId || seed.v4PoolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0, v4PoolId: seed.v4PoolId, v4UsdcIsC0: seed.v4UsdcIsC0 });
@@ -115,6 +120,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
               if (f.locks) setLocks(f.locks); if (f.holdersOver) setHoldersOver(f.holdersOver); if (f.holderCount) setChainHolders(f.holderCount);
               if (f.holders && f.holders.length) setHolders(f.holders);
               if (f.swaps && f.swaps.length) setSwaps(f.swaps);
+              if (f.trades) setTradeSum(f.trades);
             }).catch(() => {});
           }, 10_000);
           setDec(v.dec);
@@ -128,6 +134,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
           setOcPool(v.ocPool); setOcPools(v.ocPools); setDayStats(v.dayStats); setBurn(v.burn); setTxs(v.txs ?? []); setLocks(v.locks ?? null); setHoldersOver(v.holdersOver ?? null); setChainHolders(v.holderCount ?? null);
           if (v.holders && v.holders.length) setHolders(v.holders);
           else fetchRadarHolders(address, v.dec, 100).then((h) => { if (alive) { setHolders(h.holders); if (h.holderCount != null) setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
+          if (v.trades) setTradeSum(v.trades);
           if (v.swaps && v.swaps.length) setSwaps(v.swaps);
           else fetchRadarSwaps(address, v.dec, 50).catch(() => [] as RadarSwap[]).then((r) => { if (alive) setSwaps(r); });
           return;
@@ -412,16 +419,35 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
     !pool ? 'xfer' : t.from.toLowerCase() === pool ? 'buy' : t.to.toLowerCase() === pool ? 'sell' : 'xfer';
   const txMaker = (t: TokenTransfer) => (txKind(t) === 'buy' ? t.to : t.from);
 
+  // ── Trades table rows. With the server's day list: page 1 of "All" is the detail's newest 100 (live, re-read every 10 s);
+  // any other page or the Buys/Sells filter is fetched from /trades. Without it (v1 path): pages over the rows in this tab.
+  const TX_PER = 100;
+  const serverPaged = v2Enabled && !!tradeSum && tradeSum.total > 0;
+  const txKey = `${address}:${txPage}:${txFilter}`;
+  const txTotal = serverPaged ? (txFilter === 'all' ? tradeSum!.total : txFilter === 'buy' ? tradeSum!.buys : tradeSum!.sells)
+    : (swaps || []).filter((s2) => txFilter === 'all' || s2.side === txFilter).length;
+  const txPages = Math.max(1, Math.ceil(txTotal / TX_PER));
+  const txRows: RadarSwap[] | null = !swaps ? null
+    : !serverPaged ? swaps.filter((s2) => txFilter === 'all' || s2.side === txFilter).slice(txPage * TX_PER, (txPage + 1) * TX_PER)
+    : txPage === 0 && txFilter === 'all' ? swaps
+    : pageRows && pageRows.key === txKey ? pageRows.d.rows : null;
+  useEffect(() => {
+    if (!serverPaged || (txPage === 0 && txFilter === 'all')) return;
+    let alive = true;
+    v2Trades(address, txPage, txFilter).then((d) => { if (alive) setPageRows({ key: txKey, d }); }).catch(() => { if (alive) setPageRows({ key: txKey, d: { page: txPage, pages: 1, total: 0, per: TX_PER, since: null, rows: [] } }); });
+    return () => { alive = false; };
+  }, [txKey, serverPaged]); // eslint-disable-line
+
   // Arc names for every wallet on this page — traders, transfer makers and top holders. One batched
   // lookup for all of them; only forward-confirmed .arc/.circle names come back, everything else
   // keeps rendering as a hex address. Capped so a huge holder list can't fan out into a big call.
   const nameAddrs = useMemo(() => {
     const set = new Set<string>();
-    for (const s2 of (swaps || []).slice(0, 60)) if (s2.trader) set.add(s2.trader.toLowerCase());
+    for (const s2 of (txRows || swaps || []).slice(0, 100)) if (s2.trader) set.add(s2.trader.toLowerCase());
     for (const t of (txs || []).slice(0, 60)) { const m = txMaker(t); if (m) set.add(m.toLowerCase()); }
     for (const h of (holders || []).slice(0, 30)) if (h.address) set.add(h.address.toLowerCase());
     return [...set].slice(0, 120);
-  }, [swaps, txs, holders]); // eslint-disable-line
+  }, [swaps, txRows, txs, holders]); // eslint-disable-line
   const names = useNames(nameAddrs);
   // The chart pulls Warp candles (same wrong scale as warp.price for non-18-dec tokens). Rescale them
   // to the correct price using the ratio of the trusted seed price to Warp's price (=1 when they agree).
@@ -522,13 +548,26 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
             {tab === 'txns' && (
               <div className="td-tabbody">
                 {swaps && swaps.length ? (() => {
-                  const rows = swaps.filter((s) => txFilter === 'all' || s.side === txFilter);
+                  const rows = txRows ?? [];
+                  const cnt = (f: 'all' | 'buy' | 'sell') => serverPaged ? (f === 'all' ? tradeSum!.total : f === 'buy' ? tradeSum!.buys : tradeSum!.sells) : swaps.filter((s2) => f === 'all' || s2.side === f).length;
+                  const since = serverPaged ? tradeSum!.since : swaps[swaps.length - 1]?.time ?? null;
+                  const go = (p: number) => setTxPage(Math.min(txPages - 1, Math.max(0, p)));
+                  // page buttons: first, last, and two either side of the current one
+                  const nums = [...new Set([0, txPage - 2, txPage - 1, txPage, txPage + 1, txPage + 2, txPages - 1])].filter((p) => p >= 0 && p < txPages).sort((a2, b2) => a2 - b2);
+                  const pager = txPages > 1 ? (
+                    <div className="txpg">
+                      <button disabled={txPage === 0} onClick={() => go(txPage - 1)}>Prev</button>
+                      {nums.map((p, k) => (<span key={p} className="txpg-n">{k > 0 && p - nums[k - 1] > 1 ? <em>…</em> : null}<button className={p === txPage ? 'on' : ''} onClick={() => go(p)}>{p + 1}</button></span>))}
+                      <button disabled={txPage >= txPages - 1} onClick={() => go(txPage + 1)}>Next</button>
+                    </div>) : null;
                   return (<>
                     <div className="txf">
                       {(['all', 'buy', 'sell'] as const).map((f) => (
-                        <button key={f} className={txFilter === f ? 'on' : ''} onClick={() => setTxFilter(f)}>{f === 'all' ? 'All' : f === 'buy' ? 'Buys' : 'Sells'}</button>
+                        <button key={f} className={txFilter === f ? 'on' : ''} onClick={() => { setTxFilter(f); setTxPage(0); }}>{f === 'all' ? 'All' : f === 'buy' ? 'Buys' : 'Sells'} · {fmtNum(cnt(f))}</button>
                       ))}
                     </div>
+                    <div className="txpg-info">{fmtNum(txTotal)} {txFilter === 'all' ? 'trades' : txFilter === 'buy' ? 'buys' : 'sells'}{since ? ` since ${new Date(since * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}{txTotal ? ` · showing ${fmtNum(txPage * TX_PER + 1)}–${fmtNum(Math.min(txTotal, (txPage + 1) * TX_PER))}` : ''}</div>
+                    {pager}
                     <div className="tr-table">
                       <div className="tr-row tr-head"><span>Age</span><span>Type</span><span className="num">USD</span><span className="num">{sym}</span><span className="num">Price</span><span>Maker</span><span className="num tx">Tx</span></div>
                       {rows.map((s, i) => (
@@ -542,7 +581,9 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                           <a className="tr-tx num tx" href={`https://explorer.arc.io/tx/${s.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
                         </div>
                       ))}
+                      {txRows == null ? <div className="side-note">Loading page {txPage + 1}…</div> : null}
                     </div>
+                    {pager}
                   </>);
                 })()
                   : swaps == null && txs == null ? <div className="side-note">Loading transactions…</div>

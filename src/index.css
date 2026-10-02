@@ -1312,6 +1312,13 @@ footer .flink:hover { text-decoration: underline; }
 .txf { display: flex; gap: 6px; margin-bottom: 10px; }
 .txf button { font: 700 10px var(--disp); letter-spacing: .6px; text-transform: uppercase; color: var(--gray-2); background: #060a0e; border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
 .txf button.on { color: var(--white); border-color: var(--red-hi); background: rgba(255,90,40,.12); }
+.txpg-info { font: 600 11px var(--disp); color: var(--gray-2); margin: -2px 0 8px; }
+.txpg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 8px 0; }
+.txpg-n { display: inline-flex; align-items: center; gap: 4px; }
+.txpg em { color: var(--gray-2); font-style: normal; padding: 0 2px; }
+.txpg button { font: 700 11px var(--disp); color: var(--gray-2); background: #060a0e; border: 1px solid var(--line); border-radius: 6px; min-width: 30px; padding: 5px 9px; cursor: pointer; }
+.txpg button.on { color: var(--white); border-color: var(--red-hi); background: rgba(255,90,40,.12); }
+.txpg button:disabled { opacity: .35; cursor: default; }
 .tr-table { display: flex; flex-direction: column; }
 .tr-row { display: grid; grid-template-columns: 52px 44px minmax(56px,1fr) minmax(60px,1.1fr) minmax(56px,1fr) 84px 30px; gap: 12px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px; }
 .tr-row:last-child { border-bottom: 0; }

@@ -26,7 +26,7 @@ import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
 import { indexHolders, indexStats, indexBatch, batchStats, holderCountOf } from './holder-index.ts';
 import { walletTransfers, walletStats, blockTimes } from './wallet-index.ts';
-import { tokenDetail, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
+import { tokenDetail, tokenTrades, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, flowsBackfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
 import { refreshWhere, whereSummary, whereStats } from './where.ts';
@@ -200,6 +200,14 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     if (path === '/search') {
       const limit = intIn(u.searchParams.get('limit'), 7, 1, 50);
       send(req, res, 200, JSON.stringify({ rows: Board.heroMatches(v.tokens, v.ix, (u.searchParams.get('q') || '').slice(0, 80), limit) })); return;
+    }
+    const tm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/trades$/);
+    if (tm) {
+      const a = tm[1].toLowerCase(), sd = u.searchParams.get('side');
+      tokenTrades(a, v.byAddr.get(a), intIn(u.searchParams.get('page'), 0, 0, 1000), sd === 'buy' || sd === 'sell' ? sd : 'all')
+        .then((t) => send(req, res, 200, JSON.stringify(t), undefined, 10))
+        .catch((e) => send(req, res, 502, JSON.stringify({ error: 'trades failed: ' + (e as Error).message }), undefined, 0));
+      return;
     }
     const dm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/detail$/);
     if (dm) {

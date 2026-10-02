@@ -350,7 +350,7 @@ export async function fetchRadarTokenDetail(addr: string): Promise<RadarTokenDet
 
 // Real DEX trades for the token (RadarDEX indexes every swap): the Transactions table's live feed.
 // side buy/sell, usd = trade value in USD, amount = token qty, price = execution price, trader = maker.
-export interface RadarSwap { side: 'buy' | 'sell'; usd: number | null; amount: number; price: number | null; trader: string; tx: string; time: number; }
+export interface RadarSwap { side: 'buy' | 'sell'; usd: number | null; amount: number; price: number | null; trader: string; tx: string; time: number; venue?: string; }
 export async function fetchRadarSwaps(addr: string, decimals = 18, limit = 40): Promise<RadarSwap[]> {
   try {
     const j = await radarGet(`/token/${addr.toLowerCase()}/swaps?limit=${limit}`);
@@ -1661,30 +1661,73 @@ export async function fetchPoolVolume24h(token: string): Promise<number | null> 
 // The swap event's on-chain sender/recipient is the ROUTER (one address for every launchpad/V4 trade), so
 // the Maker column read the same address on every row and Makers collapsed to 1. The TRUE maker is the
 // transaction's origin — resolve it for the (bounded, <= `want`) trade list and overwrite trader.
+// A transaction's sender never changes — remembered, so a 1,000-row table only looks up the trades that are new since the
+// last read (10-02: the table went from 40 rows to a full day; re-resolving every row each refresh would be ~1,000 calls).
+const makerOf = new Map<string, string>();
 export async function resolveMakers(trades: RadarSwap[]): Promise<RadarSwap[]> {
-  const uniq = [...new Set(trades.map((t) => t.tx).filter(Boolean))];
-  if (!uniq.length) return trades;
-  try {
-    const txs = await mrpcBatchByHash('eth_getTransactionByHash', uniq);
-    const map = new Map(uniq.map((h) => [h, txs[h]?.from ? String(txs[h].from).toLowerCase() : null] as const));
-    for (const t of trades) { const o = map.get(t.tx); if (o) t.trader = o; }
-  } catch { /* keep the router address rather than fail the whole table */ }
+  const uniq = [...new Set(trades.map((t) => t.tx).filter((h) => h && !makerOf.has(h)))];
+  if (uniq.length) {
+    try {
+      const txs = await mrpcBatchByHash('eth_getTransactionByHash', uniq);
+      for (const h of uniq) if (txs[h]?.from) makerOf.set(h, String(txs[h].from).toLowerCase());
+      if (makerOf.size > 200_000) { const drop = makerOf.size - 150_000; let i = 0; for (const k of makerOf.keys()) { if (i++ >= drop) break; makerOf.delete(k); } }
+    } catch { /* keep the router address rather than fail the whole table */ }
+  }
+  for (const t of trades) { const o = makerOf.get(t.tx); if (o) t.trader = o; }
   return trades;
 }
 // side from the USDC delta sign (USDC INTO pool = a BUY of the token); maker = the tx origin (real trader);
 // price = executed USD/token. Timestamps approximated from block height (fine for a table).
 /** `opts.deadline` (ms timestamp): stop going further back than the first 80k blocks once it passes — `opts.partial` is
  *  then set, so the caller can serve these rows now and finish the deep scan in the background. */
-export async function fetchPoolTrades(token: string, decimals = 18, want = 40, opts?: { deadline?: number; partial?: boolean }): Promise<RadarSwap[]> {
-  const pool = await findTokenPool(token);
-  if (!pool) { const v4 = await findV4Pool(token); return v4 ? fetchV4Trades(v4, decimals, want) : []; }
-  const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), mrpc('eth_blockNumber', [])]);
-  if (!t0hex || !headHex) return [];
-  const usdcIsToken0 = ('0x' + t0hex.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
+// ⛔ 10-02 owner: "why am I only seeing like 10 buys 10 sells … show the whole history of the day". The table read ONE pool
+// (ARGUS: its V3 pool — every trade on its $650K V4 pool was missing) and kept 40 rows. Now: every USDC pool the pools card
+// lists (V3 tiers, V4, the V2s, Aerodrome/Archery CL), the whole last 24h, newest first, up to TRADES_MAX rows; a quiet
+// token still walks further back until it has TRADES_MIN.
+export const TRADES_MAX = 10000; // ARGUS ≈ 4,900 trades/day, WETH ≈ 5,000 (10-02) — the server pages them 100 at a time
+const TRADES_MIN = 100;
+const MIN_TRADE_POOL_LIQ = 100; // same floor as the pools card — a $16 dust pool's trades are noise
+export async function fetchPoolTrades(token: string, decimals = 18, want = TRADES_MAX, opts?: { deadline?: number; partial?: boolean }): Promise<RadarSwap[]> {
+  const all = await fetchAllOnchainPools(token, decimals).catch(() => [] as OnchainPool[]);
+  let pools = all.filter((p) => (p.liquidityUsdc ?? 0) >= MIN_TRADE_POOL_LIQ);
+  if (!pools.length && all.length) pools = all.slice(0, 1);
+  if (!pools.length) { // nothing on the card yet → the old single-pool lookup
+    const pool = await findTokenPool(token);
+    if (pool) return poolTrades(pool, decimals, want, opts, null);
+    const v4 = await findV4Pool(token); return v4 ? fetchV4Trades(v4, decimals, want, null) : [];
+  }
+  const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return [];
   const head = BigInt(headHex);
   const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
   const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
   const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+  const dayFrom = head - BigInt(Math.ceil(86400 / blockTime));
+  const label = (p: OnchainPool) => p.version === 'V3' && p.feeTier ? `V3 ${(p.feeTier / 1e4).toFixed(2).replace(/\.?0+$/, '')}%` : p.version;
+  const lists = await Promise.all(pools.map((p) => (p.version === 'V4'
+    ? (async () => { const v4 = await findV4Pool(token); return v4 && v4.poolId === p.pool ? fetchV4Trades(v4, decimals, want, { dayFrom, head, headTs, blockTime }) : []; })()
+    : poolTrades(p.pool, decimals, want, opts, { dayFrom, head, headTs, blockTime })).then((r) => r.map((x) => ({ ...x, venue: label(p) }))).catch(() => [] as RadarSwap[])));
+  // a trade whose price is >20x off the deepest pool's is a broken read, not a trade (same filter as the indexer's volume)
+  const ref = pools.find((p) => p.price != null)?.price ?? null;
+  let out = lists.flat().filter((x) => ref == null || x.price == null || (x.price < ref * 20 && x.price > ref / 20));
+  out.sort((a, b) => b.time - a.time);
+  // the scan reads whole 95k-block ranges; keep exactly the last 24h — older rows only for a quiet token (< TRADES_MIN today)
+  const dayTs = headTs - 86400, today = out.filter((x) => x.time >= dayTs);
+  if (today.length >= Math.min(want, TRADES_MIN)) out = today;
+  return out.slice(0, want);
+}
+type TradeCtx = { dayFrom: bigint; head: bigint; headTs: number; blockTime: number } | null;
+async function poolTrades(pool: string, decimals: number, want: number, opts: { deadline?: number; partial?: boolean } | undefined, ctx: TradeCtx): Promise<RadarSwap[]> {
+  const [t0hex, headHex] = await Promise.all([mCall(pool, '0x0dfe1681'), ctx ? Promise.resolve('0x' + ctx.head.toString(16)) : mrpc('eth_blockNumber', [])]);
+  if (!t0hex || !headHex) return [];
+  const usdcIsToken0 = ('0x' + t0hex.slice(-40)).toLowerCase() === NATIVE_USDC_ADDR.toLowerCase();
+  const head = BigInt(headHex);
+  let headTs: number, blockTime: number;
+  if (ctx) { headTs = ctx.headTs; blockTime = ctx.blockTime; } else {
+    const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
+    headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
+    blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+  }
+  const dayFrom = ctx ? ctx.dayFrom : head - BigInt(Math.ceil(86400 / blockTime));
   const dexp = 10 ** (decimals - 6);
   const out: RadarSwap[] = [];
   // Same window as before (the last 80k blocks, newest first, stop once there are enough trades), but read in
@@ -1708,7 +1751,10 @@ export async function fetchPoolTrades(token: string, decimals = 18, want = 40, o
   const windows: [bigint, bigint][] = [[head - 20000n < floor ? floor : head - 20000n, head], [floor, head - 20001n]];
   for (let hi = floor - 1n; hi > head - 900000n && hi > 0n; hi -= 95000n) windows.push([hi - 95000n < 0n ? 0n : hi - 95000n, hi]);
   for (const [wi, [lo, hi]] of windows.entries()) {
-    if (out.length >= want || hi <= lo) break;
+    if (hi <= lo) break;
+    // the whole last 24h is always read; past it, only until the pool has TRADES_MIN (a quiet token) or `want`
+    if (hi < dayFrom && out.length >= Math.min(want, TRADES_MIN)) break;
+    if (out.length >= want) break;
     // 09-29: a quiet token (DUKE) spent 16 s walking back 900k blocks and found nothing — the first visitor waited for it.
     if (wi >= 2 && opts?.deadline && Date.now() > opts.deadline) { opts.partial = true; break; }
     const logs = await windowLogs(lo, hi);
@@ -1743,17 +1789,21 @@ export async function fetchPoolTrades(token: string, decimals = 18, want = 40, o
 // BalanceDelta (opposite of V3's pool-perspective): the token leg NEGATIVE = swapper paid token = a SELL,
 // POSITIVE = swapper received = a BUY. Verified against a real tx's GLITCH Transfer (amount0 −34.8M → the
 // user's GLITCH moved INTO the pool = SELL). USD = |tokenAmt| × price. maker = sender (topic2).
-async function fetchV4Trades(v4: V4Pool, decimals: number, want: number): Promise<RadarSwap[]> {
-  const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return [];
-  const head = BigInt(headHex);
-  const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
-  const headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
-  const blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+async function fetchV4Trades(v4: V4Pool, decimals: number, want: number, ctx: TradeCtx): Promise<RadarSwap[]> {
+  let head: bigint, headTs: number, blockTime: number;
+  if (ctx) { head = ctx.head; headTs = ctx.headTs; blockTime = ctx.blockTime; } else {
+    const headHex = await mrpc('eth_blockNumber', []); if (!headHex) return [];
+    head = BigInt(headHex);
+    const [hb, ob] = await Promise.all([mrpc('eth_getBlockByNumber', [headHex, false]), mrpc('eth_getBlockByNumber', ['0x' + (head - 20000n).toString(16), false])]);
+    headTs = hb ? Number(BigInt(hb.timestamp)) : Math.floor(Date.now() / 1000);
+    blockTime = (hb && ob && hb.timestamp && ob.timestamp) ? Math.max(0.1, (headTs - Number(BigInt(ob.timestamp))) / 20000) : 0.5;
+  }
+  const dayFrom = ctx ? ctx.dayFrom : head - BigInt(Math.ceil(86400 / blockTime));
   const dexp = 10 ** (decimals - 6);
   const tokIdx = v4.usdcIsC0 ? 1 : 0; // token is the non-USDC currency
   const out: RadarSwap[] = [];
   const CH = BigInt(BIG_LOG_RANGE);
-  for (let hi = head; hi > head - 900000n && out.length < want; hi -= CH) { // to ~5 days back for a quiet token (was 300k ≈ 1.5d)
+  for (let hi = head; hi > head - 900000n && out.length < want && (hi > dayFrom || out.length < Math.min(want, TRADES_MIN)); hi -= CH) { // whole 24h, then back to ~5 days for a quiet token
     const lo = hi - CH < 0n ? 0n : hi - CH;
     const logs = await getLogsBig({ address: PM_V4, topics: [V4_SWAP_TOPIC, v4.poolId], fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) });
     if (!Array.isArray(logs)) continue;

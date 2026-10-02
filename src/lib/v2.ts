@@ -50,6 +50,7 @@ export interface V2TokenDetail {
   ocPool: { tvl: number | null; reserveQuote: number | null; reserveBase: number | null; pool: string | null; price: number | null } | null;
   ocPools: OnchainPool[] | null; dayStats: DayStats | null; burn: { burnt: number; supply: number | null; pct: number | null } | null;
   holders: RadarHolder[] | null; swaps: RadarSwap[] | null; txs: TokenTransfer[] | null;
+  trades?: { total: number; buys: number; sells: number; since: number | null } | null; // the day's whole list → v2Trades
   holderCount?: number | null; holdersFrom?: 'chain' | 'arc-scan' | null;
   contract?: { name: string | null; symbol: string | null; decimals: number | null; supply: number | null; deployBlock: number | null; creator: string | null; size: number | null; transfers24h: number | null } | null;
   lookalike?: boolean | null;
@@ -58,6 +59,10 @@ export interface V2TokenDetail {
 export interface V2Lock { locker: string; label: string; locked: number; pct: number | null; nextUnlock: number | null; lastUnlock: number | null; parts: { amount: number; unlock: number }[]; expiredNotWithdrawn: number }
 export const v2TokenDetail = (addr: string) => get<V2TokenDetail>(`token/${addr.toLowerCase()}/detail`, 20000)
   .then((d) => { if (!d || typeof d.dec !== 'number') throw new Error('v2 detail: bad shape'); return d; });
+// One page (100) of the token's trades over the last 24h, newest first, from every pool (server/token-detail.ts tokenTrades).
+export interface V2Trades { page: number; pages: number; total: number; per: number; since: number | null; rows: RadarSwap[] }
+export const v2Trades = (addr: string, page: number, side: 'all' | 'buy' | 'sell') =>
+  get<V2Trades>(`token/${addr.toLowerCase()}/trades?page=${page}&side=${side}`, 20000).then((j) => { if (!j || !Array.isArray(j.rows)) throw new Error('v2 trades: bad shape'); return j; });
 export const v2Candles = (addr: string, sec: number, look: number) => get<{ candles: Candle[] }>(`token/${addr.toLowerCase()}/candles?sec=${sec}&look=${look}`, 20000).then((j) => { if (!Array.isArray(j.candles)) throw new Error('v2 candles: bad shape'); return j.candles; });
 // The Arc Network page (server/chain.ts).
 export interface V2ChainWin { seconds: number; blocks: number; blockTime: number; txs: number; tps: number; gasPerBlock: number; feesUsdc: number }

@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { Token } from '../src/lib/rules.ts';
 import {
   primePool, fetchTokenDecimals, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24,
-  fetchTokenBurn, fetchTokenHolders, fetchPoolTrades, resolveMakers, fetchTokenTransfers, fetchPoolCandles, pruneChainCaches,
+  fetchTokenBurn, fetchTokenHolders, fetchPoolTrades, TRADES_MAX, resolveMakers, fetchTokenTransfers, fetchPoolCandles, pruneChainCaches,
 } from '../src/lib/arc.ts';
 import type { Candle } from '../src/lib/warp.ts';
 import { holderBadges, tokenLocks, holdersOver, POOL_MANAGER_V4, BURN, LOCKERS, type HolderKind, type TokenLocks, type HoldersOver } from './holder-intel.ts';
@@ -28,6 +28,7 @@ export interface TokenDetail {
   contract?: ContractInfo | null;       // creator, size, 24h transfers, name/symbol/decimals/supply — all from chain
   swaps: Awaited<ReturnType<typeof fetchPoolTrades>> | null;
   txs: Awaited<ReturnType<typeof fetchTokenTransfers>> | null;
+  trades?: { total: number; buys: number; sells: number; since: number | null } | null; // the whole list: tokenTrades
 }
 
 // A copy up to 90 min old is served INSTANTLY while a fresh one is computed behind it (the page re-reads every 10 s and
@@ -63,12 +64,16 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     const makersP = dayP.then((day) => (day ? settle(fetchOnchainMakers24(address)) : null));
     const [ocPool, ocPools, day, burn, holdersRaw, trades, txs, makers] = await Promise.all([
       settle(fetchOnchainPoolStats(address, dec)), settle(fetchAllOnchainPools(address, dec)), dayP,
-      settle(fetchTokenBurn(address, dec)), settle(fetchTokenHolders(address, 100)), settle(fetchPoolTrades(address, dec, 40, tradeOpts)),
+      settle(fetchTokenBurn(address, dec)), settle(fetchTokenHolders(address, 100)), settle(fetchPoolTrades(address, dec, TRADES_MAX, tradeOpts)),
       settle(fetchTokenTransfers(address, 18, 40)), makersP,
     ]);
     let dayStats: TokenDetail['dayStats'] = day;
     if (day && makers) dayStats = { ...day, makers24: makers.makers, makersSample: makers.sample, makersIsFloor: makers.sample < makers.total };
-    const swaps = trades && trades.length ? (await settle(resolveMakers(trades.map((x) => ({ ...x }))))) ?? trades.map((x) => ({ ...x, trader: '' })) : trades;
+    // The whole day's trades stay here (served 100 a page by tokenTrades); the detail carries the newest page only.
+    if (trades) tradesCache.set(address, { at: Date.now(), rows: trades });
+    const first = trades ? trades.slice(0, TRADES_PAGE) : null;
+    const swaps = first && first.length ? (await settle(resolveMakers(first.map((x) => ({ ...x }))))) ?? first.map((x) => ({ ...x, trader: '' })) : first;
+    const tradeSum = trades ? { total: trades.length, buys: trades.filter((x) => x.side === 'buy').length, sells: trades.filter((x) => x.side === 'sell').length, since: trades.length ? trades[trades.length - 1].time : null } : null;
     // Holders: our own on-chain index first (server/holder-index.ts — arc-scan was down 09-30 and every page lost its list),
     // arc-scan's list only while a token hasn't been indexed yet.
     const idx = isIndexed(address) ? await settle(indexedHolders(address, dec, burn?.supply ?? null, 100)) : null;
@@ -90,7 +95,7 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     ]);
     if (urgent && !idx) holdersOver(address, price, poolAddrs).catch(() => {}); // fills the cache for the next read
     if (holders && badges) holders = holders.map((h) => { const b = badges.get(h.address.toLowerCase()); return b ? { ...h, kind: b.kind, label: b.label, isPool: h.isPool || b.kind === 'v4' || b.kind === 'pool' } : h; });
-    const d: TokenDetail = { address, at: Date.now(), ms: Date.now() - t0, dec, ocPool, ocPools, dayStats, burn, holders, swaps, txs, locks, holdersOver: over, holderCount: idx ? idx.count : null, holdersFrom, contract };
+    const d: TokenDetail = { address, at: Date.now(), ms: Date.now() - t0, dec, ocPool, ocPools, dayStats, burn, holders, swaps, txs, locks, holdersOver: over, holderCount: idx ? idx.count : null, holdersFrom, contract, trades: tradeSum };
     cache.set(address, d); detailStats.computed++; detailStats.lastMs = d.ms;
     if (tradeOpts.partial) { detailStats.partial++; setTimeout(() => refresh(address, seed, false).catch(() => {}), 0); }
     if (cache.size > MAX_CACHED) { const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]; if (oldest) cache.delete(oldest[0]); }
@@ -111,6 +116,21 @@ export async function tokenDetail(address: string, seed: Token | undefined): Pro
   if (c && Date.now() - c.at < FRESH_MS) { detailStats.hits++; return c; }
   if (c && Date.now() - c.at < STALE_MS) { detailStats.stale++; refresh(a, seed, false).catch(() => {}); return c; }
   return refresh(a, seed);
+}
+// ── Trades, paged (10-02 owner: "at least five pages of 100 … the whole history of the day"). compute() keeps the token's
+// full 24h list here; a page resolves its 100 makers (cached per tx in arc.ts) when it is asked for.
+export const TRADES_PAGE = 100;
+const tradesCache = new Map<string, { at: number; rows: Awaited<ReturnType<typeof fetchPoolTrades>> }>();
+export async function tokenTrades(address: string, seed: Token | undefined, page: number, side: 'all' | 'buy' | 'sell') {
+  const a = address.toLowerCase();
+  if (!tradesCache.has(a)) await tokenDetail(a, seed);
+  const all = tradesCache.get(a)?.rows ?? [];
+  const rows = side === 'all' ? all : all.filter((x) => x.side === side);
+  const pages = Math.max(1, Math.ceil(rows.length / TRADES_PAGE));
+  const p = Math.min(Math.max(0, page), pages - 1);
+  const slice = rows.slice(p * TRADES_PAGE, (p + 1) * TRADES_PAGE).map((x) => ({ ...x }));
+  const out = slice.length ? (await settle(resolveMakers(slice))) ?? slice : slice;
+  return { page: p, pages, total: rows.length, per: TRADES_PAGE, since: all.length ? all[all.length - 1].time : null, rows: out };
 }
 /** Keep the busiest token pages warm so their first visitor never waits. */
 export function prewarm(rows: Token[]) {
