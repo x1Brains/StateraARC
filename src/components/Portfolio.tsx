@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { sanitizeToken, ECOSYSTEM_ADDRS } from '../lib/rules';
-import { fetchHoldings, fetchHoldingsMainnet, fetchHoldingsOnchain, fetchPortfolioMainnet, fetchRadarPortfolio, fetchNftHoldings, fetchWalletPnl, prefetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type RadarHolding, type NftHolding, type TokenPnl } from '../lib/arc';
+import { mergeHoldings, fetchHoldings, fetchHoldingsMainnet, fetchHoldingsOnchain, fetchPortfolioMainnet, fetchRadarPortfolio, fetchNftHoldings, fetchWalletPnl, prefetchWalletPnl, priceMainnet, isAddress, tprice, usd, compact, CHAIN, type Token, type Holding, type RadarHolding, type NftHolding, type TokenPnl } from '../lib/arc';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
 import { SendModal, type SendToken } from './SendModal';
@@ -148,8 +148,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         const oc = await fetchHoldingsOnchain(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[], ok: false }));
         if (!alive) return;
         let finalSet: { h: Holding[]; seeded: Record<string, number> };
-        if (oc.holdings.length) { finalSet = apply(oc.holdings); }
-        else if (fast.length) { finalSet = apply(fast); }
+        if (oc.holdings.length || fast.length) { finalSet = apply(mergeHoldings(fast, oc.holdings)); } // merged, never replaced (10-02)
         else if (oc.ok) { finalSet = { h: [], seeded: {} }; }   // the full scan ANSWERED: this wallet really holds nothing
         else {
           // last resort: curated on-chain balanceOf scan

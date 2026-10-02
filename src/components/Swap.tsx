@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PINNED } from '../lib/rules';
 import { MIN_VOL_24H } from '../lib/board';
-import { tprice, compact, usd, CHAIN, fetchPortfolioMainnet, fetchHoldingsOnchain, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx, activeEth } from '../lib/arc';
+import { tprice, compact, usd, CHAIN, mergeHoldings, fetchPortfolioMainnet, fetchHoldingsOnchain, fetchRadarPortfolio, fetchAddressTxs, type Token, type RadarHolding, type WalletTx, activeEth } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
 import { IconSwapVertical, IconExternal } from './icons';
 import {
@@ -151,10 +151,10 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     }).sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0) || b.amount - a.amount);
     fetchPortfolioMainnet(wallet)
       .then(async (pf) => (pf.holdings.length ? pf : await fetchRadarPortfolio(wallet).catch(() => pf)))
-      .then((pf) => { if (alive) setHoldings((prev) => (prev && prev.length > pf.holdings.length ? prev : priced(pf.holdings))); })
+      .then((pf) => { if (alive) setHoldings((prev) => priced(mergeHoldings(pf.holdings, prev ?? []))); })
       .catch(() => { if (alive) setHoldings((prev) => prev ?? []); });
     fetchHoldingsOnchain(wallet).then((oc) => {
-      if (alive && oc.ok && oc.holdings.length) setHoldings(priced(oc.holdings));
+      if (alive && oc.ok && oc.holdings.length) setHoldings((prev) => priced(mergeHoldings(prev ?? [], oc.holdings))); // merged, never replaced (10-02)
     }).catch(() => { /* the fast view stands */ });
     fetchAddressTxs(wallet, 12).then((t) => { if (alive) setActs(t); }).catch(() => { if (alive) setActs([]); });
     return () => { alive = false; };

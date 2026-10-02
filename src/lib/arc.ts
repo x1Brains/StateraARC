@@ -207,6 +207,20 @@ export function saneHoldings(hs: RadarHolding[]): { holdings: (RadarHolding & { 
   const vals = out.map((h) => h.usd).filter((v): v is number => v != null && isFinite(v) && v >= 0 && v < 1e9);
   return { holdings: out, total: vals.length ? vals.reduce((a, b) => a + b, 0) : null };
 }
+// ⛔ 10-02 owner: "it's only showing like three coins when I have BLOB, ARCAT…". The portfolio painted our own index's
+// list (43 tokens) and then the older holdings service's answer (7 — its history window misses older buys) REPLACED it.
+// Lists from different sources are MERGED by token address now: the first source's row wins, the other only fills a
+// missing price / value / icon, and a token either source found stays.
+export function mergeHoldings<T extends RadarHolding>(...lists: T[][]): T[] {
+  const m = new Map<string, T>();
+  for (const list of lists) for (const h of list) {
+    const k = (h.address || '').toLowerCase(); if (!k) continue;
+    const p = m.get(k);
+    if (!p) { m.set(k, h); continue; }
+    m.set(k, { ...p, price: p.price ?? h.price, usd: p.usd ?? h.usd, icon: p.icon ?? h.icon });
+  }
+  return [...m.values()].sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0) || b.amount - a.amount);
+}
 export async function fetchHoldingsOnchain(addr: string): Promise<{ total: number | null; holdings: RadarHolding[]; ok: boolean }> {
   try {
     // Cap the wait so a cold scan can never hang the "loading" indicator indefinitely — the VPS finishes
