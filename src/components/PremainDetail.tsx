@@ -621,9 +621,9 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                   <div><span>Profit / loss</span><b className={(realized ?? 0) + (open ?? 0) >= 0 ? 'up' : 'down'}>{realized == null ? '—' : `${(realized + (open ?? 0)) >= 0 ? '+' : '−'}${usd(Math.abs(realized + (open ?? 0)))}`}</b><small>{usd(Math.abs(realized ?? 0))} {(realized ?? 0) >= 0 ? 'made' : 'lost'} on sells · {open == null ? '—' : `${open >= 0 ? '+' : '−'}${usd(Math.abs(open))}`} on what you hold</small></div>
                 </div>
                 <div className="tr-table">
-                  <div className="tr-row tr-head"><span>When</span><span>Type</span><span className="num">USD</span><span className="num">{sym}</span><span className="num">Price</span><span /><span className="num">Tx</span></div>
+                  <div className="tr-row tr-mine tr-head"><span>When</span><span>Type</span><span className="num">USD</span><span className="num">{sym}</span><span className="num">Price</span><span /><span className="num">Tx</span></div>
                   {mine.map((t) => (
-                    <div className="tr-row" key={t.tx}>
+                    <div className="tr-row tr-mine" key={t.tx}>
                       <span className="tr-age">{new Date(t.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                       <span className={`tr-side ${t.side}`}>{t.side === 'buy' ? 'Buy' : 'Sell'}</span>
                       <span className={`num mono tr-usd ${t.side}`}>{usd(t.usd)}</span>

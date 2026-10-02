@@ -1322,6 +1322,8 @@ footer .flink:hover { text-decoration: underline; }
 .tr-table { display: flex; flex-direction: column; }
 .tr-row { display: grid; grid-template-columns: 52px 44px minmax(56px,1fr) minmax(60px,1.1fr) minmax(56px,1fr) 84px 30px; gap: 12px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px; }
 .tr-row:last-child { border-bottom: 0; }
+/* My trades shows a full date ("Oct 1, 10:52 PM"), not an age — 52px made it run into the Type column (10-02). */
+.tr-row.tr-mine { grid-template-columns: 124px 40px minmax(56px,1fr) minmax(60px,1.1fr) minmax(56px,1fr) 0 30px; }
 .tr-head { font: 700 9px var(--disp); letter-spacing: 1px; text-transform: uppercase; color: var(--gray-2); position: sticky; top: -12px; background: var(--panel); z-index: 1; padding-bottom: 10px; }
 .tr-head .num, .tr-row .num { text-align: right; }
 .tr-head .tx, .tr-row .tx { text-align: center; }
@@ -1338,6 +1340,8 @@ footer .flink:hover { text-decoration: underline; }
   /* Drop the {sym}-amount (4th) and Price (5th) columns on phones — keep Age, Type, USD, Maker, Tx. */
   .tr-row { grid-template-columns: 42px 38px minmax(0,1fr) 66px 24px; gap: 7px; }
   .tr-row > *:nth-child(4), .tr-row > *:nth-child(5) { display: none; }
+  .tr-row.tr-mine { grid-template-columns: 76px 34px minmax(0,1fr) 0 24px; }
+  .tr-row.tr-mine .tr-age { white-space: normal; line-height: 1.25; }
 }
 
 /* Pool health card */
