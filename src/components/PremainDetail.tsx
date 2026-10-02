@@ -812,7 +812,8 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                 </div>
               </div>
               {(['buys', 'sells'] as const).map((k) => {
-                const list = biggest[bigWin][k];
+                const winSec = bigWin === 'h1' ? 3600 : bigWin === 'h12' ? 43200 : 86400, nowS = Date.now() / 1000;
+                const list = biggest[bigWin][k].filter((t) => t.time >= nowS - winSec).slice(0, 3); // the server's list may be a few minutes old
                 return (
                   <div key={k} className="bt-group">
                     <div className={`bt-label ${k}`}>{k === 'buys' ? 'Buys' : 'Sells'}</div>

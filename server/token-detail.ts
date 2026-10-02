@@ -75,11 +75,11 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     const first = trades ? trades.slice(0, TRADES_PAGE) : null;
     const swaps = first && first.length ? (await settle(resolveMakers(first.map((x) => ({ ...x }))))) ?? first.map((x) => ({ ...x, trader: '' })) : first;
     // Biggest trades (10-02 owner: "the top three biggest buys and sells … last 24 hours, 12 hours and one hour"): from the
-    // same full-day list, by USD, makers resolved (only these 18 rows; cached per tx).
+    // same full-day list, by USD, makers resolved (only these rows; cached per tx).
     let biggest: TokenDetail['biggest'] = null;
     if (trades && trades.length) {
       const now = Math.max(...trades.slice(0, 5).map((x) => x.time), Math.floor(Date.now() / 1000) - 120);
-      const top = (side: 'buy' | 'sell', sec: number) => trades.filter((x) => x.side === side && x.usd != null && x.time >= now - sec).sort((a2, b2) => (b2.usd ?? 0) - (a2.usd ?? 0)).slice(0, 3).map((x) => ({ ...x }));
+      const top = (side: 'buy' | 'sell', sec: number) => trades.filter((x) => x.side === side && x.usd != null && x.time >= now - sec).sort((a2, b2) => (b2.usd ?? 0) - (a2.usd ?? 0)).slice(0, 8).map((x) => ({ ...x })); // 8: the page drops any that aged out of the window by its own clock, then shows 3
       const w = { h1: { buys: top('buy', 3600), sells: top('sell', 3600) }, h12: { buys: top('buy', 43200), sells: top('sell', 43200) }, h24: { buys: top('buy', 86400), sells: top('sell', 86400) } };
       const rows = Object.values(w).flatMap((v) => [...v.buys, ...v.sells]);
       await settle(resolveMakers(rows));
