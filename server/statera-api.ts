@@ -26,7 +26,7 @@ import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
 import { indexHolders, indexStats, indexBatch, batchStats, holderCountOf } from './holder-index.ts';
 import { walletTransfers, walletStats, blockTimes } from './wallet-index.ts';
-import { tokenDetail, tokenTrades, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
+import { cacheStats, tokenDetail, tokenTrades, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, flowsBackfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
 import { refreshWhere, whereSummary, whereStats } from './where.ts';
@@ -168,7 +168,7 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, wallets: walletStats, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, mem: (() => { const m = process.memoryUsage(); return { rssMb: Math.round(m.rss / 1048576), heapMb: Math.round(m.heapUsed / 1048576), extMb: Math.round((m.external + m.arrayBuffers) / 1048576) }; })(), caches: cacheStats(), ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, wallets: walletStats, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;

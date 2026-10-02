@@ -146,6 +146,12 @@ export const TRADES_PAGE = 100;
 type TradeRows = Awaited<ReturnType<typeof fetchPoolTrades>>;
 const TRADES_FULL_MS = 30 * 60_000, TRADES_KEEP = 120; // lists kept for the 120 most recently computed tokens
 const tradesCache = new Map<string, { head: number; full: number; rows: TradeRows }>();
+/** Memory check (10-02): how much the caches hold — the API sat at 592 MB of its 600 MB heap cap 36 min after a restart. */
+export function cacheStats() {
+  let tradeRows = 0; for (const v of tradesCache.values()) tradeRows += v.rows.length;
+  let candles = 0; for (const v of candleCache.values()) candles += v.c.length;
+  return { details: cache.size, tradeLists: tradesCache.size, tradeRows, candleSets: candleCache.size, candles };
+}
 function putTrades(a: string, v: { head: number; full: number; rows: TradeRows }) {
   tradesCache.delete(a); tradesCache.set(a, v);
   while (tradesCache.size > TRADES_KEEP) tradesCache.delete(tradesCache.keys().next().value!);
