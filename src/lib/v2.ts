@@ -51,6 +51,7 @@ export interface V2TokenDetail {
   ocPools: OnchainPool[] | null; dayStats: DayStats | null; burn: { burnt: number; supply: number | null; pct: number | null } | null;
   holders: RadarHolder[] | null; swaps: RadarSwap[] | null; txs: TokenTransfer[] | null;
   trades?: { total: number; buys: number; sells: number; since: number | null } | null; // the day's whole list → v2Trades
+  biggest?: Record<'h1' | 'h12' | 'h24', { buys: RadarSwap[]; sells: RadarSwap[] }> | null; // top 3 buys/sells by USD per window
   holderCount?: number | null; holdersFrom?: 'chain' | 'arc-scan' | null;
   contract?: { name: string | null; symbol: string | null; decimals: number | null; supply: number | null; deployBlock: number | null; creator: string | null; size: number | null; transfers24h: number | null } | null;
   lookalike?: boolean | null;

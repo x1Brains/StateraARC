@@ -62,6 +62,8 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   // Trades paging (10-02): the detail carries the newest 100 + the day's counts; any other page / filter asks the server.
   const [tradeSum, setTradeSum] = useState<{ total: number; buys: number; sells: number; since: number | null } | null>(null);
   const [txPage, setTxPage] = useState(0);
+  const [biggest, setBiggest] = useState<V2TokenDetail['biggest']>(null);
+  const [bigWin, setBigWin] = useState<'h1' | 'h12' | 'h24'>('h24');
   const [pageRows, setPageRows] = useState<{ key: string; d: V2Trades } | null>(null);
   // 09-30 owner: the pools list is always shown OPEN; only with 4+ pools can it be collapsed (and it starts open then too)
   const [poolsOpen, setPoolsOpen] = useState(true);
@@ -88,7 +90,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
     // that picked the pool with the most USDC, which has no swaps: empty 24h stats after 13.9s, 5m/6h change never shown.
     // Wait for the list (`ready`, well under a second) so every visitor gets the snapshot's pool.
     if (!ready) return;
-    setTradeSum(null); setTxPage(0); setPageRows(null);
+    setTradeSum(null); setTxPage(0); setPageRows(null); setBiggest(null);
     let alive = true; setRd(null); setHolders(null); setHolderCount(null); setTxs(null); setSwaps(null); setOcPool(null); setOcPools(null); setDayStats(null); setBurn(null); setDec(null); setLocks(null); setHoldersOver(null); setChainHolders(null);
     // Prime the pool cache from the snapshot so every panel skips the slow ~900k-block pool-discovery scan.
     if (seed && (seed.pool || seed.poolId || seed.v4PoolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0, v4PoolId: seed.v4PoolId, v4UsdcIsC0: seed.v4UsdcIsC0 });
@@ -121,6 +123,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
               if (f.holders && f.holders.length) setHolders(f.holders);
               if (f.swaps && f.swaps.length) setSwaps(f.swaps);
               if (f.trades) setTradeSum(f.trades);
+              if (f.biggest) setBiggest(f.biggest);
             }).catch(() => {});
           }, 10_000);
           setDec(v.dec);
@@ -135,6 +138,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
           if (v.holders && v.holders.length) setHolders(v.holders);
           else fetchRadarHolders(address, v.dec, 100).then((h) => { if (alive) { setHolders(h.holders); if (h.holderCount != null) setHolderCount(h.holderCount); } }).catch(() => { if (alive) setHolders([]); });
           if (v.trades) setTradeSum(v.trades);
+          if (v.biggest) setBiggest(v.biggest);
           if (v.swaps && v.swaps.length) setSwaps(v.swaps);
           else fetchRadarSwaps(address, v.dec, 50).catch(() => [] as RadarSwap[]).then((r) => { if (alive) setSwaps(r); });
           return;
@@ -444,10 +448,11 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   const nameAddrs = useMemo(() => {
     const set = new Set<string>();
     for (const s2 of (txRows || swaps || []).slice(0, 100)) if (s2.trader) set.add(s2.trader.toLowerCase());
+    if (biggest) for (const w of Object.values(biggest)) for (const s2 of [...w.buys, ...w.sells]) if (s2.trader) set.add(s2.trader.toLowerCase());
     for (const t of (txs || []).slice(0, 60)) { const m = txMaker(t); if (m) set.add(m.toLowerCase()); }
     for (const h of (holders || []).slice(0, 30)) if (h.address) set.add(h.address.toLowerCase());
     return [...set].slice(0, 120);
-  }, [swaps, txRows, txs, holders]); // eslint-disable-line
+  }, [swaps, txRows, biggest, txs, holders]); // eslint-disable-line
   const names = useNames(nameAddrs);
   // The chart pulls Warp candles (same wrong scale as warp.price for non-18-dec tokens). Rescale them
   // to the correct price using the ratio of the trusted seed price to Warp's price (=1 when they agree).
@@ -797,6 +802,35 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
               })}
             </div>
           )}
+          {/* Biggest trades (10-02) — the top 3 buys and sells by USD in the last 1h / 12h / 24h, from every pool (server). */}
+          {biggest && (biggest.h24.buys.length > 0 || biggest.h24.sells.length > 0) && (
+            <div className="panel side-card bt-card">
+              <div className="bt-head">
+                <h3 style={{ margin: 0 }}>Biggest trades</h3>
+                <div className="nx-tabs">
+                  {(['h1', 'h12', 'h24'] as const).map((w) => <button key={w} className={bigWin === w ? 'on' : ''} onClick={() => setBigWin(w)}>{w === 'h1' ? '1H' : w === 'h12' ? '12H' : '24H'}</button>)}
+                </div>
+              </div>
+              {(['buys', 'sells'] as const).map((k) => {
+                const list = biggest[bigWin][k];
+                return (
+                  <div key={k} className="bt-group">
+                    <div className={`bt-label ${k}`}>{k === 'buys' ? 'Buys' : 'Sells'}</div>
+                    {list.length ? list.map((t, i) => (
+                      <div key={t.tx + i} className="bt-row">
+                        <span className="bt-rank">{i + 1}</span>
+                        <span className={`bt-usd mono ${t.side}`}>{t.usd != null ? usd(t.usd) : '—'}</span>
+                        <span className="bt-amt mono">{compact(t.amount)} {sym}</span>
+                        {t.trader ? <a className="bt-mk mono" href={`https://explorer.arc.io/address/${t.trader}`} target="_blank" rel="noreferrer" title={t.trader}>{displayName(t.trader, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a> : <span className="bt-mk">…</span>}
+                        <a className="bt-ago" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer" title="Open the transaction">{t.time ? agoStr(t.time) : ''} <IconExternal className="i" /></a>
+                      </div>
+                    )) : <div className="bt-none">No {k} in the last {bigWin === 'h1' ? 'hour' : bigWin === 'h12' ? '12 hours' : '24 hours'}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Calculator — convert a token amount to USD at the live price. */}
           {px != null && (
             <div className="panel side-card">

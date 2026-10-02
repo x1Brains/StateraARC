@@ -29,6 +29,7 @@ export interface TokenDetail {
   swaps: Awaited<ReturnType<typeof fetchPoolTrades>> | null;
   txs: Awaited<ReturnType<typeof fetchTokenTransfers>> | null;
   trades?: { total: number; buys: number; sells: number; since: number | null } | null; // the whole list: tokenTrades
+  biggest?: Record<'h1' | 'h12' | 'h24', { buys: NonNullable<Awaited<ReturnType<typeof fetchPoolTrades>>>; sells: NonNullable<Awaited<ReturnType<typeof fetchPoolTrades>>> }> | null;
 }
 
 // A copy up to 90 min old is served INSTANTLY while a fresh one is computed behind it (the page re-reads every 10 s and
@@ -73,6 +74,17 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     if (trades) tradesCache.set(address, { at: Date.now(), rows: trades });
     const first = trades ? trades.slice(0, TRADES_PAGE) : null;
     const swaps = first && first.length ? (await settle(resolveMakers(first.map((x) => ({ ...x }))))) ?? first.map((x) => ({ ...x, trader: '' })) : first;
+    // Biggest trades (10-02 owner: "the top three biggest buys and sells … last 24 hours, 12 hours and one hour"): from the
+    // same full-day list, by USD, makers resolved (only these 18 rows; cached per tx).
+    let biggest: TokenDetail['biggest'] = null;
+    if (trades && trades.length) {
+      const now = Math.max(...trades.slice(0, 5).map((x) => x.time), Math.floor(Date.now() / 1000) - 120);
+      const top = (side: 'buy' | 'sell', sec: number) => trades.filter((x) => x.side === side && x.usd != null && x.time >= now - sec).sort((a2, b2) => (b2.usd ?? 0) - (a2.usd ?? 0)).slice(0, 3).map((x) => ({ ...x }));
+      const w = { h1: { buys: top('buy', 3600), sells: top('sell', 3600) }, h12: { buys: top('buy', 43200), sells: top('sell', 43200) }, h24: { buys: top('buy', 86400), sells: top('sell', 86400) } };
+      const rows = Object.values(w).flatMap((v) => [...v.buys, ...v.sells]);
+      await settle(resolveMakers(rows));
+      biggest = w;
+    }
     const tradeSum = trades ? { total: trades.length, buys: trades.filter((x) => x.side === 'buy').length, sells: trades.filter((x) => x.side === 'sell').length, since: trades.length ? trades[trades.length - 1].time : null } : null;
     // Holders: our own on-chain index first (server/holder-index.ts — arc-scan was down 09-30 and every page lost its list),
     // arc-scan's list only while a token hasn't been indexed yet.
@@ -95,7 +107,7 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     ]);
     if (urgent && !idx) holdersOver(address, price, poolAddrs).catch(() => {}); // fills the cache for the next read
     if (holders && badges) holders = holders.map((h) => { const b = badges.get(h.address.toLowerCase()); return b ? { ...h, kind: b.kind, label: b.label, isPool: h.isPool || b.kind === 'v4' || b.kind === 'pool' } : h; });
-    const d: TokenDetail = { address, at: Date.now(), ms: Date.now() - t0, dec, ocPool, ocPools, dayStats, burn, holders, swaps, txs, locks, holdersOver: over, holderCount: idx ? idx.count : null, holdersFrom, contract, trades: tradeSum };
+    const d: TokenDetail = { address, at: Date.now(), ms: Date.now() - t0, dec, ocPool, ocPools, dayStats, burn, holders, swaps, txs, locks, holdersOver: over, holderCount: idx ? idx.count : null, holdersFrom, contract, trades: tradeSum, biggest };
     cache.set(address, d); detailStats.computed++; detailStats.lastMs = d.ms;
     if (tradeOpts.partial) { detailStats.partial++; setTimeout(() => refresh(address, seed, false).catch(() => {}), 0); }
     if (cache.size > MAX_CACHED) { const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]; if (oldest) cache.delete(oldest[0]); }

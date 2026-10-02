@@ -2158,3 +2158,19 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
   .tdx .td-tabpanel { flex: 1 1 auto; min-height: 460px; display: flex; flex-direction: column; }
   .tdx .td-tabbody { flex: 1 1 auto; min-height: 0; max-height: none; contain: size; }
 }
+
+/* Biggest trades card (10-02) */
+.bt-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.bt-group + .bt-group { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.bt-label { font: 700 10px var(--disp); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+.bt-label.buys { color: #4ecb71; } .bt-label.sells { color: #ff5a5a; }
+.bt-row { display: grid; grid-template-columns: 14px minmax(64px, auto) minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 5px 0; font-size: 12px; }
+.bt-rank { color: var(--gray-2); font: 700 10px var(--disp); }
+.bt-usd { font-weight: 600; } .bt-usd.buy { color: #4ecb71; } .bt-usd.sell { color: #ff5a5a; }
+.bt-amt { color: var(--gray-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-mk { color: var(--red-hi); text-decoration: none; font-size: 11px; white-space: nowrap; }
+.bt-mk:hover { text-decoration: underline; }
+.bt-ago { color: var(--gray-2); font: 500 10.5px var(--mono); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.bt-ago:hover { color: var(--red-hi); }
+.bt-ago .i { width: 11px; height: 11px; }
+.bt-none { color: var(--gray-2); font-size: 11.5px; padding: 4px 0; }
