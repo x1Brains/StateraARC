@@ -759,7 +759,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                   {redFlags.map((f) => <div className="ph-flag" key={f}><span className="ph-flag-dot" />{f}</div>)}
                 </div>
               )}
-              <div className="ph-note">Weighted signal from live on-chain data — not a legitimacy or safety certification. DYOR.</div>
+              <div className="ph-note">Weighted signal from live on-chain data — not a legitimacy or safety certification.</div>
             </div>
           )}
 
@@ -874,7 +874,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
       </div>
 
       <div className="td-disc" style={{ marginTop: 12 }}>
-        Price, liquidity, volume, trades &amp; pools are read live on-chain from Arc mainnet pools (Uniswap V3/V4, chain 5042); holders &amp; contract data via arc-scan; some launchpad coverage via Warp (circlewarp.fun) &amp; RadarDEX. All unofficial, not Circle. Unverified; DYOR.
+        Price, liquidity, volume, trades, pools and holders are read live on-chain from Arc mainnet (chain 5042) by Statera's own indexer. Statera is independent and not affiliated with Circle.
       </div>
     </section></div>
   );

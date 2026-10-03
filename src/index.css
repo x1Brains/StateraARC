@@ -2178,3 +2178,5 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 /* Phones/tablets (10-02 owner: "I don't see the biggest buys and sells on mobile"): the sidebar stacks under the page, so the
    card sat 7th, ~2,400px down. It goes first in that stack — straight under the transactions box. */
 @media (max-width: 1100px) { .tdx-side .bt-card { order: -1; } }
+
+.sp-venues { margin: 6px 0 8px 18px; padding: 0; } .sp-venues li { margin: 1px 0; }

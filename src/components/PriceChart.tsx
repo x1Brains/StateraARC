@@ -218,7 +218,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
         )}
       </div>
       {autoWide && tf === 'all' && candles && candles.length > 0 && <div className="chart-note">No trades in the last 24h — showing full history.</div>}
-      <div className="chart-src">Chart: on-chain pool swaps (Warp candles if none) · Arc mainnet (5042) · unofficial · DYOR</div>
+      <div className="chart-src">Chart: on-chain pool swaps (Warp candles if none) · Arc mainnet (5042)</div>
     </div>
   );
 }

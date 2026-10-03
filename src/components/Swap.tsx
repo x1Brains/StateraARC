@@ -731,7 +731,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
             <div className="swap-quote">
               <div className="sq-row"><span>Est. rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
               <div className="sq-row"><span>You’d receive</span><span className="mono">≈ {outHuman != null ? amtFmt(outHuman) : '—'} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Route</span><span className="mono">Warp · Uniswap v4</span></div>
+              <div className="sq-row"><span>Route</span><span className="mono">No pool found on the seven venues · price estimate only</span></div>
             </div>
           )}
           {qErr && <div className="swap-info err"><span>{qErr}</span><span /></div>}
@@ -824,7 +824,17 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
           <details className="sp-how">
             <summary>How routing works</summary>
             <p className="side-note">{warpMode
-              ? <>Every trade is quoted across Uniswap V2, V3 and V4, Warp V2 and its bonding curve, Aerodrome and Archery, and the best fill wins. Only tokens listed on the Statera screener can be traded here (or ones you already hold). Native USDC (0x3600) is the gas token. Min received is enforced on-chain at your slippage.</>
+              ? <>Statera is a swap aggregator: every trade is quoted on all seven Arc venues at once and the best fill wins.
+                <ol className="sp-venues">
+                  <li>Uniswap V2</li>
+                  <li>Uniswap V3</li>
+                  <li>Uniswap V4, including hooked pools (Permit2 + Universal Router)</li>
+                  <li>Warp V2</li>
+                  <li>Warp bonding curve (tokens that have not graduated yet)</li>
+                  <li>Aerodrome</li>
+                  <li>Archery</li>
+                </ol>
+                Each swap is simulated before you sign, and min received is enforced on-chain at your slippage. Only tokens listed on the Statera screener can be traded here (or ones you already hold). Native USDC (0x3600) is Arc's gas token.</>
               : <>Quoted against every live router on {CHAIN.name} ({SWAP_CFG.routers.length} tracked) for the deepest fill. Native USDC (0x3600) is Arc's gas token. Paste any ERC-20 to import it. Min received enforced on-chain at your slippage.</>}</p>
           </details>
         </aside>
