@@ -165,6 +165,24 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     return () => { alive = false; if (hideTimer) clearTimeout(hideTimer); };
   }, [addr, mainnet, refreshTick]); // eslint-disable-line
 
+  // ⛔ 10-02 (owner: "my portfolio said $68 and I sold for $78"): prices were read ONCE when the bag loaded and never again,
+  // so an open portfolio kept showing old values while a coin moved. Re-read our own holdings prices (the server re-prices
+  // from the pools every 40 s) every 30 s while this wallet is on screen; balances stay as loaded.
+  useEffect(() => {
+    if (!mainnet || !addr || !isAddress(addr)) return;
+    let alive = true;
+    const tick = () => fetchPortfolioMainnet(addr).then((pf) => {
+      if (!alive) return;
+      const fresh: Record<string, number> = {};
+      for (const h of pf.holdings) if (h.price != null && isFinite(h.price) && h.price > 0) fresh[h.address.toLowerCase()] = h.price;
+      if (Object.keys(fresh).length) setLivePx((prev) => ({ ...prev, ...fresh }));
+    }).catch(() => {});
+    const id = setInterval(tick, 30_000);
+    const vis = () => { if (document.visibilityState === 'visible') tick(); }; // back on the tab: re-price now
+    document.addEventListener('visibilitychange', vis);
+    return () => { alive = false; clearInterval(id); document.removeEventListener('visibilitychange', vis); };
+  }, [addr, mainnet]); // eslint-disable-line
+
   // P&L: reconstruct cost basis from the wallet's on-chain swaps once holdings are known (mainnet only).
   const holdKey = holdings.map((h) => h.address).join(',');
   useEffect(() => {
