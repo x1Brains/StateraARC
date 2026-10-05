@@ -122,7 +122,9 @@ export default async function handler(req, res) {
     const chStr = ch == null ? '' : `${ch >= 0 ? '+' : '-'}${Math.abs(ch).toFixed(1)}% 24h`;
     const chColor = ch == null ? '#8f8478' : ch >= 0 ? '#4ecb71' : '#ff5a5a';
     let [logo] = await Promise.all([vpsLogo, ensureWasm()]);
-    if (!logo) logo = await within(logoDataUri(otherLogoTries(t, addr)), 2500, '');
+    let logoFrom = bundled ? 'bundled' : logo ? 'vps' : 'none';
+    if (!logo) { logo = await within(logoDataUri(otherLogoTries(t, addr)), 2500, ''); if (logo) logoFrom = 'icon'; }
+    res.setHeader('x-og-logo', logoFrom); // where this card's logo came from: bundled (disk) / vps / icon / none
     const symX = logo ? 234 : 64;
 
     // 1200x630 = Twitter/X's exact link-card ratio (1.91:1). ⛔ A SHORTER image gets center-cropped by X (it
