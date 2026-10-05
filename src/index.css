@@ -2190,3 +2190,17 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
   .nav .wrap > .connect.sm { padding: 10px 13px; text-align: center; }
   .nav .wrap > .wbtn .wbtn-main { width: 100%; justify-content: center; }
 }
+
+/* 10-05 phone polish (owner: "fix these please"):
+   - ticker: the 3% edge fade is ~11 px on a phone, so coins looked cut off; a wider fade lets them glide in and out
+   - screener tabs: 6 tabs in one sideways-scrolling strip ("Tre…" cut off) -> a 3 x 2 grid, all visible
+   - token page: "Share link" wrapped onto two lines -> the three actions share one row, one line each */
+@media (max-width: 640px) {
+  .ticker { -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); }
+  #screener .controls .tabs { display: grid; grid-template-columns: repeat(3, 1fr); overflow: visible; gap: 4px; }
+  #screener .controls .tabs .tab-sep { display: none; }
+  #screener .controls .tabs button { text-align: center; padding-left: 4px; padding-right: 4px; white-space: nowrap; }
+  .tx-actions { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .tx-actions > :not(.tx-act) { grid-column: 1 / -1; } /* the address chip keeps its own full-width row */
+  .tx-actions .tx-act { justify-content: center; padding: 0 6px; white-space: nowrap; font-size: 11.5px; gap: 5px; }
+}
