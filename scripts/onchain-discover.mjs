@@ -357,7 +357,10 @@ async function main() {
   // its liquidity + volume added below, and its price from the V2 pair when that pair is its deepest pool.
   // ⛔ 09-28: 0x942bd5… is DyorSwap (every DyorSwap pool's factory(); DefiLlama's adapter) — it was labelled 'V2'. The REAL
   // Uniswap V2 factory on Arc is 0x89e5db8b… (Uniswap sdk-core + Sushi config; 825 pairs) and was not read at all.
-  const V2_FACTORIES = { '0x942bd5bfdc5317c5507e326f8eb4bb6058ab5c10': 'DyorSwap', '0x89e5db8b5aa49aa85ac63f691524311aeb649eba': 'UniV2', '0x32330c2400a6e0830d56661169ebb6c147e3577a': 'WarpV2' };
+  // Arctide (10-06, owner: "looking for Arctide, the one we show seems a scam"): Arctide runs its OWN DEX — 4 pairs, standard V2
+  // interface (allPairs/token0/token1/getReserves, USDC reserve 6-dec) and standard V2 Swap/Sync events, so the V2 path reads it.
+  // Its \$TIDE (0x92395d0c…1b8e) has \$31K real USDC in its pool and ~\$7K/day from 27 traders; it was missing from Statera.
+  const V2_FACTORIES = { '0x942bd5bfdc5317c5507e326f8eb4bb6058ab5c10': 'DyorSwap', '0x89e5db8b5aa49aa85ac63f691524311aeb649eba': 'UniV2', '0x32330c2400a6e0830d56661169ebb6c147e3577a': 'WarpV2', '0x6afd30cb35d8b70cfd84c9aca92ddc2dda2879cb': 'Arctide' };
   const NEW_PAIRS_PER_RUN = Number(process.env.ONCHAIN_NEW_PAIRS || 300); // first enumeration of 825 pairs spreads over ~3 runs
   state.v2pairs = state.v2pairs || {};
   for (const [fac, label] of Object.entries(V2_FACTORIES)) {

@@ -455,6 +455,8 @@ const PAD_NAMES = {
   // Warp's launch factory (a 179-byte proxy): 5 of the 8 tokens it created are tagged Warp by Warp's own data, incl. WARP itself;
   // before 10-06 its coins read the generic "Launchpad" (WARP, ARCHITECTS, SMOKE)
   '0x0dcad158e98bc24455f9e94f46709d8a5f6d1255': 'Warp',
+  // Arctide's launch factory (ArctideLaunchFactory per Arctide's DefiLlama listing) — bonding-curve coins graduate to Arctide pools
+  '0xf7a20a20e18fa7d4b6c68ee58da16799382abce8': 'Arctide',
 };
 // Contracts that deploy for anyone and are NOT launchpads: the standard deterministic (CREATE2) deployer — 29 tokens a dev
 // deployed through it read "Launchpad" (pre-existing, found in the 10-06 audit).
