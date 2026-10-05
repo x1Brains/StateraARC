@@ -626,11 +626,16 @@ async function main() {
     for (const r of cand) {
       const p = r && r.length >= 42 ? ('0x' + r.slice(-40)).toLowerCase() : null;
       if (!p || p === ZERO || seen.has(p)) continue; seen.add(p);
-      const [bal, t0, tb] = await Promise.all([rpc('eth_getBalance', [p, 'latest']).catch(() => null), call(p, '0x0dfe1681').catch(() => null), call(x.addr, '0x70a08231' + pad(p)).catch(() => null)]);
+      const [bal, t0, tb, s0] = await Promise.all([rpc('eth_getBalance', [p, 'latest']).catch(() => null), call(p, '0x0dfe1681').catch(() => null), call(x.addr, '0x70a08231' + pad(p)).catch(() => null), call(p, '0x3850c7bd').catch(() => null)]);
       const usdc = bal ? Number(BigInt(bal)) / 1e18 : 0;
       if (usdc < MIN_USDC) continue; // only real pools
       const tok = tb && tb !== '0x' ? Number(BigInt(tb)) / 10 ** x.t.decimals : 0;
-      extraUsdc += usdc + v3Side(tok * x.price, usdc); // aggregate liquidity (both sides) across the token's other USDC pools
+      // ⛔ 10-04: the token side is valued at THIS pool's own price (slot0), not the row's price — TOLLY's row price came
+      // from its thin V4 pool (~60% above market), which put \$475K on the screener for \$357K of real pools.
+      let px = x.price;
+      try { const sq = s0 && s0.length >= 66 ? BigInt(s0.slice(0, 66)) : 0n; const c0 = t0 ? ('0x' + t0.slice(-40)).toLowerCase() === USDC : null;
+        if (sq > 0n && c0 != null) { const ra = (Number(sq) / 2 ** 96) ** 2; const own = (c0 ? 1 / ra : ra) * 10 ** (x.t.decimals - 6); if (isFinite(own) && own > 0 && own < 1e6) px = own; } } catch { /* row price */ }
+      extraUsdc += usdc + v3Side(tok * px, usdc); // aggregate liquidity (both sides) across the token's other USDC pools
       pools.push({ kind: 'v3', address: p, usdcIsC0: t0 ? ('0x' + t0.slice(-40)).toLowerCase() === USDC : false, primary: false });
     }
     return { pools, extraUsdc };
@@ -716,6 +721,9 @@ async function main() {
       iconUrl: t.iconUrl || null,
       // pool identity so the client can re-price the row LIVE (kills the ~15-min screener staleness).
       pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: !!t.usdcIsC0, decimals: dec,
+      // every USDC V2-style pair found by enumerating the factories (allPairs). ⛔ 10-04: WarpV2's getPair() returns 0x0 for
+      // WARP's own \$8K pair, so the token page (which asked getPair) never listed it — it reads these instead.
+      v2Pairs: (v2ByToken.get(addr) || []).map((p) => ({ pair: p.pair, label: p.label })),
       // The token's busiest V4 USDC pool, ALSO when its primary market is a V3 pool (09-30: ARGUS's page listed only its V3
       // pool, $615K of $1.26M — the snapshot points the row at V3 and the page's own V4 search only reaches back ~5 days).
       v4PoolId: ds?.v4best?.poolId || t.poolId || null, v4UsdcIsC0: ds?.v4best ? ds.v4best.usdcIsC0 : !!t.usdcIsC0,

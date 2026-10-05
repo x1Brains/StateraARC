@@ -1239,8 +1239,10 @@ const poolDiscovery = new Map<string, string | null>();
 // ⛔ 09-25: a V4-tagged row used to short-circuit V3 discovery to null, so cirBTC's page charted/traded/counted its thin
 // V4 side pool ($71K 24h) and never saw its real market, a $6M V3 pool ($5.8M 24h). V3 discovery now still runs
 // (5 cheap calls) and wins only with real money in it — see V3_OVER_V4_MIN in findTokenPoolUncached.
-export function primePool(token: string, seed: { pool?: string | null; poolId?: string | null; usdcIsC0?: boolean; v4PoolId?: string | null; v4UsdcIsC0?: boolean }): void {
+const knownV2 = new Map<string, { pair: string; label: string }[]>(); // token -> pairs the indexer enumerated (primePool)
+export function primePool(token: string, seed: { pool?: string | null; poolId?: string | null; usdcIsC0?: boolean; v4PoolId?: string | null; v4UsdcIsC0?: boolean; v2Pairs?: { pair: string; label: string }[] | null }): void {
   const t = token.toLowerCase();
+  if (seed.v2Pairs && seed.v2Pairs.length) knownV2.set(t, seed.v2Pairs.map((p) => ({ pair: p.pair.toLowerCase(), label: p.label })));
   if (seed.poolId) v4PoolCache.set(t, { poolId: seed.poolId, usdcIsC0: !!seed.usdcIsC0 });
   // ⛔ 09-30: a token whose row points at its V3 pool can ALSO trade on a V4 pool (ARGUS: V3 $615K + V4 $650K). findV4Pool's
   // own Initialize scan only reaches back ~900k blocks, so an older V4 pool was never found and the pools card dropped it.
@@ -1356,6 +1358,8 @@ export async function fetchAllOnchainPools(token: string, decimals = 18): Promis
   { const p = v2 && v2.length >= 42 ? ('0x' + v2.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR) found.push({ pool: p, version: 'V2', feeTier: null }); }
   { const p = wv2 && wv2.length >= 42 ? ('0x' + wv2.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR) found.push({ pool: p, version: 'WarpV2', feeTier: null }); }
   { const p = uv2 && uv2.length >= 42 ? ('0x' + uv2.slice(-40)).toLowerCase() : null; if (p && p !== ZERO_ADDR && !found.some((f) => f.pool === p)) found.push({ pool: p, version: 'UniV2', feeTier: null }); }
+  // pairs the indexer found by enumerating the factories — getPair() misses some (WarpV2 returns 0x0 for WARP's own pair)
+  for (const kp of knownV2.get(t) || []) if (!found.some((f) => f.pool === kp.pair)) found.push({ pool: kp.pair, version: kp.label === 'DyorSwap' ? 'V2' : kp.label, feeTier: null });
   // Aerodrome / Archery CL pools (V3-style: native USDC balance, slot0 price). ⛔ 09-30: the card never read them, so WETH
   // showed $29K of the $896K the screener counts and EURC $150K of $752K (the indexer sums CL depth; RadarDEX used to add it).
   const clHits = await Promise.all(CL_FACTORIES.flatMap(([name, f]) => CL_SPACINGS.map(async (ts) => {

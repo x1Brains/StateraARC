@@ -53,7 +53,7 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
   const t0 = Date.now();
   try {
     // Same order and inputs as PremainDetail: prime the pool from the screener row, decimals from the row or the contract.
-    if (seed && (seed.pool || seed.poolId || seed.v4PoolId)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0, v4PoolId: seed.v4PoolId, v4UsdcIsC0: seed.v4UsdcIsC0 });
+    if (seed && (seed.pool || seed.poolId || seed.v4PoolId || seed.v2Pairs?.length)) primePool(address, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0, v4PoolId: seed.v4PoolId, v4UsdcIsC0: seed.v4UsdcIsC0, v2Pairs: seed.v2Pairs });
     const dec = seed?.decimals ?? (await fetchTokenDecimals(address)) ?? 18;
     // A visitor waiting → the trade scan stops going back after ~3.5 s; the full scan then runs in the background and
     // the page's 10 s re-read picks it up (09-29: cold pages took 5–20 s, one quiet token's empty 900k-block walk = 16 s).
@@ -211,7 +211,7 @@ function buildCandles(a: string, seed: Token | undefined, sec: number, look: num
       await slot();
       try {
         const dec = seed?.decimals ?? cache.get(a)?.dec ?? (await fetchTokenDecimals(a)) ?? 18;
-        if (seed && (seed.pool || seed.poolId || seed.v4PoolId)) primePool(a, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0, v4PoolId: seed.v4PoolId, v4UsdcIsC0: seed.v4UsdcIsC0 });
+        if (seed && (seed.pool || seed.poolId || seed.v4PoolId || seed.v2Pairs?.length)) primePool(a, { pool: seed.pool, poolId: seed.poolId, usdcIsC0: seed.usdcIsC0, v4PoolId: seed.v4PoolId, v4UsdcIsC0: seed.v4UsdcIsC0, v2Pairs: seed.v2Pairs });
         const c = await fetchPoolCandles(a, dec, sec, look);
         if (c.length) { candleCache.set(k, { at: Date.now(), c }); if (candleCache.size > 600) candleCache.delete(candleCache.keys().next().value!); }
         return c;

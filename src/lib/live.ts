@@ -40,7 +40,8 @@ export const snapshotRow = (t: any): Token => ({
   createdAt: rnum(t.createdAt), source: t.source ?? null,
   pool: t.pool ?? null, poolId: t.poolId ?? null, usdcIsC0: !!t.usdcIsC0, decimals: t.decimals ?? 18, hooked: !!t.hooked,
   v4fee: t.v4fee ?? null, v4tick: t.v4tick ?? null, hooks: t.hooks ?? null,
-  v4PoolId: t.v4PoolId ?? null, v4UsdcIsC0: !!t.v4UsdcIsC0, // the token's V4 pool when pool/poolId point at V3 (pools card)
+  v4PoolId: t.v4PoolId ?? null, v4UsdcIsC0: !!t.v4UsdcIsC0,
+  v2Pairs: Array.isArray(t.v2Pairs) ? t.v2Pairs.filter((p: any) => p && /^0x[0-9a-f]{40}$/i.test(p.pair)).slice(0, 8) : null, // ⛔ new fields must be copied HERE or the API drops them // the token's V4 pool when pool/poolId point at V3 (pools card)
   priceFrom: t.priceFrom ?? null,
 });
 
