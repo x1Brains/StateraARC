@@ -474,6 +474,25 @@ async function mrpcBatchByHash(method: string, hashes: string[]): Promise<Record
 const receiptsBatched = (hashes: string[]) => mrpcBatchByHash('eth_getTransactionReceipt', hashes);
 const listMem: Map<string, { at: number; hashes: string[] }> = new Map();
 /** The wallet's non-approval tx hashes, newest first. A cached list means only arc-scan page 0 is read. */
+// ⛔ 10-05 (owner: "P&L in portfolio for some doesn't show"): P&L read receipts for the newest 160 txs only, so a token
+// bought earlier (LONG \$75, OTTY \$4, WARP, BLOB \$18) had no cost and showed "—". Our own index has every Transfer the
+// wallet touched — the same logs legsOf() reads from a receipt (wallet in/out only) — so legs for EVERY tx come from it.
+// Same rules as legsOf: 0x3600 = 6-dec USDC, NATIVE_USDC_LOG = 18-dec native USDC, anything else = the token.
+const ownLegs = new Map<string, Map<string, TxLegs>>();
+function legsFromXfers(xs: OwnXfer[], w: string): Map<string, TxLegs> {
+  const by = new Map<string, { u6o: number; u6i: number; uno: number; uni: number; tin: Record<string, bigint>; tout: Record<string, bigint> }>();
+  for (const x of xs) {
+    const frm = (x.f || '').toLowerCase(), to = (x.to || '').toLowerCase(); if (frm !== w && to !== w) continue;
+    let raw: bigint; try { raw = BigInt(x.v); } catch { continue; }
+    const L = by.get(x.h) || { u6o: 0, u6i: 0, uno: 0, uni: 0, tin: {}, tout: {} }; by.set(x.h, L);
+    const a = (x.t || '').toLowerCase();
+    if (a === NATIVE_USDC_ADDR) { const v = Number(raw) / 1e6; if (frm === w) L.u6o += v; if (to === w) L.u6i += v; }
+    else if (a === NATIVE_USDC_LOG) { const v = Number(raw) / 1e18; if (frm === w) L.uno += v; if (to === w) L.uni += v; }
+    else { if (to === w) L.tin[a] = (L.tin[a] || 0n) + raw; if (frm === w) L.tout[a] = (L.tout[a] || 0n) + raw; }
+  }
+  const str = (o: Record<string, bigint>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.toString()]));
+  return new Map([...by].map(([h, L]) => [h, { u6o: L.u6o, u6i: L.u6i, uno: L.uno, uni: L.uni, tin: str(L.tin), tout: str(L.tout) }]));
+}
 async function walletTxHashes(w: string, maxTxs: number): Promise<string[]> {
   const mem = listMem.get(w);
   if (mem && Date.now() - mem.at < 60000) return mem.hashes;   // phase-1 -> phase-2 re-run: don't re-page
@@ -482,6 +501,7 @@ async function walletTxHashes(w: string, maxTxs: number): Promise<string[]> {
   if (own && own.transfers.length) {
     const seenH = new Set<string>(), all: string[] = [];
     for (const x of own.transfers) { if (x.ts) txTs.set(x.h, x.ts); if (!seenH.has(x.h)) { seenH.add(x.h); all.push(x.h); } }
+    ownLegs.set(w, legsFromXfers(own.transfers, w)); // every tx in the history, not only the newest maxTxs (P&L below)
     const outList = all.slice(0, maxTxs);
     listMem.set(w, { at: Date.now(), hashes: outList });
     return outList;
@@ -558,11 +578,14 @@ export function prefetchWalletPnl(wallet: string, maxTxs = 160): Promise<string[
 export async function fetchWalletPnl(wallet: string, decimalsByToken: Record<string, number>, maxTxs = 160): Promise<Record<string, TokenPnl>> {
   const w = wallet.toLowerCase();
   // 1+2) tx list and receipts — usually already in flight or done (prefetchWalletPnl)
-  const hashes = await prefetchWalletPnl(w, maxTxs);
+  const recent = await prefetchWalletPnl(w, maxTxs);
+  // every tx: the newest maxTxs from their receipts (as before), all older ones from our own index (ownLegs)
+  const idx = ownLegs.get(w);
+  const hashes = idx ? [...new Set([...recent, ...idx.keys()])] : recent;
   // 3) per-token buy/sell aggregates — decimals applied here, so a token learned later still counts
   const agg: Record<string, { cost: number; qb: number; proc: number; qs: number }> = {};
   for (const h of hashes) {
-    const L = legCache.get(`${w}:${h}`);
+    const L = legCache.get(`${w}:${h}`) || idx?.get(h);
     if (!L) continue;
     const tin: Record<string, number> = {}, tout: Record<string, number> = {};
     for (const [a, raw] of Object.entries(L.tin)) { const d = decimalsByToken[a]; if (d != null) tin[a] = Number(BigInt(raw)) / 10 ** d; }
@@ -595,8 +618,9 @@ export async function fetchAddressTxs(addr: string, limit = 12): Promise<WalletT
       const main = inn[0] || out[0];
       // the USDC side of the tx (6-dec, as the wallet check showed: in - out == balanceOf for every token)
       const usdcLeg = xs.find((x) => x.t === '0x3600000000000000000000000000000000000000');
+      const natLeg = usdcLeg ? null : xs.find((x) => x.t === NATIVE_USDC_LOG); // a curve buy pays native USDC (18-dec log)
       return { hash, ts: xs.find((x) => x.ts)?.ts ?? 0, method: out.length && inn.length ? 'swap' : out.length ? 'send' : 'receive',
-        value: usdcLeg ? Number(usdcLeg.v) / 1e6 : null, symbol: usdcLeg ? 'USDC' : null, status: true, to: main?.to ?? null, from: main?.f ?? null };
+        value: usdcLeg ? Number(usdcLeg.v) / 1e6 : natLeg ? Number(natLeg.v) / 1e18 : null, symbol: usdcLeg || natLeg ? 'USDC' : null, status: true, to: main?.to ?? null, from: main?.f ?? null };
     });
   }
   try {
