@@ -25,7 +25,7 @@ import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
 import { indexHolders, indexStats, indexBatch, batchStats, holderCountOf } from './holder-index.ts';
-import { walletTransfers, walletStats, blockTimes } from './wallet-index.ts';
+import { walletTransfers, walletStats, blockTimes, NATIVE_LOG } from './wallet-index.ts';
 import { cacheStats, tokenDetail, tokenTrades, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, flowsBackfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
@@ -236,7 +236,7 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
       const wallet = hm[1].toLowerCase();
       const w = await Promise.race([walletTransfers(wallet), new Promise<null>((r) => setTimeout(() => r(null), 20_000))]);
       if (!w) { send(req, res, 202, JSON.stringify({ building: true }), undefined, 0); return; }
-      const toks = [...new Set(w.x.map((x) => x.t))].slice(0, 300);
+      const toks = [...new Set(w.x.map((x) => x.t))].filter((t) => t !== NATIVE_LOG).slice(0, 300); // the native-USDC log is not a token
       const pad = wallet.slice(2).padStart(64, '0');
       const calls = toks.flatMap((t) => [{ target: t, data: '0x70a08231' + pad }, { target: t, data: '0x313ce567' }, { target: t, data: '0x95d89b41' }]);
       let out: (string | null)[] = [];
@@ -262,7 +262,7 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
       const limit = intIn(u.searchParams.get('limit'), 500, 1, 5000);
       const w = await Promise.race([walletTransfers(wm[1]), new Promise<null>((r) => setTimeout(() => r(null), 20_000))]);
       if (!w) { send(req, res, 202, JSON.stringify({ building: true }), undefined, 0); return; } // first read still running
-      const tokens = [...new Set(w.x.map((x) => x.t))];
+      const tokens = [...new Set(w.x.map((x) => x.t))].filter((t) => t !== NATIVE_LOG);
       const list = w.x.slice(0, limit), first = w.x.length ? w.x[w.x.length - 1].b : null;
       const ts = await blockTimes(list.slice(0, 60).map((x) => x.b)); // exact times for the newest 60
       send(req, res, 200, JSON.stringify({ wallet: wm[1].toLowerCase(), last: w.last, at: w.at, count: w.x.length, firstBlock: first, tokens,
