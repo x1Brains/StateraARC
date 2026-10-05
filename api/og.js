@@ -57,7 +57,10 @@ const toHttp = (u) => { const cid = String(u || '').match(/^ipfs:\/\/(?:ipfs\/)?
 // token's iconUrl and run only on a cache miss.
 function vpsLogoTries(addr) {
   const UP = process.env.HOLDINGS_UPSTREAM, KEY = process.env.HOLDINGS_KEY;
-  return UP && KEY && addr ? [{ u: `${UP.replace(/\/+$/, '')}/holdings/logo/${addr}`, h: { 'x-relay-key': KEY } }] : [];
+  // ⛔ 10-04: one try with 1.5 s let a slow moment on the funnel publish a card with NO logo, and X keeps a card's first
+  // image for days (owner's \$ARGUS post, 10:17 PM). Two tries now (a fresh connection often lands where the first stalled).
+  const t = { u: `${UP?.replace(/\/+$/, '')}/holdings/logo/${addr}`, h: { 'x-relay-key': KEY } };
+  return UP && KEY && addr ? [t, t] : [];
 }
 function otherLogoTries(t, addr) {
   const tries = [];
@@ -67,7 +70,7 @@ function otherLogoTries(t, addr) {
 async function logoDataUri(tries) {
   for (const { u, h } of tries) {
     try {
-      const r = await fetch(u, { headers: h, signal: AbortSignal.timeout(1500) });
+      const r = await fetch(u, { headers: h, signal: AbortSignal.timeout(1600) });
       if (!r.ok) continue;
       const ct = (r.headers.get('content-type') || '').toLowerCase();
       if (ct.includes('svg') || ct.includes('html') || ct.includes('webp') || ct.includes('json')) continue; // resvg <image> draws png/jpeg only
@@ -101,7 +104,7 @@ export default async function handler(req, res) {
 
     // Live: the site's current list (VPS /api/snapshot) + the price re-read from the token's pool right now.
     // Hard budget (~4.5s worst case, ~0.5-1s normally): X gives up on a slow image and keeps the card broken.
-    const vpsLogo = within(logoDataUri(vpsLogoTries(addr)), 1500, '');
+    const vpsLogo = within(logoDataUri(vpsLogoTries(addr)), 3400, ''); // 2 tries x 1.6 s (runs alongside the 3 s price read)
     const t = addr ? await within(liveToken(origin, addr), 3000) : null;
 
     const sym = esc(t?.symbol || 'TOKEN');
@@ -110,7 +113,7 @@ export default async function handler(req, res) {
     const chStr = ch == null ? '' : `${ch >= 0 ? '+' : '-'}${Math.abs(ch).toFixed(1)}% 24h`;
     const chColor = ch == null ? '#8f8478' : ch >= 0 ? '#4ecb71' : '#ff5a5a';
     let [logo] = await Promise.all([vpsLogo, ensureWasm()]);
-    if (!logo) logo = await within(logoDataUri(otherLogoTries(t, addr)), 1500, '');
+    if (!logo) logo = await within(logoDataUri(otherLogoTries(t, addr)), 2500, '');
     const symX = logo ? 234 : 64;
 
     // 1200x630 = Twitter/X's exact link-card ratio (1.91:1). ⛔ A SHORTER image gets center-cropped by X (it
