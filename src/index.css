@@ -2180,3 +2180,13 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 @media (max-width: 1100px) { .tdx-side .bt-card { order: -1; } }
 
 .sp-venues { margin: 6px 0 8px 18px; padding: 0; } .sp-venues li { margin: 1px 0; }
+
+/* 10-05 phone audit (360 px): the Network "Live · block / Download report / Post on X" row was forced onto one line and ran
+   past both edges ("Live" cut off on the left); it wraps now. On Swap / Portfolio the header's Connect wallet button wrapped
+   onto its own line jammed against the left edge — it takes that line full width, aligned with the rest of the page. */
+@media (max-width: 640px) {
+  .nx-share { flex-wrap: wrap; row-gap: 8px; }
+  .nav .wrap > .connect.sm, .nav .wrap > .wbtn { order: 4; width: calc(100% - 24px); margin: 0 12px; }
+  .nav .wrap > .connect.sm { padding: 10px 13px; text-align: center; }
+  .nav .wrap > .wbtn .wbtn-main { width: 100%; justify-content: center; }
+}
