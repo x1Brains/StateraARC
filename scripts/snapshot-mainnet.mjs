@@ -454,6 +454,35 @@ const PAD_NAMES = {
   '0x6a62919ccbf0c19e0c4e084f986b582b4492dda4': 'faze.fun', // every token it made keeps its logo on faze.fun/cdn
 };
 const CREATORS_CACHE = process.env.CREATORS_CACHE || '/root/statera-live/creators.json';
+async function chainCall(method, params) {
+  for (let i = 0; i < 6; i++) {
+    for (const url of RPCS) {
+      try {
+        const j = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(15000) }).then((r) => r.json());
+        if (j && 'result' in j) return j.result;
+      } catch { /* next node */ }
+    }
+    await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+  }
+  throw new Error(method + ' failed');
+}
+// undefined = could not tell (retry later); null = deployed directly by a wallet (no launchpad); '0x…' = the contract called
+async function creatorFromChain(token) {
+  const a = token.toLowerCase(), needle = a.slice(2);
+  const head = parseInt(await chainCall('eth_blockNumber', []), 16);
+  if ((await chainCall('eth_getCode', [a, 'latest'])) === '0x') return undefined;
+  let lo = 0, hi = head;
+  while (lo < hi) { const mid = Math.floor((lo + hi) / 2); const c = await chainCall('eth_getCode', [a, '0x' + mid.toString(16)]); if (c && c !== '0x') hi = mid; else lo = mid + 1; }
+  const blk = await chainCall('eth_getBlockByNumber', ['0x' + lo.toString(16), true]);
+  for (const tx of (blk?.transactions || []).slice(0, 120)) {
+    const rc = await chainCall('eth_getTransactionReceipt', [tx.hash]);
+    if (!rc) continue;
+    if ((rc.contractAddress || '').toLowerCase() === a) return null;
+    if ((rc.logs || []).some((l) => (l.address || '').toLowerCase() === a || (l.topics || []).some((x) => String(x).toLowerCase().endsWith(needle)) || String(l.data || '').toLowerCase().includes(needle)))
+      return (tx.to || '').toLowerCase() || undefined;
+  }
+  return undefined;
+}
 async function tagLaunchpads(map) {
   for (const t of map.values()) if (t.launchpad === 'onchain') t.launchpad = null; // the old placeholder, never a launchpad
   let cache;
@@ -467,8 +496,13 @@ async function tagLaunchpads(map) {
       const t = want[i++];
       try {
         const j = await fetch(`https://api.arc-scan.org/v1/address/${t.address}`, { signal: AbortSignal.timeout(10000) }).then((r) => r.json());
-        if (j && j.address) cache.tokens[t.address] = j.creation?.creator?.address?.toLowerCase() || null;
-      } catch { /* next run */ }
+        if (j && j.address) { cache.tokens[t.address] = j.creation?.creator?.address?.toLowerCase() || null; continue; }
+      } catch { /* arc-scan down: read it from chain below */ }
+      // ⛔ 10-06: arc-scan went down 09-30 (HTTP 530), so no token listed since then got a creator and 10 Argus-pad coins on the
+      // screener had no tag. Own chain read: the deploy block (getCode binary search), then the tx in it that created the token —
+      // created directly by a wallet = no launchpad (null); created inside a contract call = that contract (tx.to). Not found =
+      // left out of the cache (no tag, retried next run) — never a guess.
+      try { const c = await creatorFromChain(t.address); if (c !== undefined) cache.tokens[t.address] = c; } catch { /* next run */ }
     }
   }));
   const made = {};
