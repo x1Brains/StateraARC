@@ -452,7 +452,13 @@ const PAD_NAMES = {
   '0xb021be536808f551b31789422fd28a6c9c6e97da': 'Argus pad',
   '0xd969062076f75fbc4fd0195561501dc13ef87c72': 'Argus pad',
   '0x6a62919ccbf0c19e0c4e084f986b582b4492dda4': 'faze.fun', // every token it made keeps its logo on faze.fun/cdn
+  // Warp's launch factory (a 179-byte proxy): 5 of the 8 tokens it created are tagged Warp by Warp's own data, incl. WARP itself;
+  // before 10-06 its coins read the generic "Launchpad" (WARP, ARCHITECTS, SMOKE)
+  '0x0dcad158e98bc24455f9e94f46709d8a5f6d1255': 'Warp',
 };
+// Contracts that deploy for anyone and are NOT launchpads: the standard deterministic (CREATE2) deployer — 29 tokens a dev
+// deployed through it read "Launchpad" (pre-existing, found in the 10-06 audit).
+const NOT_PADS = new Set(['0x4e59b44847b379578588920ca78fbf26c0b4956c']);
 const CREATORS_CACHE = process.env.CREATORS_CACHE || '/root/statera-live/creators.json';
 async function chainCall(method, params) {
   for (let i = 0; i < 6; i++) {
@@ -478,8 +484,13 @@ async function creatorFromChain(token) {
     const rc = await chainCall('eth_getTransactionReceipt', [tx.hash]);
     if (!rc) continue;
     if ((rc.contractAddress || '').toLowerCase() === a) return null;
-    if ((rc.logs || []).some((l) => (l.address || '').toLowerCase() === a || (l.topics || []).some((x) => String(x).toLowerCase().endsWith(needle)) || String(l.data || '').toLowerCase().includes(needle)))
-      return (tx.to || '').toLowerCase() || undefined;
+    // ⛔ tx.to is the contract the tx CALLED, which is the factory only when a launchpad is called directly — a wallet helper
+    // or batching contract in between made WARP / Architects read "Launchpad" instead of "Warp" (10-06 audit). So only a
+    // KNOWN launchpad (PAD_NAMES) is accepted from here; anything else stays unknown (old tag kept).
+    if ((rc.logs || []).some((l) => (l.address || '').toLowerCase() === a || (l.topics || []).some((x) => String(x).toLowerCase().endsWith(needle)) || String(l.data || '').toLowerCase().includes(needle))) {
+      const to = (tx.to || '').toLowerCase();
+      return PAD_NAMES[to] ? to : undefined;
+    }
   }
   return undefined;
 }
@@ -520,7 +531,7 @@ async function tagLaunchpads(map) {
   const tally = {};
   for (const t of map.values()) {
     const c = cache.tokens[t.address];
-    const name = c ? (PAD_NAMES[c] || (made[c] >= 3 && cache.isContract[c] ? 'Launchpad' : null)) : null;
+    const name = c ? (PAD_NAMES[c] || (made[c] >= 3 && cache.isContract[c] && !NOT_PADS.has(c) ? 'Launchpad' : null)) : null;
     if (name) t.launchpad = name, t.launchpadFactory = c;
     else if (c !== undefined && t.launchpad !== 'Warp') t.launchpad = null; // creator known and not a pad → no tag (keeps Warp's own tag)
     if (t.launchpad) tally[t.launchpad] = (tally[t.launchpad] || 0) + 1;
