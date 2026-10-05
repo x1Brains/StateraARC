@@ -12,7 +12,7 @@ export interface V2Home {
   legend: { label: string; desc: string }[];
   trending: Token[]; launches: Token[]; movers: Token[];
 }
-export interface V2Board { asOf: number | null; total: number; page: number; pages: number; per: number; rows: Token[] }
+export interface V2Board { asOf: number | null; total: number; page: number; pages: number; per: number; rows: Token[]; hiddenDupes?: number }
 
 export const v2Enabled = (() => {
   try {

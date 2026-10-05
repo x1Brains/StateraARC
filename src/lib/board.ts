@@ -69,8 +69,11 @@ export function boardRows(tokens: Token[], ix: BoardIndex, o: BoardQuery): Token
   else if (o.filter === 'eco') r = r.filter((t) => t.isEcosystem);
   const s = o.q.trim().toLowerCase();
   if (s) {
-    // While searching, show EVERY match (incl. duplicates) so a specific token is findable.
     r = r.filter((t) => t.name.toLowerCase().includes(s) || t.symbol.toLowerCase().includes(s) || t.address.toLowerCase().includes(s));
+    // ⛔ 10-05 (owner: "I type GLITCH and get 15 different GLITCH"): search used to show every exact-ticker copy (13 GLITCH,
+    // 35 ARGUS) and sort them by liquidity, so a fake ARGUS with \$3.6M of pool and 40 holders came FIRST. Copies are hidden
+    // like on the default board unless toggled; an address search always finds its token, copy or not.
+    if (o.hideDupes && !s.startsWith('0x')) r = r.filter((t) => !isDup(ix, t));
     const rank = (t: Token) => {
       const sym = t.symbol.toLowerCase(), nm = t.name.toLowerCase();
       if (sym === s || t.address.toLowerCase() === s) return 0;
@@ -78,8 +81,10 @@ export function boardRows(tokens: Token[], ix: BoardIndex, o: BoardQuery): Token
       if (nm.startsWith(s)) return 2;
       return 3;
     };
-    // Exact/prefix matches first, then by liquidity — real USDC beats 11 lookalikes.
-    return [...r].sort((a, b) => (rank(a) - rank(b)) || ((b.liq ?? -1) - (a.liq ?? -1)));
+    // Exact/prefix matches first; within a group the token that OWNS the ticker, then holders (a pool can be faked, thousands of
+    // holders can't), then liquidity.
+    const own = (t: Token) => (ix.canonical.has(t.address.toLowerCase()) ? 0 : 1);
+    return [...r].sort((a, b) => (rank(a) - rank(b)) || (own(a) - own(b)) || ((b.holders ?? -1) - (a.holders ?? -1)) || ((b.liq ?? -1) - (a.liq ?? -1)));
   }
   // Default view: drop fully-dead tokens (no price/liq/holders/volume) and, unless toggled, impersonators.
   r = r.filter((t) => t.price != null || t.liq != null || (t.holders ?? 0) > 0 || t.volume24h != null);
@@ -149,6 +154,6 @@ export function heroMatches(tokens: Token[], ix: BoardIndex, query: string, limi
     .map((t) => { const sym = (t.symbol || '').toLowerCase(), nm = (t.name || '').toLowerCase();
       const rank = sym === s ? 0 : sym.startsWith(s) ? 1 : nm.startsWith(s) ? 2 : (sym.includes(s) || nm.includes(s)) ? 3 : -1; return { t, rank }; })
     .filter((x) => x.rank >= 0)
-    .sort((a, b) => a.rank - b.rank || (b.t.liq ?? 0) - (a.t.liq ?? 0))
+    .sort((a, b) => a.rank - b.rank || (b.t.holders ?? 0) - (a.t.holders ?? 0) || (b.t.liq ?? 0) - (a.t.liq ?? 0)) // holders first: liquidity is fakeable
     .slice(0, limit).map((x) => x.t);
 }

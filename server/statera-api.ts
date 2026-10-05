@@ -195,7 +195,9 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
       };
       const per = intIn(u.searchParams.get('per'), 100, 1, 500), rows = Board.boardRows(v.tokens, v.ix, o);
       const pages = Math.max(1, Math.ceil(rows.length / per)), page = intIn(u.searchParams.get('page'), 1, 1, pages);
-      send(req, res, 200, JSON.stringify({ asOf, total: rows.length, page, pages, per, rows: rows.slice((page - 1) * per, page * per) })); return;
+      // a search with copies hidden says how many it hid, so the page can offer them (10-05)
+      const hiddenDupes = q.trim() && o.hideDupes ? Board.boardRows(v.tokens, v.ix, { ...o, hideDupes: false }).length - rows.length : 0;
+      send(req, res, 200, JSON.stringify({ asOf, total: rows.length, page, pages, per, hiddenDupes, rows: rows.slice((page - 1) * per, page * per) })); return;
     }
     if (path === '/search') {
       const limit = intIn(u.searchParams.get('limit'), 7, 1, 50);

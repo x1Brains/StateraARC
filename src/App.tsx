@@ -153,6 +153,7 @@ export default function App() {
   const v2 = mode === 'v2';
   const [home, setHome] = useState<V2Home | null>(null);
   const [board, setBoard] = useState<V2Board | null>(null);
+  const hadBoard = useRef(false);
   const [swapList, setSwapList] = useState<Token[]>([]);
   // Hero: Arc-wide numbers from the Network page's data (money on Arc, lent, tx/s), refreshed every 30 s on the home page.
   const [netHero, setNetHero] = useState<{ money: number | null; lent: number | null; tps: number | null } | null>(null);
@@ -238,8 +239,10 @@ export default function App() {
     const fetchPage = () => {
       const seq = ++boardSeq.current;
       v2Board({ filter, q, sort, dir, hideDupes, showInactive, page: pageNum, per: perPage })
-        .then((b) => { if (seq === boardSeq.current) { setBoard(b); if (b.asOf) setAsOf(b.asOf); } })
-        .catch((e) => { if (seq === boardSeq.current) fallBack(e); });
+        .then((b) => { if (seq === boardSeq.current) { hadBoard.current = true; setBoard(b); if (b.asOf) setAsOf(b.asOf); } })
+        // ⛔ 10-05: a failed REFRESH (every 20 s — a locked phone, a flaky network) switched the tab to the heavy v1 path for
+        // good, same bug as the home summary (dced925). Keep the board on screen; only a failed FIRST load falls back.
+        .catch((e) => { if (seq === boardSeq.current && !hadBoard.current) fallBack(e); });
     };
     const t = setTimeout(fetchPage, q ? 250 : 0); // debounce typing
     const id = setInterval(fetchPage, 20000);
@@ -274,6 +277,8 @@ export default function App() {
   }), [v2, tokens, ix]);
   const NO_STATS: Board.DashStats = { count: 0, vol24: 0, newToday: 0, tracked: 0, tvl: 0 };
   const dupCount = v1 ? v1.dupCount : home?.counts.dup ?? 0;
+  const searchHidden = v2 ? (board?.hiddenDupes ?? 0)
+    : q.trim() && hideDupes ? Board.boardRows(tokens, ix, { filter, q, sort, dir, hideDupes: false, showInactive }).length - rowsV1.length : 0;
   const ecoCount = v1 ? v1.ecoCount : home?.counts.eco ?? 0;
   const launchpadCount = v1 ? v1.launchpadCount : home?.counts.launchpad ?? 0;
   const launchpadLegend = v1 ? v1.launchpadLegend : home?.legend ?? [];
@@ -558,8 +563,15 @@ export default function App() {
               )}
               {dupCount > 0 && !q.trim() && (
                 <button className={`dupe-toggle${hideDupes ? '' : ' on'}`} onClick={() => setHideDupes((v) => !v)}
-                  title="Duplicate tickers on Arc are usually impersonators — only the most-liquid one is shown">
+                  title="Duplicate tickers on Arc are usually impersonators — only the real one (the most holders) is shown">
                   {hideDupes ? `Show ${dupCount} duplicate tickers` : 'Hide duplicate tickers'}
+                </button>
+              )}
+              {/* While searching: say how many lookalikes (same ticker as a real token) the search hid, and let them be shown */}
+              {q.trim() && !q.trim().startsWith('0x') && (hideDupes ? searchHidden > 0 : true) && (
+                <button className={`dupe-toggle${hideDupes ? '' : ' on'}`} onClick={() => setHideDupes((v) => !v)}
+                  title="Tokens that copy a real token's ticker — usually impersonators. The real one (the most holders) is always shown.">
+                  {hideDupes ? `${searchHidden} lookalike${searchHidden === 1 ? '' : 's'} hidden · show` : 'Hide lookalikes'}
                 </button>
               )}
               {asOf && (Date.now() - asOf < 90000
