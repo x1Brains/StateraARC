@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import FONT_B64 from '../lib/ogfont.js';
 import WASM_B64 from '../lib/ogwasm.js';
@@ -55,6 +57,10 @@ const priceInner = (n, fs) => {
 const toHttp = (u) => { const cid = String(u || '').match(/^ipfs:\/\/(?:ipfs\/)?(.+)$/i)?.[1]; return cid ? `https://gateway.pinata.cloud/ipfs/${cid}` : u; };
 // The VPS cache needs only the address, so it runs in PARALLEL with the token lookup; the other sources need the
 // token's iconUrl and run only on a cache miss.
+function bundledLogo(addr) {
+  if (!/^0x[0-9a-f]{40}$/.test(addr || '')) return '';
+  try { const b = fs.readFileSync(path.join(process.cwd(), 'api/_ogl', `${addr}.jpg`)); return b.length > 64 ? `data:image/jpeg;base64,${b.toString('base64')}` : ''; } catch { return ''; }
+}
 function vpsLogoTries(addr) {
   const UP = process.env.HOLDINGS_UPSTREAM, KEY = process.env.HOLDINGS_KEY;
   // ⛔ 10-04: one try with 1.5 s let a slow moment on the funnel publish a card with NO logo, and X keeps a card's first
@@ -104,7 +110,10 @@ export default async function handler(req, res) {
 
     // Live: the site's current list (VPS /api/snapshot) + the price re-read from the token's pool right now.
     // Hard budget (~4.5s worst case, ~0.5-1s normally): X gives up on a slow image and keeps the card broken.
-    const vpsLogo = within(logoDataUri(vpsLogoTries(addr)), 3400, ''); // 2 tries x 1.6 s (runs alongside the 3 s price read)
+    // 1st: the logo bundled with this function (api/_ogl, scripts/logo-static.mjs) — read from disk, no network, so it is
+    // in before anything else. Only a token listed since the last logo commit goes to the network.
+    const bundled = bundledLogo(addr);
+    const vpsLogo = bundled ? Promise.resolve(bundled) : within(logoDataUri(vpsLogoTries(addr)), 3400, ''); // 2 tries x 1.6 s
     const t = addr ? await within(liveToken(origin, addr), 3000) : null;
 
     const sym = esc(t?.symbol || 'TOKEN');

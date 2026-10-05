@@ -11,6 +11,9 @@
     },
     "api/report.js": {
       "maxDuration": 15
+    },
+    "api/og.js": {
+      "includeFiles": "api/_ogl/**"
     }
   },
   "rewrites": [
