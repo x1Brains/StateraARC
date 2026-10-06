@@ -599,7 +599,7 @@ const POSM = '0x6049c9a0e26405c0985f9e3685c87d0ae917f82b'; // Uniswap V4 Positio
  * (knows every pool that ever had a position). Either way the key is only used if keccak(key) == the poolId, so a
  * wrong or stale hint can never route a trade into a different pool.
  */
-export interface V4Hint { poolId?: string | null; usdcIsC0?: boolean; v4fee?: number | null; v4tick?: number | null; hooks?: string | null }
+export interface V4Hint { poolId?: string | null; usdcIsC0?: boolean; v4fee?: number | null; v4tick?: number | null; hooks?: string | null; v4PoolId?: string | null; v4UsdcIsC0?: boolean }
 const v4Found = new Map<string, V4Cfg | null>();
 export async function findV4Route(token: string, hint?: V4Hint | null): Promise<V4Cfg | null> {
   const t = token.toLowerCase();
@@ -607,11 +607,14 @@ export async function findV4Route(token: string, hint?: V4Hint | null): Promise<
   if (v4Found.has(t)) return v4Found.get(t)!;
   // No poolId from the screener → find the token's real (most-traded) USDC V4 pool on-chain. A miss here is not
   // cached, so a later call that does carry a hint still gets its chance.
-  const poolId = (hint?.poolId || (await findV4Pool(t).catch(() => null))?.poolId)?.toLowerCase();
+  // ⛔ 10-05: a row priced off its V3 pool has poolId = null (snapshot points it at V3) but keeps its V4 pool in v4PoolId —
+  // CRCL lost its V4 route on every such snapshot. Use v4PoolId then; the PoolKey is re-read on-chain and hash-checked.
+  const viaRow = !hint?.poolId && !!hint?.v4PoolId;
+  const poolId = (hint?.poolId || hint?.v4PoolId || (await findV4Pool(t).catch(() => null))?.poolId)?.toLowerCase();
   if (!poolId) return null;
   let key: Omit<V4Cfg, 'stateSlot'> | null = null;
   if (hint?.v4fee != null && hint?.v4tick != null) {
-    const usdcC0 = !!hint.usdcIsC0;
+    const usdcC0 = viaRow ? !!hint.v4UsdcIsC0 : !!hint.usdcIsC0;
     key = { currency0: usdcC0 ? USDC : t, currency1: usdcC0 ? t : USDC, fee: hint.v4fee, tickSpacing: hint.v4tick, hooks: (hint.hooks || ZERO).toLowerCase() };
     if (v4PoolIdOf(key) !== poolId) key = null;
   }

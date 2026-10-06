@@ -867,7 +867,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                 {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
               </span></div>
             )}
-            <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" warp /></div>
+            <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" warp={!!warp || seed?.launchpad === 'Warp'} /></div>{/* 10-05: only a token Warp knows (TIDE trades on Arctide — Warp says "Token not found") */}
           </div>
 
         </aside>
