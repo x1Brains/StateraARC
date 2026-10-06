@@ -72,6 +72,19 @@ async function getImage(url) {
     return b;
   } catch { return null; }
 }
+// Arctide (Arc DEX + launchpad, 10-05): its tokens (TIDE, DUCK, DENISE, JOLIE…) have no imageURI on-chain and no icon in
+// our indexer — the launchpad keeps each token's logo in its own market list. Read once per run; a fallback source only.
+let arctideImgs = null;
+async function arctideImage(a) {
+  if (!arctideImgs) {
+    arctideImgs = {};
+    try {
+      const j = await fetch('https://api.arctide.app/markets/tokens?chain=mainnet', { signal: AbortSignal.timeout(15000) }).then((r) => r.json());
+      for (const t of j?.data || []) if (t?.address && t?.imageUri) arctideImgs[String(t.address).toLowerCase()] = t.imageUri;
+    } catch { /* Arctide unreachable — just no extra source this run */ }
+  }
+  return arctideImgs[a] || null;
+}
 /** The token's logo as a 192x192 PNG, or null. Tries every source in order; the first image sharp can decode wins. */
 async function logoFor(addr, iconUrl) {
   const a = addr.toLowerCase();
@@ -81,6 +94,7 @@ async function logoFor(addr, iconUrl) {
   const onchain = abiStr(await rpcCall(a, '0xfb7f21eb')); // imageURI() — launchpad tokens store their logo on-chain
   if (onchain && onchain !== iconUrl) urls.push(...candidates(onchain));
   urls.push(`https://api.tollylabs.com/token-image/${a}.png`);
+  urls.push(...candidates(await arctideImage(a)));
   const turi = abiStr(await rpcCall(a, '0x3c130d90')); // tokenURI() → JSON metadata with an image field
   for (const u of [...new Set(urls)]) {
     const b = await getImage(u);

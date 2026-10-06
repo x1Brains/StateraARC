@@ -1140,6 +1140,7 @@ footer .flink:hover { text-decoration: underline; }
 /* ── token page: links & DEXes section ── */
 .tlinks { margin-top: 16px; }
 .tlink-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 12px; }
+button.tlink { width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
 .tlink { display: block; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.02); text-decoration: none; transition: border-color .15s, background .15s; }
 .tlink:hover { border-color: var(--red-dim); background: rgba(255,105,35,.05); }
 .tlink b { display: block; font-family: var(--disp); font-size: 13px; color: var(--white); margin-bottom: 2px; }

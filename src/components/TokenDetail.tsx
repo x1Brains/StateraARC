@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   fetchTokenDetail, fetchTransfers, fetchHolders, findPool, classifyTrades,
-  compact, usd, tprice, ago, CHAIN, NET,
+  compact, usd, tprice, ago, CHAIN,
   type TokenDetail as TD, type HolderRow, type PoolInfo,
 } from '../lib/arc';
 import { TokenLogo } from './TokenLogo';
@@ -206,7 +206,7 @@ export function TokenDetail({ address, price, liq, onBack }: { address: string; 
           </aside>
         </div>
 
-        <TokenLinks address={d.address} scanBase={CHAIN.scan} pool={pool} warp={NET !== 'testnet'} />
+        <TokenLinks address={d.address} scanBase={CHAIN.scan} pool={pool} />
 
         <div className="td-disc">Trades are classified by direction against the detected pool (tokens leaving the pool = a buy, entering = a sell); LP add/remove can appear as a trade. Price &amp; liquidity are read live from on-chain pool reserves. Supply, holders, transfers &amp; contract data are live from Arcscan.</div>
       </div>

@@ -250,6 +250,10 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     // ── Warp / mainnet token → real WarpV2 quote, with a price-estimate fallback ──
     if (warpMode) {
       if (decIn == null || decOut == null) return;
+      // ⛔ 10-05: quote only once EVERY venue's pools are known for this token. Before, the stock V2 routers answered
+      // first and for ~1-2 s the page showed (and the button would execute) a dust V2 pool's fill: ARCH 0.35 instead of
+      // 30.7K, EURC 0.139 instead of 0.89 per USDC — then V3/CL replaced it.
+      if (warpTokenAddr && !routeFor(warpTokenAddr)) { setQuoting(true); return; }
       const seq = ++qSeq.current;
       setQuoting(true);
       const id = setTimeout(async () => {
@@ -310,7 +314,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setQuote(q);
     }, 450);
     return () => clearTimeout(id);
-  }, [amt, fromA, toA, decIn, decOut, warpMode, warpMeta, wallet, v3Trade, v4Trade, v3PoolSel, v4CfgSel, clRoutes.length, atRoute, refreshTick]); // eslint-disable-line
+  }, [amt, fromA, toA, decIn, decOut, warpMode, warpMeta, wallet, v3Trade, v4Trade, v3PoolSel, v4CfgSel, clRoutes.length, atRoute, route, refreshTick]); // eslint-disable-line
 
   const outHuman = atq != null && decOut != null ? fromRaw(atq.outRaw, decOut)
     : clq != null && decOut != null ? fromRaw(clq.outRaw, decOut)
@@ -807,11 +811,11 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
                   {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Selling…' : `Sell ${from?.symbol}`}
                 </button>
             : (warpMode && !quote)
-              ? (!quoting && warpTokenAddr && warpPx[warpTokenAddr.toLowerCase()] != null
-                  // The traded token is actually on Warp → offer the Warp deep-link.
-                  ? <a className="btn solid swap-cta" href={`https://circlewarp.fun/trade/${warpTokenAddr}`} target="_blank" rel="noreferrer">Trade on Warp <IconExternal className="i" /></a>
-                  // Otherwise (e.g. a token with no pool yet) → an honest disabled state, no bogus Warp link.
-                  : <button className="btn solid swap-cta" disabled>{quoting ? 'Finding route…' : !to ? 'Select a token' : !amt ? 'Enter an amount' : 'No liquidity pool yet'}</button>)
+              // ⛔ 10-05 owner: never hand a trader to another site (was a 'Trade on Warp' link). Every venue was quoted and none
+              // answered — usually a dropped RPC read, so offer a re-quote; a token with no pool at all says so.
+              ? (!quoting && to && amt && from
+                  ? <button className="btn solid swap-cta" onClick={() => setRefreshTick((t) => t + 1)}>{(universe.find((t) => t.address.toLowerCase() === (warpTokenAddr || '').toLowerCase())?.liq ?? 0) > 0 ? 'No route found · Retry' : 'No liquidity pool yet · Retry'}</button>
+                  : <button className="btn solid swap-cta" disabled>{quoting ? 'Finding route…' : !to ? 'Select a token' : 'Enter an amount'}</button>)
               : <button className="btn solid swap-cta" onClick={execute} disabled={!quote || busy}>
                   {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : quote ? `Swap ${from?.symbol} to ${to?.symbol}` : to ? 'Enter an amount' : 'Select a token'}
                 </button>}

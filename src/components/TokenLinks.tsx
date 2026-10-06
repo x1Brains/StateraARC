@@ -1,20 +1,20 @@
-// Bottom-of-page links section for a token: where to trade it (Warp on Arc mainnet), the block
-// explorer, its liquidity pool, and the main Arc DEXes. Warp/pool links only render where they
-// apply (5042 tokens), so testnet just shows the explorer + DEX directory.
-import { IconExternal } from './icons';
+// Bottom-of-page links section for a token: trade it HERE (Statera's in-app swap), the block explorer, its liquidity
+// pool, and the main Arc DEXes. ⛔ 10-05 owner: never send a trader to another site to trade — Statera routes every
+// indexed token in-app (was a 'Trade on Warp' link).
+import { IconArrowRight, IconExternal } from './icons';
 
-export function TokenLinks({ address, scanBase, pool, warp }: {
-  address: string; scanBase: string; pool?: string | null; warp?: boolean;
+export function TokenLinks({ address, scanBase, pool, onTrade }: {
+  address: string; scanBase: string; pool?: string | null; onTrade?: () => void;
 }) {
   const isAddr = (a?: string | null) => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
   return (
     <div className="panel side-card tlinks">
       <h3>Links &amp; DEXes</h3>
       <div className="tlink-grid">
-        {warp && (
-          <a className="tlink" href={`https://circlewarp.fun/trade/${address}`} target="_blank" rel="noreferrer">
-            <b>Trade on Warp <IconExternal className="arw" /></b><span>Launchpad · Uniswap v4</span>
-          </a>
+        {onTrade && (
+          <button type="button" className="tlink" onClick={onTrade}>
+            <b>Trade on Statera <IconArrowRight className="arw" /></b><span>In-app swap · best route across Arc DEXes</span>
+          </button>
         )}
         <a className="tlink" href={`${scanBase}/token/${address}`} target="_blank" rel="noreferrer">
           <b>Block Explorer <IconExternal className="arw" /></b><span>Contract, holders &amp; transfers</span>
