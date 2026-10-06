@@ -106,6 +106,10 @@ const USDC_ADDR = '0x3600000000000000000000000000000000000000';
 const priceOf = (t: string) => { const a = t.toLowerCase(); if (a === USDC_ADDR) return 1; const r = view?.byAddr.get(a); return r && r.price != null && isFinite(r.price) ? r.price : null; };
 const slimRow = (t: Token) => t; // rows go out whole: the page renders every field it had in v1
 function rebuild() {
+  // A row with no holder count yet takes it from our own holder index (10-06, owner: "why can't you find TIDE?" — TIDE was
+  // indexed at 235 holders, but its snapshot row said unknown until the next indexer pass, so the board's 50-holder rule hid it).
+  // Only fills a missing number, never overrides one, and only when the index's count summed to the token's supply.
+  for (const t of tokens) if (t.holders == null) { const h = holderCountOf(t.address); if (h && h.supplyOk && h.count > 0) t.holders = h.count; }
   const ix = Board.buildIndex(tokens, PINNED);
   const home = {
     asOf, generatedAt, tracked: tokens.length,
