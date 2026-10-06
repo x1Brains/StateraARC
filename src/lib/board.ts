@@ -76,6 +76,9 @@ export function boardRows(tokens: Token[], ix: BoardIndex, o: BoardQuery): Token
     if (o.hideDupes && !s.startsWith('0x')) r = r.filter((t) => !isDup(ix, t));
     const rank = (t: Token) => {
       const sym = t.symbol.toLowerCase(), nm = t.name.toLowerCase();
+      // a pinned real token whose ticker OR name is exactly the search comes first (10-06: "arctide" listed a copy whose
+      // TICKER is "Arctide" above the real Arctide, whose ticker is TIDE)
+      if ((sym === s || nm === s) && ix.pinned.has(t.address.toLowerCase())) return -1;
       if (sym === s || t.address.toLowerCase() === s) return 0;
       if (sym.startsWith(s)) return 1;
       if (nm.startsWith(s)) return 2;
@@ -152,8 +155,8 @@ export function heroMatches(tokens: Token[], ix: BoardIndex, query: string, limi
   return tokens
     .filter((t) => !isDupTicker(ix, t))
     .map((t) => { const sym = (t.symbol || '').toLowerCase(), nm = (t.name || '').toLowerCase();
-      const rank = sym === s ? 0 : sym.startsWith(s) ? 1 : nm.startsWith(s) ? 2 : (sym.includes(s) || nm.includes(s)) ? 3 : -1; return { t, rank }; })
-    .filter((x) => x.rank >= 0)
+      const rank = (sym === s || nm === s) && ix.pinned.has(t.address.toLowerCase()) ? -0.5 : sym === s ? 0 : sym.startsWith(s) ? 1 : nm.startsWith(s) ? 2 : (sym.includes(s) || nm.includes(s)) ? 3 : -1; return { t, rank }; })
+    .filter((x) => x.rank !== -1) // -1 = no match (a pinned exact match ranks -0.5)
     .sort((a, b) => a.rank - b.rank || (b.t.holders ?? 0) - (a.t.holders ?? 0) || (b.t.liq ?? 0) - (a.t.liq ?? 0)) // holders first: liquidity is fakeable
     .slice(0, limit).map((x) => x.t);
 }
