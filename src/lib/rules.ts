@@ -60,6 +60,9 @@ export const MAINNET_CORE: { address: string; name: string; symbol: string; deci
   { address: '0x0bffa97f774824e9da843699aedd2835cb1b8022', name: 'Arcash', symbol: 'ARCASH', decimals: 18 },
   { address: '0xbe0cad585ea2d13de2f4e36376be755c0afd8b97', name: 'Arcbat', symbol: 'ARCBAT', decimals: 18 },
   { address: '0x2164bb17a2d38c1b5170e987b2c0416df1efc752', name: 'Long', symbol: 'LONG', decimals: 18 },
+  // 10-06: Arctide's \$TIDE (its own DEX, pool 0x8e61…64b7: \$31K USDC, ~\$7K/day, 235 holders). The holders rule handed the TIDE
+  // ticker to a dead 'tide by Virtuals' (250 holders, \$225 liq, no trading), hiding the real one as a lookalike.
+  { address: '0x92395d0cd51bb504a39e53105cb6862948af1b8e', name: 'Arctide', symbol: 'TIDE', decimals: 18 },
 ];
 
 // CIRCLE & ARC CORE ecosystem assets — Circle's own infra on Arc, NOT third-party projects. USDC is the
