@@ -797,6 +797,62 @@ export function buildCLSwapTx(rt: CLRoute, tokenIn: string, tokenOut: string, am
   return { to: rt.venue.router, from: recipient, data, value: '0x0' };
 }
 
+// ── Arctide (chain 5042) ─────────────────────────────────────────────────────────────────────────────────────────────
+// Arctide's UniV2-style pairs only take swaps from ITS router, and the router has no swapExactTokensForTokens — only the
+// native-USDC fee-on-transfer functions (WETH() = 0x3600). Verified on-chain 10-05 against real TIDE trades:
+//   buy  = swapExactETHForTokensSupportingFeeOnTransferTokens(minOut, [0x3600, token], to, deadline), value = USDC (18-dec)
+//   sell = swapExactTokensForETHSupportingFeeOnTransferTokens(amountIn, minOut6, [token, 0x3600], to, deadline)
+// The router takes a per-pair fee that its getAmountsOut does NOT include: off the USDC IN on a buy, off the USDC OUT on
+// a sell. pair.getFeeConfig(isBuy) → (lpBps, protocolBps, totalBps, recipient); totalBps matched both trades to the unit
+// (TIDE 150 buy / 300 sell: 100 USDC in → 98.5 to the pool → 348.4879 TIDE; 234.719517 out → 227.677931 paid).
+export const ARCTIDE_ROUTER = '0xa161f98765b396d126d25c0ff7546f9fcea9b082';
+const ARCTIDE_FACTORY = '0x6afd30cb35d8b70cfd84c9aca92ddc2dda2879cb';
+export interface ArctideRoute { token: string; pair: string; buyFeeBps: number; sellFeeBps: number }
+const arctideCache = new Map<string, ArctideRoute | null>();
+async function arctideFee(pair: string, isBuy: boolean): Promise<number | null> {
+  const r = await ethCall(pair, '0x7872a7b9' + padU(isBuy ? 1n : 0n)).catch(() => null); // getFeeConfig(bool)
+  if (!r || r.length < 2 + 64 * 3) return null;
+  const total = Number(BigInt('0x' + r.slice(2 + 128, 2 + 192)));
+  return total >= 0 && total <= 2000 ? total : null; // an unreadable or absurd fee = no route, never a guess
+}
+/** The token's Arctide USDC pair + its buy/sell fees, or null (no pair, or the fee can't be read). */
+export async function findArctidePair(token: string): Promise<ArctideRoute | null> {
+  const k = token.toLowerCase();
+  if (arctideCache.has(k)) return arctideCache.get(k)!;
+  const r = await ethCall(ARCTIDE_FACTORY, '0xe6a43905' + padA(k) + padA(NATIVE_USDC)).catch(() => null); // getPair
+  if (!r || r.length < 66) return null;                              // read failed — retried next time, not cached
+  const pair = '0x' + r.slice(-40).toLowerCase();
+  if (/^0x0+$/.test(pair)) { arctideCache.set(k, null); return null; } // no Arctide pair for this token
+  const [buyFeeBps, sellFeeBps] = await Promise.all([arctideFee(pair, true), arctideFee(pair, false)]);
+  if (buyFeeBps == null || sellFeeBps == null) return null;           // fee unreadable — no route, retried next time
+  const out = { token: k, pair, buyFeeBps, sellFeeBps };
+  arctideCache.set(k, out);
+  return out;
+}
+/** Exact-input quote through the Arctide router, router fee included (what the wallet actually receives). */
+export async function quoteArctide(tokenIn: string, tokenOut: string, amountInRaw: bigint, rt: ArctideRoute): Promise<{ outRaw: bigint; feeBps: number; route: ArctideRoute } | null> {
+  const isBuy = tokenIn.toLowerCase() === NATIVE_USDC;
+  if (amountInRaw <= 0n || (isBuy ? tokenOut : tokenIn).toLowerCase() !== rt.token || (isBuy ? tokenIn : tokenOut).toLowerCase() !== NATIVE_USDC) return null;
+  if (isBuy) {
+    const net = (amountInRaw * BigInt(10000 - rt.buyFeeBps)) / 10000n;
+    const out = await getAmountsOut(ARCTIDE_ROUTER, net, [NATIVE_USDC, rt.token]);
+    return out ? { outRaw: out, feeBps: rt.buyFeeBps, route: rt } : null;
+  }
+  const gross = await getAmountsOut(ARCTIDE_ROUTER, amountInRaw, [rt.token, NATIVE_USDC]);
+  const out = gross ? (gross * BigInt(10000 - rt.sellFeeBps)) / 10000n : 0n;
+  return out > 0n ? { outRaw: out, feeBps: rt.sellFeeBps, route: rt } : null;
+}
+/** Buy pays native USDC as value (6-dec amount → 18-dec wei), no approval. Sell needs the token approved to the router. */
+export function buildArctideSwapTx(rt: ArctideRoute, isBuy: boolean, amountInRaw: bigint, amountOutMinRaw: bigint, recipient: string): TxReq {
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+  if (isBuy) {
+    const data = '0xb6f9de95' + padU(amountOutMinRaw) + padU(128) + padA(recipient) + padU(deadline) + encArr([NATIVE_USDC, rt.token]);
+    return { to: ARCTIDE_ROUTER, from: recipient, data, value: '0x' + (amountInRaw * 10n ** 12n).toString(16) };
+  }
+  const data = '0x791ac947' + padU(amountInRaw) + padU(amountOutMinRaw) + padU(160) + padA(recipient) + padU(deadline) + encArr([rt.token, NATIVE_USDC]);
+  return { to: ARCTIDE_ROUTER, from: recipient, data, value: '0x0' };
+}
+
 // ── Trade details (09-29, owner: "price impact, fees, everything gotta be covered") ─────────────────────────────────
 // Everything below is READ on chain; a failed read returns null and the row shows "—" (never a guessed number).
 /** Network fee in USDC for `gas` units at the current gas price (USDC is Arc's gas token, 18-dec native accounting). */
@@ -820,4 +876,4 @@ export async function hookTaxBps(hooks: string, isBuy: boolean): Promise<number 
 // live USDC pairs (Uniswap V2 0.30% on 2 pairs; WarpV2 1.00% on 2 pairs).
 export const ROUTER_FEE_BPS: Record<string, number> = { 'Uniswap V2': 30, WarpV2: 100 };
 // Typical gas per venue (used only for the network-fee estimate; approvals are extra, one-time per token).
-export const VENUE_GAS: Record<string, number> = { v2: 150_000, v3: 165_000, cl: 175_000, v4: 230_000, curve: 140_000 };
+export const VENUE_GAS: Record<string, number> = { v2: 150_000, v3: 165_000, cl: 175_000, v4: 230_000, curve: 140_000, arctide: 320_000 }; // arctide: estimateGas 310-323K (10-05)

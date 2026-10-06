@@ -17,14 +17,15 @@ const board: any = await (await fetch(`${BASE}/api/v2/board?per=500&page=1`)).js
 const rows: any[] = board.rows || [];
 console.log(`${rows.length} listed tokens`);
 
-async function quoteAll(tin: string, tout: string, amt: bigint, row: any, rt: { v3: string | null; v4: any; cl: any[] }) {
-  const [q, r3, r4, rc] = await Promise.all([
+async function quoteAll(tin: string, tout: string, amt: bigint, row: any, rt: { v3: string | null; v4: any; cl: any[]; at: any }) {
+  const [q, r3, r4, rc, ra] = await Promise.all([
     S.bestQuote(tin, tout, amt).catch(() => null),
     rt.v3 ? S.quoteV3(tin, tout, amt, rt.v3).catch(() => null) : null,
     rt.v4 ? S.quoteV4(tin, tout, amt, rt.v4).catch(() => null) : null,
     rt.cl.length ? S.quoteCL(tin, tout, amt, rt.cl).catch(() => null) : null,
+    rt.at ? S.quoteArctide(tin, tout, amt, rt.at).catch(() => null) : null,
   ]);
-  const outs: [string, bigint][] = [['WarpV2/V2', (q as any)?.amountOutRaw ?? -1n], ['UniV3', r3?.outRaw ?? -1n], ['UniV4', r4?.outRaw ?? -1n], [rc ? String((rc as any).route?.venue?.name ?? (rc as any).route?.venue ?? 'CL') : 'CL', rc?.outRaw ?? -1n]];
+  const outs: [string, bigint][] = [['WarpV2/V2', (q as any)?.amountOutRaw ?? -1n], ['UniV3', r3?.outRaw ?? -1n], ['UniV4', r4?.outRaw ?? -1n], [rc ? String((rc as any).route?.venue?.name ?? (rc as any).route?.venue ?? 'CL') : 'CL', rc?.outRaw ?? -1n], ['Arctide', ra?.outRaw ?? -1n]];
   const best = outs.reduce((a, b) => (b[1] > a[1] ? b : a));
   return best[1] > 0n ? { venue: best[0], out: best[1] } : null;
 }
@@ -33,8 +34,8 @@ const res: any[] = [];
 let i = 0;
 async function one(row: any) {
   const a = row.address.toLowerCase(), dec = row.decimals ?? (await S.decimalsOf(a).catch(() => 18));
-  const [v3, v4, cl] = await Promise.all([S.findV3Pool(a).catch(() => null), S.findV4Route(a, row).catch(() => null), S.findCLPools(a).catch(() => [])]);
-  const rt = { v3, v4, cl };
+  const [v3, v4, cl, at] = await Promise.all([S.findV3Pool(a).catch(() => null), S.findV4Route(a, row).catch(() => null), S.findCLPools(a).catch(() => []), S.findArctidePair(a).catch(() => null)]);
+  const rt = { v3, v4, cl, at };
   const buy = await quoteAll(S.NATIVE_USDC, a, raw(1, 6), row, rt);
   const sellAmt = row.price > 0 ? raw(Math.min(1 / row.price, 1e15), dec) : raw(1, dec);
   const sell = await quoteAll(a, S.NATIVE_USDC, sellAmt, row, rt);
@@ -44,7 +45,7 @@ async function one(row: any) {
       if (c && !(w?.migrated || w?.token?.migrated)) { const r = await S.quoteCurveBuy(c, 1, DUMMY); if (r) curve = 'curve'; } } catch { /* none */ }
   }
   const r = { sym: row.symbol, addr: a, source: row.source, liq: Math.round(row.liq || 0), vol: Math.round(row.volume24h || 0), launchpad: row.launchpad || null,
-    found: { v3: !!v3, v4: !!v4, cl: cl.length }, buy: buy?.venue || curve, sell: sell?.venue || (curve ? 'curve' : null) };
+    found: { v3: !!v3, v4: !!v4, cl: cl.length, at: !!at }, buy: buy?.venue || curve, sell: sell?.venue || (curve ? 'curve' : null) };
   res.push(r);
   if (++i % 10 === 0) console.log(`  ${i}/${rows.length}`);
 }

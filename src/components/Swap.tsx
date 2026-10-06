@@ -13,6 +13,7 @@ import {
   quoteV4, buildV4SwapTx, v4Permit2Status, buildPermit2ApproveTx, PERMIT2,
   findV3Pool, findV4Route, type V4Cfg, findCLPools, quoteCL, buildCLSwapTx, type CLRoute,
   networkFeeUsdc, clPoolFeeBps, hookTaxBps, ROUTER_FEE_BPS, VENUE_GAS,
+  findArctidePair, quoteArctide, buildArctideSwapTx, ARCTIDE_ROUTER, type ArctideRoute,
 } from '../lib/swap';
 import { fetchWarpToken } from '../lib/warp';
 import { TokenPicker } from './TokenPicker';
@@ -199,14 +200,14 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   }, [warpTokenAddr]);
   // Uniswap V3 / V4 pools for the traded token, found on-chain for ANY token (09-25 — before, only 11 hardcoded V3
   // pools and 2 V4 tokens could trade here). The V4 key comes from the screener row and is checked against the poolId.
-  const [route, setRoute] = useState<{ addr: string; v3: string | null; v4: V4Cfg | null; cl: CLRoute[] } | null>(null);
+  const [route, setRoute] = useState<{ addr: string; v3: string | null; v4: V4Cfg | null; cl: CLRoute[]; at: ArctideRoute | null } | null>(null);
   useEffect(() => {
     if (!warpTokenAddr) { setRoute(null); return; }
     const k = warpTokenAddr.toLowerCase(); let alive = true;
     // Pool hint from the SCREENER row (it carries poolId + PoolKey); a token loaded via Trade/paste is a bare stub.
     const hint = tokens.find((t) => t.address.toLowerCase() === k) || universe.find((t) => t.address.toLowerCase() === k);
-    Promise.all([findV3Pool(k).catch(() => null), findV4Route(k, hint).catch(() => null), findCLPools(k).catch(() => [] as CLRoute[])])
-      .then(([v3, v4, cl]) => { if (alive) setRoute({ addr: k, v3, v4, cl }); });
+    Promise.all([findV3Pool(k).catch(() => null), findV4Route(k, hint).catch(() => null), findCLPools(k).catch(() => [] as CLRoute[]), findArctidePair(k).catch(() => null)])
+      .then(([v3, v4, cl, at]) => { if (alive) setRoute({ addr: k, v3, v4, cl, at }); });
     return () => { alive = false; };
   }, [warpTokenAddr, tokens.length]); // eslint-disable-line
   const routeFor = (a?: string) => (route && a && route.addr === a.toLowerCase() ? route : null);
@@ -215,6 +216,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   const [v3q, setV3q] = useState<{ outRaw: bigint; fee: number; tokenIn: string; tokenOut: string } | null>(null); // Uni V3 quote
   const [v4q, setV4q] = useState<{ outRaw: bigint; zeroForOne: boolean } | null>(null); // Uni V4 quote
   const [clq, setClq] = useState<{ outRaw: bigint; route: CLRoute } | null>(null); // Aerodrome / Archery (CL) quote
+  const [atq, setAtq] = useState<{ outRaw: bigint; feeBps: number; route: ArctideRoute } | null>(null); // Arctide quote
   // Curve BUY = paying USDC into a non-graduated curve token's curve contract (no WarpV2 route needed).
   const curveBuyable = !!(warpMode && warpMeta && !warpMeta.migrated && warpMeta.curve
     && fromA.toLowerCase() === usdcK && to && to.address.toLowerCase() === warpMeta.addr);
@@ -230,6 +232,8 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
   const v4CfgSel = v4Trade ? (routeFor(tradeToken)?.v4 || null) : null;
   // Aerodrome / Archery (concentrated-liquidity forks) = one side USDC, the other a token with a CL pool on either venue.
   const clRoutes = warpMode && from && to && (fromA.toLowerCase() === usdcK || toA.toLowerCase() === usdcK) ? (routeFor(tradeToken)?.cl || []) : [];
+  // Arctide = one side USDC, the other a token with an Arctide pair (its own router; fee read from the pair).
+  const atRoute = warpMode && from && to && (fromA.toLowerCase() === usdcK || toA.toLowerCase() === usdcK) ? (routeFor(tradeToken)?.at || null) : null;
   // Auto-refresh the live quote every 12s (mainnet pools move fast — keeps the shown amount current).
   const [refreshTick, setRefreshTick] = useState(0);
   useEffect(() => {
@@ -240,7 +244,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
 
   useEffect(() => {
     const n = parseFloat(amt);
-    setQuote(null); setQErr(null); setEstimate(null); setCurveOut(null); setCurveSellOut(null); setV3q(null); setV4q(null); setClq(null);
+    setQuote(null); setQErr(null); setEstimate(null); setCurveOut(null); setCurveSellOut(null); setV3q(null); setV4q(null); setClq(null); setAtq(null);
     if (!from || !to || !n || n <= 0) return;
 
     // ── Warp / mainnet token → real WarpV2 quote, with a price-estimate fallback ──
@@ -252,21 +256,23 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
         const amountInRaw = toRawStr(amt, decIn);
         // Every venue the token trades on, quoted together — the best fill wins (a token can have WarpV2 AND V3 AND
         // V4 pools; the first one that answered used to win even when another paid more).
-        const [q, r3, r4, rc] = await Promise.all([
+        const [q, r3, r4, rc, ra] = await Promise.all([
           bestQuote(from.address, to.address, amountInRaw).catch(() => null), // engine is on mainnet (see flip effect)
           v3Trade ? quoteV3(from.address, to.address, amountInRaw, v3PoolSel).catch(() => null) : Promise.resolve(null),
           v4Trade ? quoteV4(from.address, to.address, amountInRaw, v4CfgSel).catch(() => null) : Promise.resolve(null),
           clRoutes.length ? quoteCL(from.address, to.address, amountInRaw, clRoutes).catch(() => null) : Promise.resolve(null),
+          atRoute ? quoteArctide(from.address, to.address, amountInRaw, atRoute).catch(() => null) : Promise.resolve(null),
         ]);
         if (seq !== qSeq.current) return;
-        const outs = [q?.amountOutRaw ?? -1n, r3?.outRaw ?? -1n, r4?.outRaw ?? -1n, rc?.outRaw ?? -1n];
+        const outs = [q?.amountOutRaw ?? -1n, r3?.outRaw ?? -1n, r4?.outRaw ?? -1n, rc?.outRaw ?? -1n, ra?.outRaw ?? -1n];
         const best = outs.reduce((bi, v, i) => (v > outs[bi] ? i : bi), 0);
         if (outs[best] > 0n) {
           setQuoting(false);
           if (best === 0) setQuote(q);
           else if (best === 1) setV3q({ outRaw: r3!.outRaw, fee: r3!.fee, tokenIn: from.address, tokenOut: to.address });
           else if (best === 2) setV4q(r4);
-          else setClq(rc);
+          else if (best === 3) setClq(rc);
+          else setAtq(ra);
           return;
         }
         // Curve BUY: USDC → a non-graduated Warp curve token, quoted live from the curve contract.
@@ -304,9 +310,10 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       setQuote(q);
     }, 450);
     return () => clearTimeout(id);
-  }, [amt, fromA, toA, decIn, decOut, warpMode, warpMeta, wallet, v3Trade, v4Trade, v3PoolSel, v4CfgSel, clRoutes.length, refreshTick]); // eslint-disable-line
+  }, [amt, fromA, toA, decIn, decOut, warpMode, warpMeta, wallet, v3Trade, v4Trade, v3PoolSel, v4CfgSel, clRoutes.length, atRoute, refreshTick]); // eslint-disable-line
 
-  const outHuman = clq != null && decOut != null ? fromRaw(clq.outRaw, decOut)
+  const outHuman = atq != null && decOut != null ? fromRaw(atq.outRaw, decOut)
+    : clq != null && decOut != null ? fromRaw(clq.outRaw, decOut)
     : v3q != null && decOut != null ? fromRaw(v3q.outRaw, decOut)
     : v4q != null && decOut != null ? fromRaw(v4q.outRaw, decOut)
     : curveOut != null && decOut != null ? fromRaw(curveOut, decOut)
@@ -315,6 +322,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     : (quote && decOut != null ? fromRaw(quote.amountOutRaw, decOut) : null);
   const minRecv = quote && decOut != null ? fromRaw(minOut(quote.amountOutRaw, slip), decOut)
     : clq != null && decOut != null ? fromRaw(minOut(clq.outRaw, slip), decOut)
+    : atq != null && decOut != null ? fromRaw(minOut(atq.outRaw, slip), decOut)
     : v3q != null && decOut != null ? fromRaw(minOut(v3q.outRaw, slip), decOut)
     : v4q != null && decOut != null ? fromRaw(minOut(v4q.outRaw, slip), decOut)
     : curveOut != null && decOut != null ? fromRaw(minOut(curveOut, slip), decOut)
@@ -345,6 +353,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
       feeBps: quote.kind === 'pair' ? (quote.feeBps ?? null) : (ROUTER_FEE_BPS[quote.routerName] ?? null) }
     : v3q ? { kind: 'v3' as const, out: v3q.outRaw, label: 'Uniswap V3 · direct', feeBps: v3q.fee / 100 }
     : clq ? { kind: 'cl' as const, out: clq.outRaw, label: `${clq.route.venue.name} · direct`, feeBps: null as number | null }
+    : atq ? { kind: 'arctide' as const, out: atq.outRaw, label: 'Arctide · direct', feeBps: atq.feeBps as number | null }
     : v4q ? { kind: 'v4' as const, out: v4q.outRaw, label: `Uniswap V4${hooked ? ' · hooked pool' : ''} · direct`, feeBps: v4CfgSel ? v4CfgSel.fee / 100 : null }
     : curveOut != null ? { kind: 'curve' as const, out: curveOut, label: 'Warp bonding curve', feeBps: null }
     : curveSellOut != null ? { kind: 'curve' as const, out: curveSellOut, label: 'Warp bonding curve', feeBps: null }
@@ -361,6 +370,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
         if (fill.kind === 'v3') return (await quoteV3(from.address, to!.address, small, v3PoolSel).catch(() => null))?.outRaw ?? null;
         if (fill.kind === 'v4') return (await quoteV4(from.address, to!.address, small, v4CfgSel).catch(() => null))?.outRaw ?? null;
         if (fill.kind === 'cl') return (await quoteCL(from.address, to!.address, small, [clq!.route]).catch(() => null))?.outRaw ?? null;
+        if (fill.kind === 'arctide') return (await quoteArctide(from.address, to!.address, small, atq!.route).catch(() => null))?.outRaw ?? null;
         return null; // curve: quoted per wallet; impact shown as — rather than a guess
       };
       const [outS, clFee, tax, gasUsd] = await Promise.all([
@@ -564,6 +574,37 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
     } catch (e: any) { setPhase('error'); setMsg(e?.message?.slice(0, 120) || 'Transaction rejected.'); }
   };
 
+  // In-app Arctide swap — its pairs only trade through ITS router. Buy = native USDC as value (no approval); sell = approve
+  // the token to the router once, then the router pays native USDC. The router fee comes off the USDC side (quoted in).
+  const executeArctide = async () => {
+    if (!wallet || !atq || !from || !to || decIn == null) return;
+    setPhase('idle'); setMsg(null); setHash(null);
+    try {
+      setMsg('Switch your wallet to Arc mainnet…');
+      if (!(await ensureChain(MAINNET_CHAIN_ID))) { setPhase('error'); setMsg('Please switch your wallet to Arc mainnet (chain 5042) to trade.'); return; }
+      setMsg(null);
+      const buy = from.address.toLowerCase() === usdcK;
+      const amountInRaw = toRawStr(amt, decIn);
+      const bal = await balanceOf(from.address, wallet);
+      if (bal < amountInRaw) { setPhase('error'); setMsg(`Insufficient ${from.symbol} balance.`); return; }
+      if (!buy && (await allowance(from.address, wallet, ARCTIDE_ROUTER)) < amountInRaw) {
+        setPhase('approving'); setMsg(`One-time approval for ${from.symbol} on Arctide…`);
+        if (!(await waitReceipt(await sendTx(buildApproveTx(from.address, ARCTIDE_ROUTER, MAX_UINT256, wallet))))) { setPhase('error'); setMsg('Approval failed.'); return; }
+      }
+      // Re-quote at execution so min-out reflects the CURRENT price.
+      const fresh = await quoteArctide(from.address, to.address, amountInRaw, atq.route);
+      if (!fresh) { setPhase('error'); setMsg('Could not refresh the quote — try again.'); return; }
+      const tx = buildArctideSwapTx(fresh.route, buy, amountInRaw, minOut(fresh.outRaw, slip), wallet);
+      const rev = await simulate(tx);
+      if (rev) { setPhase('error'); setMsg(`Swap would revert: ${rev}. Try a higher slippage.`); return; }
+      setPhase('swapping'); setMsg('Confirm the swap in your wallet…');
+      const sh = await sendTx(tx); setHash(sh);
+      if (!(await waitReceipt(sh))) { setPhase('error'); setMsg('Swap transaction failed.'); return; }
+      setPhase('done'); setMsg(`Swapped ${amt} ${from.symbol} to ${to.symbol} on Arctide.`);
+      setAmt(''); setPhaseTick((t) => t + 1);
+    } catch (e: any) { setPhase('error'); setMsg(e?.message?.slice(0, 120) || 'Transaction rejected.'); }
+  };
+
   // In-app Uniswap V4 swap (Universal Router + hooked pool). Permit2 flow: ERC-20 approve → Permit2 → UR.
   const executeV4 = async () => {
     if (!wallet || !v4q || !from || !to || decIn == null) return;
@@ -731,7 +772,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
             <div className="swap-quote">
               <div className="sq-row"><span>Est. rate</span><span className="mono">1 {from?.symbol} ≈ {amtFmt(rate)} {to?.symbol}</span></div>
               <div className="sq-row"><span>You’d receive</span><span className="mono">≈ {outHuman != null ? amtFmt(outHuman) : '—'} {to?.symbol}</span></div>
-              <div className="sq-row"><span>Route</span><span className="mono">No pool found on the seven venues · price estimate only</span></div>
+              <div className="sq-row"><span>Route</span><span className="mono">No pool found on the eight venues · price estimate only</span></div>
             </div>
           )}
           {qErr && <div className="swap-info err"><span>{qErr}</span><span /></div>}
@@ -741,6 +782,10 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
             // 09-29: more than the wallet holds → say so (the button used to stay live and the tx would just revert)
             : (notEnough && !busy)
               ? <button className="btn solid swap-cta" disabled>Not enough {from?.symbol}</button>
+            : (atq != null)
+              ? <button className="btn solid swap-cta" onClick={executeArctide} disabled={busy}>
+                  {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : `Swap ${from?.symbol} to ${to?.symbol}`}
+                </button>
             : (clq != null)
               ? <button className="btn solid swap-cta" onClick={executeCL} disabled={busy}>
                   {phase === 'approving' ? 'Approving…' : phase === 'swapping' ? 'Swapping…' : `Swap ${from?.symbol} to ${to?.symbol}`}
@@ -824,7 +869,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
           <details className="sp-how">
             <summary>How routing works</summary>
             <p className="side-note">{warpMode
-              ? <>Statera is a swap aggregator: every trade is quoted on all seven Arc venues at once and the best fill wins.
+              ? <>Statera is a swap aggregator: every trade is quoted on all eight Arc venues at once and the best fill wins.
                 <ol className="sp-venues">
                   <li>Uniswap V2</li>
                   <li>Uniswap V3</li>
@@ -833,6 +878,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
                   <li>Warp bonding curve (tokens that have not graduated yet)</li>
                   <li>Aerodrome</li>
                   <li>Archery</li>
+                  <li>Arctide</li>
                 </ol>
                 Each swap is simulated before you sign, and min received is enforced on-chain at your slippage. Only tokens listed on the Statera screener can be traded here (or ones you already hold). Native USDC (0x3600) is Arc's gas token.</>
               : <>Quoted against every live router on {CHAIN.name} ({SWAP_CFG.routers.length} tracked) for the deepest fill. Native USDC (0x3600) is Arc's gas token. Paste any ERC-20 to import it. Min received enforced on-chain at your slippage.</>}</p>
