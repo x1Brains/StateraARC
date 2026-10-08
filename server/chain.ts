@@ -33,7 +33,7 @@ const SUPPLY: { sym: string; addr: string; dec: number }[] = [
   { sym: 'USYC', addr: '0x8a5d989bbb96929f689b0200f435f53da42bf490', dec: 6 },
 ];
 
-interface Blk { n: number; ts: number; miner: string; txs: number; gas: number; baseFee: number }
+interface Blk { n: number; ts: number; miner: string; txs: number; gas: number; gasLimit?: number; baseFee: number } // gasLimit added 10-07 (older saved rows lack it)
 interface Flow { n: number; h?: string; ts: number; dir: 'in' | 'out'; usd: number; domain: number | null } // h = tx hash (09-30)
 const blocks = new Map<number, Blk>();
 let flows: Flow[] = [];
@@ -53,7 +53,7 @@ async function readBlocks(rpcBatch: (calls: [string, unknown[]][]) => Promise<an
     if (!b || !b.number) continue;
     const n = parseInt(b.number, 16);
     blocks.set(n, { n, ts: parseInt(b.timestamp, 16), miner: String(b.miner).toLowerCase(), txs: Array.isArray(b.transactions) ? b.transactions.length : 0,
-      gas: parseInt(b.gasUsed, 16), baseFee: b.baseFeePerGas ? parseInt(b.baseFeePerGas, 16) : 0 });
+      gas: parseInt(b.gasUsed, 16), gasLimit: parseInt(b.gasLimit, 16) || undefined, baseFee: b.baseFeePerGas ? parseInt(b.baseFeePerGas, 16) : 0 });
     chainStats.blocksRead++;
   }
 }
@@ -204,7 +204,12 @@ export function chainSummary() {
     const span = Math.max(1, bs[bs.length - 1].ts - bs[0].ts);
     const txs = bs.reduce((s, b) => s + b.txs, 0), gas = bs.reduce((s, b) => s + b.gas, 0);
     const fees = bs.reduce((s, b) => s + (b.gas * b.baseFee) / 1e18, 0); // base fee is paid in native USDC (18-dec view)
-    return { seconds: span, blocks: bs.length, blockTime: span / (bs.length - 1), txs, tps: txs / span, gasPerBlock: gas / bs.length, feesUsdc: fees };
+    // How full blocks are (gas used ÷ each block's own gas limit) — owner 10-07 read "7 TPS" as Arc's top speed; the fill says
+    // how much room is left. Only blocks that carry their limit count (rows saved before 10-07 don't).
+    const lim = bs.filter((b) => b.gasLimit);
+    const fill = lim.length ? lim.reduce((s, b) => s + b.gas, 0) / lim.reduce((s, b) => s + b.gasLimit!, 0) : null;
+    return { seconds: span, blocks: bs.length, blockTime: span / (bs.length - 1), txs, tps: txs / span, gasPerBlock: gas / bs.length, feesUsdc: fees, fill,
+      maxBlockTxs: Math.max(...bs.map((b) => b.txs)) };
   };
   const hour = all.filter((b) => b.ts > last.ts - 3600);
   const prod = new Map<string, { blocks: number; last: number }>();

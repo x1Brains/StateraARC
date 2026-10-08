@@ -83,7 +83,7 @@ function tall(c, l, w, st, logos) {
   // ── pulse
   y = 262; const pw = (IW - 3 * 14) / 4, fee = c ? (21000 * c.baseFeeGwei * 1e9) / 1e18 : null;
   [[c?.h1 ? `${c.h1.blockTime.toFixed(2)}s` : '—', 'SECONDS PER BLOCK', 'avg, last hour · final', C.white],
-   [c?.m5 ? num(c.m5.tps) : '—', 'TX PER SECOND', c?.h1 ? `last 5 min · ${num(c.h1.txs)} in last hour` : 'last 5 min', C.white],
+   [c?.m5 ? num(c.m5.tps) : '—', 'TX PER SECOND, LIVE', c?.m5?.fill != null && c.m5.fill > 0 ? `real use · blocks ${(c.m5.fill * 100).toFixed(1)}% full` : 'real use, last 5 min', C.white],
    [fee != null ? (fee < 0.01 ? '$' + fee.toFixed(4) : usd(fee)) : '—', 'FEE TO SEND USDC', 'one transfer, paid in USDC', C.green],
    [c ? String(c.validatorCount) : '—', 'VALIDATORS', 'taking equal turns', C.white]]
     .forEach(([v, k, d, col], i) => { const x = P + i * (pw + 14); s += panel(x, y, pw, 112) + T(x + 20, y + 50, esc(v), 38, col) + T(x + 20, y + 78, k, 15, C.gold, 'letter-spacing="2"') + T(x + 20, y + 100, esc(d), 16, C.gray); });
@@ -159,7 +159,7 @@ function wide(c, l, w, when) {
   const cells = [
     [usd(tot), 'MONEY ON ARC', `${usd(stable)} stables · ${usd(btc)} BTC`, C.fire],
     [usd(lent), 'LENT', bor != null ? `${usd(bor)} borrowed · ${lent ? Math.round((bor / lent) * 100) : 0}%` : '', C.white],
-    [c?.m5 ? `${num(c.m5.tps)} tx/s` : '—', 'THROUGHPUT', c?.h1 ? `${num(c.h1.txs)} tx/hr · ${c.h1.blockTime.toFixed(2)}s blocks` : '', C.white],
+    [c?.m5 ? `${num(c.m5.tps)} tx/s` : '—', 'LIVE TRAFFIC', c?.h1 ? `${num(c.h1.txs)} tx/hr · ${c.h1.blockTime.toFixed(2)}s blocks` : '', C.white],
     [net == null ? '—' : `${net >= 0 ? '+' : '−'}${usd(Math.abs(net))}`, `NET BRIDGED ${net != null && net < 0 ? 'OUT' : 'IN'} · ${c?.cctp?.h24 ? '24H' : '1H'}`, f ? `${usd(f.in.usd)} into Arc · ${usd(f.out.usd)} out` : '', net != null && net >= 0 ? C.green : C.red],
   ];
   const cw = (W - 2 * P - 3 * 14) / 4;

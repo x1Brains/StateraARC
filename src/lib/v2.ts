@@ -66,7 +66,7 @@ export const v2Trades = (addr: string, page: number, side: 'all' | 'buy' | 'sell
   get<V2Trades>(`token/${addr.toLowerCase()}/trades?page=${page}&side=${side}`, 20000).then((j) => { if (!j || !Array.isArray(j.rows)) throw new Error('v2 trades: bad shape'); return j; });
 export const v2Candles = (addr: string, sec: number, look: number) => get<{ candles: Candle[] }>(`token/${addr.toLowerCase()}/candles?sec=${sec}&look=${look}`, 20000).then((j) => { if (!Array.isArray(j.candles)) throw new Error('v2 candles: bad shape'); return j.candles; });
 // The Arc Network page (server/chain.ts).
-export interface V2ChainWin { seconds: number; blocks: number; blockTime: number; txs: number; tps: number; gasPerBlock: number; feesUsdc: number }
+export interface V2ChainWin { seconds: number; blocks: number; blockTime: number; txs: number; tps: number; gasPerBlock: number; feesUsdc: number; fill?: number | null; maxBlockTxs?: number }
 interface V2Flows { usd: number; count: number; byChain: { chain: string; usd: number; n: number }[] }
 export interface V2Chain {
   at: number; head: number; headTs: number; baseFeeGwei: number; coveredSeconds: number;

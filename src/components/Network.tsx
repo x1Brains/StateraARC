@@ -97,18 +97,21 @@ export function Network() {
       {!c && err && <div className="msg">Network stats are starting up — try again in a minute.</div>}
 
       {c && <>
-        {/* 1 · The pulse */}
+        {/* 1 · The pulse — owner 10-07: "7 TPS? Sui says 4,000,000" read our USAGE as Arc's top speed. Every tile now says in
+            plain words what it measures; the TPS tile says it is real traffic and how full blocks are (gas used ÷ gas limit,
+            from the chain) instead of quoting anyone's advertised capacity. */}
         <div className="nx-pulse">
-          <div className="nx-big"><div className="v">{h1 ? `${h1.blockTime.toFixed(2)}s` : '—'}</div><div className="t">Seconds per block</div><div className="d">{h1 ? `Average time between blocks over the ${hourLabel}, measured from ${n0(h1.blocks)} blocks.` : 'Measuring…'} Once in a block, a payment is final — it can't be reversed.</div></div>
-          <div className="nx-big"><div className="v">{m5 ? n0(m5.tps, 0) : '—'}</div><div className="t">Transactions per second</div><div className="d">{`Average over the last 5 minutes.${h1 ? ` ${n0(h1.txs)} transactions in the ${hourLabel}.` : ''}`}</div></div>
-          <div className="nx-big"><div className="v">{transferFee == null ? '—' : transferFee < 0.01 ? `$${transferFee.toFixed(4)}` : usd(transferFee)}</div><div className="t">Fee to send USDC</div><div className="d">Network fee for one plain USDC transfer (21,000 gas) at the current base fee{c ? ` of ${c.baseFeeGwei.toFixed(0)} gwei` : ''}. Fees on Arc are paid in USDC, not a separate gas coin.</div></div>
-          <button type="button" className="nx-big nx-big-btn" onClick={() => openVals(true)} aria-label="Show the validators"><div className="v">{vals.length || '—'}</div><div className="t">Validators <span className="nx-big-go">see all <IconArrowRight className="arw" /></span></div><div className="d">Approved institutions take turns confirming blocks{even ? ', each an equal share' : ''}.</div></button>
+          <div className="nx-big"><div className="v">{h1 ? `${h1.blockTime.toFixed(2)}s` : '—'}</div><div className="t">New block every</div><div className="d">{h1 ? `Arc adds a new block (a batch of transactions) about ${n0(1 / h1.blockTime, 0)} times a second — averaged over ${n0(h1.blocks)} blocks in the ${hourLabel}.` : 'Measuring…'} Once your payment is in a block it is final and can't be reversed.</div></div>
+          <div className="nx-big"><div className="v">{m5 ? n0(m5.tps, 0) : '—'}</div><div className="t">Transactions per second, right now</div><div className="d">{`Real traffic — how many transactions people are actually sending, averaged over the last 5 minutes. This is not Arc's top speed.${m5?.fill != null && m5.fill > 0 ? ` Blocks are only ${m5.fill < 0.1 ? (m5.fill * 100).toFixed(1) : n0(m5.fill * 100)}% full, so Arc has room for about ${n0(1 / m5.fill)}× this traffic.` : ''}${h1 ? ` ${n0(h1.txs)} transactions in the ${hourLabel}.` : ''}`}</div></div>
+          <div className="nx-big"><div className="v">{transferFee == null ? '—' : transferFee < 0.01 ? `$${transferFee.toFixed(4)}` : usd(transferFee)}</div><div className="t">Cost to send USDC</div><div className="d">What the network charges to send USDC to someone — paid in USDC itself, no separate gas coin to buy.{c ? ` (21,000 gas × ${c.baseFeeGwei.toFixed(0)} gwei base fee)` : ''}</div></div>
+          <button type="button" className="nx-big nx-big-btn" onClick={() => openVals(true)} aria-label="Show the validators"><div className="v">{vals.length || '—'}</div><div className="t">Validators <span className="nx-big-go">see all <IconArrowRight className="arw" /></span></div><div className="d">The approved institutions that confirm every block, taking turns{even ? ' — each does an equal share' : ''}.</div></button>
         </div>
+        <div className="nx-note nx-tps-note">Why other chains show huge "TPS" numbers: those are usually <b>top speeds from stress tests</b> — the most a chain can handle in a lab. The number above is <b>live usage</b>, counted from every block on Arc. Most chains' everyday traffic is far below their advertised maximum.</div>
 
         {/* 2 · Money on Arc */}
         <div className="nx-card">
           <div className="nx-head"><h3>Money on Arc</h3>{assetsUsd != null && assetsUsd > 0 && <span className="nx-total">{usd(assetsUsd)}</span>}</div>
-          <p className="nx-sub">Circle's own digital money that exists on Arc today — the full supply of each token, read from its contract.</p>
+          <p className="nx-sub">All of Circle's digital money on Arc right now — dollars, euros and Bitcoin — counted straight from each token's contract. The colored bar shows where it is sitting.</p>
           {c.supplyUsd && (() => {
             const stable = (c.supplyUsd.USDC ?? 0) + (c.supplyUsd.EURC ?? 0), btc = c.supplyUsd.cirBTC ?? 0;
             return (
@@ -141,7 +144,7 @@ export function Network() {
               </div>
             );
           })}
-          {where && <div className="nx-note">Where it sits = live balances of the lending contracts (Morpho, Aave), every DEX pool we index and Circle's Gateway; "Wallets" is the rest of the supply. Market cap is everything above — trading <b>liquidity</b> is only the DEX-pool slice (plus the USDC on the other side of those pools).</div>}
+          {where && <div className="nx-note">How to read the bar: <b>Lending</b> = deposited in Aave or Morpho to earn interest. <b>DEX pools</b> = available for trading. <b>Circle Gateway</b> = held by Circle's cross-chain service. <b>Wallets</b> = everything else, held by people and companies. Only the DEX-pool slice can actually be bought or sold on Arc's exchanges.</div>}
         </div>
 
         {/* 3 · Money moving */}
@@ -152,7 +155,7 @@ export function Network() {
               ? <div className="nx-tabs">{flowTabs.map(([k, l]) => <button key={k} type="button" className={flowKey === k ? 'on' : ''} onClick={() => setFlowTab(k)}>{l}</button>)}</div>
               : <span className="nx-when">{flowPeriod}</span>}
           </div>
-          <p className="nx-sub">USDC moved between Arc and other blockchains through Circle's official bridge (CCTP), {flowPeriod}{c ? ` — to ${new Date(c.headTs * 1000).toUTCString().slice(17, 22)} UTC, block ${c.head.toLocaleString()}` : ''}. Every bridge event on Arc, read from the bridge contract itself; "24 hours" is measured by the blocks' own timestamps.</p>
+          <p className="nx-sub">Dollars (USDC) moving between Arc and other blockchains through Circle's official bridge, {flowPeriod}{c ? ` — to ${new Date(c.headTs * 1000).toUTCString().slice(17, 22)} UTC, block ${c.head.toLocaleString()}` : ''}. Every transfer is counted from the bridge contract itself.</p>
           <div className="nx-flow">
             <div className="nx-flow-side in"><div className="v">{usd(flows.in.usd)}</div><div className="t">bridged INTO Arc · {flows.in.count} transfer{flows.in.count === 1 ? '' : 's'}, {flowPeriod}</div></div>
             <div className="nx-flow-side out"><div className="v">{usd(flows.out.usd)}</div><div className="t">bridged OUT of Arc · {flows.out.count} transfer{flows.out.count === 1 ? '' : 's'}, {flowPeriod}</div></div>
@@ -184,7 +187,7 @@ export function Network() {
         {/* 5 · Who runs it */}
         <div className="nx-card" ref={valsRef}>
           <div className="nx-head"><h3>Who runs the chain</h3><button type="button" className="btn ghost nx-toggle" onClick={() => openVals(!showVals)}>{showVals ? 'Hide' : 'Show'} the {vals.length}</button></div>
-          <p className="nx-sub">Arc is run by permissioned validators — Circle and regulated institutions. These are the founding validators Circle named at launch:</p>
+          <p className="nx-sub">Arc isn't run by anonymous miners — only approved companies can confirm blocks. These are the founding validators Circle named at launch:</p>
           <div className="nx-vals">
             {VALIDATORS.map((v) => (
               <div className="nx-val" key={v.name}>
@@ -193,7 +196,7 @@ export function Network() {
               </div>
             ))}
           </div>
-          <p className="nx-sub">On chain right now: {vals.length} block-producing addresses taking turns{even ? `, each about ${(100 / Math.max(1, vals.length)).toFixed(1)}% of blocks` : ''}. The chain records addresses only — which institution runs which address isn't published, so we don't pair them up.</p>
+          <p className="nx-sub">On chain right now: {vals.length} block-producing addresses taking turns{even ? `, each about ${(100 / Math.max(1, vals.length)).toFixed(1)}% of blocks` : ''}. The chain only shows each validator's address, not its name — and which company owns which address isn't public, so we don't guess.</p>
           {showVals && <div className="net-vals">
             <div className="net-val head"><span>#</span><span>Validator address</span><span className="num">Blocks</span><span className="num">Share</span><span className="num">Last block</span></div>
             {vals.map((v, i) => (

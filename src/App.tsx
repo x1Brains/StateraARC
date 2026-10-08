@@ -453,7 +453,7 @@ export default function App() {
                     <div className="div" />
                     <div className="ht"><b>{dashStats.tracked ? dashStats.tracked.toLocaleString() : '—'}</b><span>Tokens Tracked</span></div>
                     <div className="div" />
-                    <div className="ht ht-link" onClick={() => go('network')} title="Transactions per second, last 5 minutes"><b>{netHero?.tps != null ? `${Math.round(netHero.tps)}/s` : '—'}</b><span><span className="live-dot" /> Live TX</span></div>
+                    <div className="ht ht-link" onClick={() => go('network')} title="Real transactions per second on Arc right now (last 5 minutes) — live usage, not Arc's top speed"><b>{netHero?.tps != null ? `${Math.round(netHero.tps)}/s` : '—'}</b><span><span className="live-dot" /> TX/sec now</span></div>
                   </div>
                 </div>
               </div>
