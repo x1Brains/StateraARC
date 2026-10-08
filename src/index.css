@@ -1614,6 +1614,8 @@ footer .wrap { padding: 16px 20px; }
 .nx-big { background: linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,0) 40%), var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; position: relative; overflow: hidden; }
 .nx-big::before { content: ''; position: absolute; left: 0; top: 0; width: 42px; height: 3px; background: var(--fire); border-radius: 0 0 3px 0; }
 .nx-big .v { font-family: var(--disp); font-weight: 700; font-size: 30px; color: var(--white); line-height: 1.1; }
+.nx-big .v.nx-two { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; }
+.nx-big .v.nx-two small { font-size: 13px; font-weight: 600; color: var(--gray); margin-left: 3px; }
 .nx-big .t { font-family: var(--disp); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #ffc24a; margin-top: 6px; }
 .nx-big .d { font-size: 12.5px; line-height: 1.5; color: var(--gray); margin-top: 6px; }
 .nx-card { background: linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,0) 40%), var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin-bottom: 12px; }
