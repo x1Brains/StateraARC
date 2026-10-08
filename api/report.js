@@ -226,7 +226,8 @@ function candleChart(x, y, w, h, cs, lineCol = C.fire) {
 }
 
 function tokenTall(t, d, cs, tf, logo, st, addr, acc) {
-  const W = 1200, H = 1500, P = 56, IW = W - 2 * P; let s = '', y;
+  // 10-07: Biggest trades made it taller (1500 → 1720); drawn 1376 wide so it stays 4:5 and is scaled to 1200×1500 on render
+  const W = 1376, H = 1720, P = 56, IW = W - 2 * P; let s = '', y;
   const day = d?.dayStats || null, sym = esc(t?.symbol || 'TOKEN');
   // ── header: kicker + stamp, logo, name, price
   s += T(P, 70, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"') + T(P + 290, 70, 'TOKEN SNAPSHOT', 18, C.gray, 'letter-spacing="3"');
@@ -293,6 +294,19 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc) {
     s += `<rect x="${rx0 + 22}" y="${yy - 19}" width="52" height="26" rx="7" fill="${buy ? '#10251a' : '#2a1210'}"/>` + T(rx0 + 48, yy - 1, buy ? 'BUY' : 'SELL', 13, buy ? C.green : C.red, 'text-anchor="middle"');
     s += T(rx0 + 88, yy, usd(x.usd), 17) + T(rx0 + 210, yy, esc(x.trader ? short(x.trader) : ''), 15, C.gray) + T(rx0 + hw - 22, yy, x.time ? hhmm(x.time) : '', 15, C.gray, 'text-anchor="end"'); });
   if (!trades.length) s += T(rx0 + 22, y + 90, 'No recent trades found', 16, C.dim);
+  // ── biggest trades, 24h (owner 10-07: the snapshot shows the top buys and sells like the token page does). Top 3 each
+  // side by USD from every pool (server/token-detail.ts `biggest`); rows older than 24 h by OUR clock are dropped — the
+  // server's list can be a few minutes old.
+  y = 1386; const bh2 = 196, nowS = Date.now() / 1000;
+  const fmtAmt = (v) => (v == null || !isFinite(v) ? '' : v >= 1e9 ? (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'K' : v >= 1 ? v.toFixed(0) : v.toPrecision(3));
+  [['buys', 'BIGGEST BUYS · 24H', C.green, P], ['sells', 'BIGGEST SELLS · 24H', C.red, rx0]].forEach(([k, title, col, x0]) => {
+    s += panel(x0, y, hw, bh2) + T(x0 + 22, y + 42, title, 20, C.white, 'letter-spacing="2"') + T(x0 + hw - 22, y + 42, 'UTC', 14, C.dim, 'text-anchor="end"');
+    const list = (d?.biggest?.h24?.[k] || []).filter((x) => x && x.usd != null && isFinite(x.usd) && x.usd >= 0 && x.usd < 1e9 && x.time >= nowS - 86400).slice(0, 3);
+    list.forEach((x, i) => { const yy = y + 86 + i * 38;
+      s += T(x0 + 22, yy, `${i + 1}`, 15, C.dim) + T(x0 + 46, yy, usd(x.usd), 22, col) + T(x0 + 180, yy, esc(`${fmtAmt(x.amount)} ${t?.symbol || ''}`.trim().slice(0, 18)), 15, C.gray)
+        + T(x0 + 350, yy, esc(x.trader ? short(x.trader) : ''), 15, C.gray) + T(x0 + hw - 22, yy, x.time ? hhmm(x.time) : '', 15, C.gray, 'text-anchor="end"'); });
+    if (!list.length) s += T(x0 + 22, y + 92, `No ${k} in the last 24 hours`, 16, C.dim);
+  });
   // ── footer
   s += `<rect x="0" y="${H - 130}" width="${W}" height="130" fill="url(#foot)"/>`;
   s += T(P, H - 56, `stateraarc.com/token/${addr.slice(0, 8)}…${addr.slice(-4)}`, 28, C.fire) + T(W - P, H - 56, 'Live on-chain data · not financial advice', 18, C.gray, 'text-anchor="end"');
