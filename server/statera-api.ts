@@ -97,6 +97,11 @@ async function radarTokens(limit = 500): Promise<Token[]> {
 // ── State ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 interface View { tokens: Token[]; ix: Board.BoardIndex; home: any; homeGz: Buffer; homeJson: string; list: string; listGz: Buffer; swap: string; swapGz: Buffer; byAddr: Map<string, Token> }
 let tokens: Token[] = [];
+// The snapshot's OWN price/change24h/mcap/liq/volume24h per token, before the live overlays (10-14). The share card
+// (lib/livetoken.js) rescales change24h + mcap by live/list price — that math needs the price those numbers were built
+// against; the overlays move price (and, on indexer rows, the rest) without rescaling. 5 numbers, not the raw rows:
+// this service runs near its 700M cap.
+let listNums = new Map<string, (number | null)[]>();
 let generatedAt: string | null = null, snapMtime = 0, asOf: number | null = null;
 let view: View | null = null;
 const stats = { loads: 0, loadFails: 0, onchainPriced: 0, liveRuns: 0, radarRows: 0, deepPriced: 0, lastLoad: 0, lastOnchain: 0, lastLive: 0, requests: 0 };
@@ -133,6 +138,8 @@ async function load() {
     if (!raw || !Array.isArray(raw.tokens) || raw.tokens.length < 200) throw new Error('degraded snapshot');
     snapMtime = st.mtimeMs; generatedAt = raw.generatedAt ?? null;
     const a = raw.generatedAt ? Date.parse(raw.generatedAt) : NaN; asOf = Number.isFinite(a) ? a : null;
+    const n = (v: any) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    listNums = new Map(raw.tokens.map((x: any) => [String(x.address || '').toLowerCase(), [n(x.price), n(x.change24h), n(x.mcap), n(x.liq), n(x.volume24h)]]));
     let list: Token[] = raw.tokens.map(Live.snapshotRow).map(sanitizeToken);
     tokens = list; rebuild(); // serve the fresh list at once; live prices land a moment later
     const [extra, px] = await Promise.all([
@@ -234,7 +241,11 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
       return;
     }
     const m = path.match(/^\/token\/(0x[0-9a-fA-F]{40})$/);
-    if (m) { const t = v.byAddr.get(m[1].toLowerCase()); send(req, res, t ? 200 : 404, JSON.stringify(t ? { asOf, token: t } : { error: 'not listed' })); return; }
+    if (m) {
+      const a = m[1].toLowerCase(), t = v.byAddr.get(a), l = listNums.get(a);
+      const list = l ? { price: l[0], change24h: l[1], mcap: l[2], liq: l[3], volume24h: l[4] } : undefined; // the share card's math (see listNums)
+      send(req, res, t ? 200 : 404, JSON.stringify(t ? { asOf, token: t, list } : { error: 'not listed' })); return;
+    }
     // A wallet's CURRENT holdings from our own data: the tokens in its transfer history, balances re-read now with one
     // Multicall3 balanceOf, priced from our token list (09-30 — the Portfolio's quick view came from explorer/RadarDEX)
     const hm = path.match(/^\/wallet\/(0x[0-9a-fA-F]{40})\/holdings$/);
