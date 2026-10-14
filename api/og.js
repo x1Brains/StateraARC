@@ -15,6 +15,7 @@ const OG_VER = 'v10-budget';
 const FONT = Buffer.from(FONT_B64, 'base64');
 
 let wasmReady = null;
+let warmHits = 0;
 function ensureWasm() {
   if (!wasmReady) wasmReady = initWasm(Buffer.from(WASM_B64, 'base64'));
   return wasmReady;
@@ -112,9 +113,14 @@ export default async function handler(req, res) {
     // Hard budget (~4.5s worst case, ~0.5-1s normally): X gives up on a slow image and keeps the card broken.
     // 1st: the logo bundled with this function (api/_ogl, scripts/logo-static.mjs) — read from disk, no network, so it is
     // in before anything else. Only a token listed since the last logo commit goes to the network.
+    const T0 = Date.now(), ms = {}; // x-og-ms: where a card's time went (data / logo / render), for the next "why slow"
     const bundled = bundledLogo(addr);
     const vpsLogo = bundled ? Promise.resolve(bundled) : within(logoDataUri(vpsLogoTries(addr)), 3400, ''); // 2 tries x 1.6 s
-    const t = addr ? await within(liveToken(origin, addr), 3000) : null;
+    const tm = {};
+    const t = addr ? await within(liveToken(origin, addr, tm), 3000) : null;
+    ms.data = Date.now() - T0;
+    for (const k in tm) ms['data.' + k] = tm[k];
+    ms.warm = warmHits++; // 0 = this lambda's first card (a cold start)
 
     const sym = esc(t?.symbol || 'TOKEN');
     const name = esc((t?.name || 'Arc token').slice(0, 42));
@@ -124,6 +130,7 @@ export default async function handler(req, res) {
     let [logo] = await Promise.all([vpsLogo, ensureWasm()]);
     let logoFrom = bundled ? 'bundled' : logo ? 'vps' : 'none';
     if (!logo) { logo = await within(logoDataUri(otherLogoTries(t, addr)), 2500, ''); if (logo) logoFrom = 'icon'; }
+    ms.logo = Date.now() - T0;
     res.setHeader('x-og-logo', logoFrom); // where this card's logo came from: bundled (disk) / vps / icon / none
     const symX = logo ? 234 : 64;
 
@@ -194,6 +201,8 @@ export default async function handler(req, res) {
       fitTo: { mode: 'width', value: square ? 600 : 1200 },
     }).render().asPng();
 
+    ms.render = Date.now() - T0;
+    res.setHeader('x-og-ms', Object.entries(ms).map(([k, v]) => `${k}=${v}`).join(','));
     res.setHeader('content-type', 'image/png');
     // A card with no token data (lookup ran out of time) must not be cached — the next fetch gets the real one.
     res.setHeader('cache-control', t || !addr ? 'public, max-age=60, s-maxage=60, stale-while-revalidate=300' : 'no-store');

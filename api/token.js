@@ -39,10 +39,13 @@ export default async function handler(req, res) {
 
   // The real built SPA shell (hashed script/style tags intact) — fetched, not hardcoded.
   // Live: the site's current list (VPS /api/snapshot) + the price re-read from the token's pool right now.
+  // x-page-ms: where a crawler's wait went (shell / data / prewarm, ms from the start) — for the next "why slow".
+  const T0 = Date.now(), ms = {}, tm = {};
   const [shell, t] = await Promise.all([
-    fetch(`${origin}/index.html`, { headers: { 'x-og-render': '1' } }).then((r) => (r.ok ? r.text() : '')).catch(() => ''),
-    addr ? within(liveToken(origin, addr), 3500) : null,
+    fetch(`${origin}/index.html`, { headers: { 'x-og-render': '1' } }).then((r) => (r.ok ? r.text() : '')).catch(() => '').finally(() => { ms.shell = Date.now() - T0; }),
+    addr ? within(liveToken(origin, addr, tm), 3500).finally(() => { ms.data = Date.now() - T0; }) : null,
   ]);
+  for (const k in tm) ms['data.' + k] = tm[k];
   let html = shell;
   if (!html) { res.statusCode = 302; res.setHeader('location', `/`); return res.end(); }
 
@@ -60,7 +63,8 @@ export default async function handler(req, res) {
     ? `${stats ? stats + ' · ' : ''}${t.name || sym} on Arc mainnet — live chart, holders & trades on StateraArc.`
     : 'Live Arc-mainnet token screener — price, charts, liquidity, holders and trades.';
   const pageUrl = `${origin}/token/${addr}`;
-  if (prewarm) await prewarm;
+  if (prewarm) { await prewarm; ms.prewarm = Date.now() - T0; }
+  res.setHeader('x-page-ms', Object.entries(ms).map(([k, v]) => `${k}=${v}`).join(','));
 
   const meta = [
     `<meta property="og:title" content="${esc(title)}"/>`,
