@@ -24,12 +24,27 @@ export default async function handler(req, res) {
   let addr = (url.searchParams.get('addr') || '').toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(addr)) { const m = url.pathname.match(/0x[0-9a-f]{40}/i); addr = m ? m[0].toLowerCase() : ''; }
 
-  // The real built SPA shell (hashed script/style tags intact) — fetched, not hardcoded.
-  let html = await fetch(`${origin}/index.html`, { headers: { 'x-og-render': '1' } }).then((r) => (r.ok ? r.text() : '')).catch(() => '');
-  if (!html) { res.statusCode = 302; res.setHeader('location', `/`); return res.end(); }
+  // &sq=1 = the 600x600 square image X's `summary` card needs; v=N busts X/Discord's cached image on a redesign.
+  // &t = a 5-minute bucket: X/Discord cache a card image by its URL, so a fresh page fetch must point at a fresh
+  // image URL or they keep showing the old price. (&v busts caches on a redesign.)
+  const bucket = Math.floor(Date.now() / 300000);
+  const img = addr ? `${origin}/api/og?token=${addr}&sq=1&v=8&t=${bucket}` : `${origin}/api/og?sq=1&v=8`;
+  // A crawler (X/Discord/Telegram…) reads this page, then fetches the image ONCE with a short timeout and keeps a
+  // failed image for good. Render the image now so its fetch is a cache hit. Crawlers only; capped at 3s.
+  // ⛔ 10-14: shell, live price and this pre-render ran one AFTER another (~6.5 s worst case for a crawler — long
+  // enough for X to give up and keep an imageless card). None needs the others, so all three start together now.
+  const prewarm = addr && /bot|crawler|spider|facebookexternalhit|embedly|slack|whatsapp|telegram|discord|preview/i.test(req.headers['user-agent'] || '')
+    ? within(fetch(img, { headers: { 'user-agent': 'StateraArc-prewarm' } }).then((r) => r.arrayBuffer()), 3000)
+    : null;
 
+  // The real built SPA shell (hashed script/style tags intact) — fetched, not hardcoded.
   // Live: the site's current list (VPS /api/snapshot) + the price re-read from the token's pool right now.
-  const t = addr ? await within(liveToken(origin, addr), 3500) : null;
+  const [shell, t] = await Promise.all([
+    fetch(`${origin}/index.html`, { headers: { 'x-og-render': '1' } }).then((r) => (r.ok ? r.text() : '')).catch(() => ''),
+    addr ? within(liveToken(origin, addr), 3500) : null,
+  ]);
+  let html = shell;
+  if (!html) { res.statusCode = 302; res.setHeader('location', `/`); return res.end(); }
 
   const sym = t?.symbol || 'Token';
   const price = fmtUsd(t?.price);
@@ -44,17 +59,8 @@ export default async function handler(req, res) {
   const desc = t
     ? `${stats ? stats + ' · ' : ''}${t.name || sym} on Arc mainnet — live chart, holders & trades on StateraArc.`
     : 'Live Arc-mainnet token screener — price, charts, liquidity, holders and trades.';
-  // &sq=1 = the 600x600 square image X's `summary` card needs; v=N busts X/Discord's cached image on a redesign.
-  // &t = a 5-minute bucket: X/Discord cache a card image by its URL, so a fresh page fetch must point at a fresh
-  // image URL or they keep showing the old price. (&v busts caches on a redesign.)
-  const bucket = Math.floor(Date.now() / 300000);
-  const img = addr ? `${origin}/api/og?token=${addr}&sq=1&v=8&t=${bucket}` : `${origin}/api/og?sq=1&v=8`;
   const pageUrl = `${origin}/token/${addr}`;
-  // A crawler (X/Discord/Telegram…) reads this page, then fetches the image ONCE with a short timeout and keeps a
-  // failed image for good. Render the image now so its fetch is a cache hit. Crawlers only; capped at 3s.
-  if (addr && /bot|crawler|spider|facebookexternalhit|embedly|slack|whatsapp|telegram|discord|preview/i.test(req.headers['user-agent'] || '')) {
-    await within(fetch(img, { headers: { 'user-agent': 'StateraArc-prewarm' } }).then((r) => r.arrayBuffer()), 3000);
-  }
+  if (prewarm) await prewarm;
 
   const meta = [
     `<meta property="og:title" content="${esc(title)}"/>`,
