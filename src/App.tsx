@@ -25,6 +25,12 @@ type Page = 'home' | 'screener' | 'network' | 'portfolio' | 'swap' | 'token';
 // ── deep-linkable URLs (clean path routing, e.g. stateraarc.com/swap). Vercel serves index.html for
 //    any non-file/non-/api path (SPA fallback rewrite in vercel.json), so refresh/direct-load work. ──
 const PATHS: Record<Page, string> = { home: '/', screener: '/screener', network: '/network', token: '/str', portfolio: '/portfolio', swap: '/swap' };
+// The path + a fresh ?v= share stamp. keepQuery: on the SAME page, keep its other params (e.g. ?data=, src/lib/v2.ts).
+const stampedUrl = (path: string, keepQuery: boolean): string => {
+  const q = new URLSearchParams(keepQuery ? window.location.search : '');
+  q.set('v', shareStamp());
+  return `${path}?${q.toString()}`;
+};
 const pathFor = (pg: Page, sel: string | null): string =>
   pg === 'screener' && sel && /^0x[0-9a-fA-F]{40}$/.test(sel) ? `/token/${sel}` : (PATHS[pg] || '/');
 function parsePath(): { page: Page; selected: string | null } {
@@ -346,19 +352,19 @@ export default function App() {
     // page opened and then kept (reloads kept the old ?v= too) — so a link copied later was one X had already crawled
     // (possibly while that card was failing) and X served its cached, imageless card. Now every load gets a fresh
     // stamp, and the effect below keeps re-stamping the address bar, so what you copy is always ≤ 1 minute old.
-    const isTok = path.startsWith('/token/');
-    if (cur === path && !isTok) { navReady.current = true; return; }
-    const want = isTok ? `${path}?v=${shareStamp()}` : path;
+    // ⛔ 10-14 (owner: "copy link should include these already!!!"): only TOKEN pages were stamped, so the home link
+    // copied from the address bar was the plain https://www.stateraarc.com/ — burned on X (text strip, no picture) while
+    // ?v=1014 unfurled fine. Every page carries the stamp now.
+    const want = stampedUrl(path, cur === path);
     if (navReady.current && cur !== path) window.history.pushState(null, '', want);
     else { window.history.replaceState(null, '', want); navReady.current = true; }
   }, [page, selected]);
-  // Keep a token page's address-bar link fresh: re-stamp every minute and whenever the tab comes back into view.
+  // Keep the address-bar link fresh on every page: re-stamp every minute and whenever the tab comes back into view.
   useEffect(() => {
     const path = pathFor(page, selected);
-    if (!path.startsWith('/token/')) return;
     const restamp = () => {
       if ((window.location.pathname.replace(/\/+$/, '') || '/') !== path) return;
-      const want = `${path}?v=${shareStamp()}`;
+      const want = stampedUrl(path, true);
       if (window.location.pathname + window.location.search !== want) window.history.replaceState(window.history.state, '', want);
     };
     const id = window.setInterval(restamp, 60000);

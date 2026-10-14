@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { usd } from '../lib/arc';
+import { usd, shareStamp } from '../lib/arc';
 import { v2Chain, v2Lending, v2Where, type V2Chain, type V2Lending, type V2Where } from '../lib/v2';
 import { IconArrowRight, IconExternal } from './icons';
 
@@ -88,8 +88,9 @@ export function Network() {
           <span className="asof live"><span className="live-dot" /> Live · block {n0(c.head)}</span>
           {/* The whole page as one image (api/report.js) — download to attach to a post, or post the link: /network unfurls into the report card. */}
           <a className="btn ghost nx-btn" href="/api/report?download=1" download onClick={(e) => { e.currentTarget.href = `/api/report?download=1&t=${Date.now()}`; }}>Download report</a>
-          <a className="btn solid nx-btn" target="_blank" rel="noreferrer"
-            href={`https://x.com/intent/post?text=${encodeURIComponent('Arc Network Report — live from Arc mainnet')}&url=${encodeURIComponent(`https://www.stateraarc.com/network?r=${Math.floor(Date.now() / 300000)}`)}`}>Post on X</a>
+          {/* Stamped at CLICK time (shareStamp, same as token links) — a url X has never crawled, so it can't serve a stale/broken card. */}
+          <a className="btn solid nx-btn" target="_blank" rel="noreferrer" href="https://x.com/intent/post"
+            onClick={(e) => { e.currentTarget.href = `https://x.com/intent/post?text=${encodeURIComponent('Arc Network Report — live from Arc mainnet')}&url=${encodeURIComponent(`${window.location.origin}/network?v=${shareStamp()}`)}`; }}>Post on X</a>
         </div>}
       </div>
 
