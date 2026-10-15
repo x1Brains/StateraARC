@@ -30,11 +30,27 @@ async function call(url: string, method: string, params: unknown[]): Promise<any
 // Blockdaemon keeps ~2M blocks of logs ("pruned history unavailable" before that) — older ranges go to the full-history nodes.
 // Old ranges: ONLY Tenderly serves them (public RPC rate-limits wide getLogs, dRPC caps 10k blocks, Blockdaemon pruned) —
 // so they go to Tenderly alone, paced, with patient retries (8 parallel requests tripped its limit on the first try).
+// The site's log relay (api/logs.js): the VPS IP is rate-limited on every node that still has older logs; Vercel's isn't.
+const RELAY = process.env.LOGS_RELAY || 'https://www.stateraarc.com/api/logs';
+let relayKey: string | null = null;
+try { relayKey = fs.readFileSync(process.env.KEY_FILE || '/root/holdings-svc/key', 'utf8').trim() || null; } catch { /* no relay */ }
+export const relayStats = { calls: 0, ok: 0, errors: 0 };
+async function viaRelay(topics: (string | null)[], lo: number, hi: number, address?: string): Promise<any[] | null> {
+  if (!relayKey) return null;
+  const wallet = '0x' + String(topics[1] || topics[2]).slice(26), side = topics[1] ? 'from' : 'to';
+  relayStats.calls++;
+  const r = await fetch(`${RELAY}?wallet=${wallet}&side=${side}&lo=${lo}&hi=${hi}${address ? `&address=${address}` : ''}`, { headers: { 'x-relay-key': relayKey }, signal: AbortSignal.timeout(30000) });
+  const j: any = await r.json().catch(() => null);
+  if (r.ok && j && Array.isArray(j.logs)) { relayStats.ok++; return j.logs; }
+  relayStats.errors++; throw new Error(j?.error || `http ${r.status}`);
+}
 async function logs(topics: (string | null)[], lo: number, hi: number, head: number, address?: string): Promise<any[]> {
   const old = head - lo > 1_900_000;
   const order = old ? [1, 1, 1] : [0, 1, 0];
   let last = '', pruned = false;
   for (let i = 0; i < 10; i++) {
+    // ⛔ 10-15: after 3 refusals ask the site's relay (api/logs.js — the same query from Vercel's IPs), then carry on direct
+    if (i === 3) { const r = await viaRelay(topics, lo, hi, address).catch((e) => { last = 'relay: ' + (e as Error).message; return null; }); if (r) return r; }
     await sleep(old ? 150 : 60);
     // ⛔ 10-15: Blockdaemon now prunes well inside 1.9M blocks (a range 690k back: "pruned history unavailable") — once it
     // says so for this range, every further try goes to Tenderly instead of burning half the retries on a certain "no".
