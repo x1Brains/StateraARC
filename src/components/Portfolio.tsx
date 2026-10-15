@@ -30,6 +30,8 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   const [liveMcap, setLiveMcap] = useState<Record<string, number>>({}); // mcap for tokens not in the screener (from Warp)
   const [pnl, setPnl] = useState<Record<string, TokenPnl> | null>(null); // reconstructed cost basis
   const [pnlLoading, setPnlLoading] = useState(false);
+  // 10-15 (owner: P&L must show WITH the tokens): the loading scene also waits for the first P&L — at most 3 s past the bag
+  const [pnlGate, setPnlGate] = useState(false);
 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sendTok, setSendTok] = useState<SendToken | null>(null);
@@ -85,7 +87,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     if (!addr || !isAddress(addr)) return;
     let alive = true;
     let hideTimer: ReturnType<typeof setTimeout> | undefined;
-    setLoading(true); setStartedFor(addr); setErr(null); setHoldings([]); setNfts([]); setLivePx({}); setLiveMcap({}); setEnriching(false);
+    setLoading(true); setPnlGate(true); setStartedFor(addr); setErr(null); setHoldings([]); setNfts([]); setLivePx({}); setLiveMcap({}); setEnriching(false);
     // Map a holdings source into the view + seed the prices it already carries.
     const apply = (src: RadarHolding[]) => {
       const h = src.map((r) => ({ address: r.address, name: r.name, symbol: r.symbol, decimals: r.decimals, balance: r.amount, iconUrl: r.icon }));
@@ -209,10 +211,11 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     setPnl(null);
     if (!mainnet || !addr || !isAddress(addr) || !holdings.length) return;
     let alive = true; setPnlLoading(true);
+    const gateT = setTimeout(() => setPnlGate(false), 3000); // never hold the bag back longer than this for P&L
     const decs: Record<string, number> = {};
     for (const h of holdings) decs[h.address.toLowerCase()] = h.decimals ?? 18;
-    fetchWalletPnl(addr, decs).then((p) => { if (alive) setPnl(p); }).catch(() => { if (alive) setPnl({}); }).finally(() => { if (alive) setPnlLoading(false); });
-    return () => { alive = false; };
+    fetchWalletPnl(addr, decs).then((p) => { if (alive) setPnl(p); }).catch(() => { if (alive) setPnl({}); }).finally(() => { if (alive) { setPnlLoading(false); setPnlGate(false); } });
+    return () => { alive = false; clearTimeout(gateT); };
   }, [addr, mainnet, holdKey]); // eslint-disable-line
 
   const rows = useMemo(() => {
@@ -273,7 +276,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   const totalPnlSum = rows.reduce((s, r) => s + (r.totalPnl ?? 0), 0);
   const hasPnl = pnl != null && rows.some((r) => r.totalPnl != null);
   // first render after a new address = before the load effect ran: count it as loading, not as an empty wallet
-  const busy = loading || (!!addr && isAddress(addr) && startedFor !== addr);
+  const busy = loading || (!!addr && isAddress(addr) && startedFor !== addr) || (mainnet && pnlGate && holdings.length > 0);
   const track = () => { if (isAddress(input)) setAddr(input.trim()); else setErr('Enter a valid 0x… address'); };
 
   return (

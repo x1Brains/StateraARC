@@ -555,12 +555,19 @@ export async function fetchWalletTokenTrades(wallet: string, token: string, deci
  * and it only began once holdings landed). fetchWalletPnl awaits the same promise, so nothing is fetched twice.
  */
 const pnlWarm: Map<string, Promise<string[]>> = new Map();
+// The tx list on its own (our index answers it in ~0.5 s and fills ownLegs) — shared by the receipt prefetch and the P&L.
+const hashWarm: Map<string, Promise<string[]>> = new Map();
+function sharedTxHashes(w: string, maxTxs: number): Promise<string[]> {
+  let p = hashWarm.get(w);
+  if (!p) { p = walletTxHashes(w, maxTxs); hashWarm.set(w, p); p.finally(() => setTimeout(() => hashWarm.delete(w), 60000)); }
+  return p;
+}
 export function prefetchWalletPnl(wallet: string, maxTxs = 160): Promise<string[]> {
   const w = wallet.toLowerCase();
   let p = pnlWarm.get(w);
   if (!p) {
     p = (async () => {
-      const hashes = await walletTxHashes(w, maxTxs);
+      const hashes = await sharedTxHashes(w, maxTxs);
       const need = hashes.filter((h) => !legCache.has(`${w}:${h}`));
       if (need.length) {
         const rcs = await receiptsBatched(need);
@@ -578,7 +585,16 @@ export function prefetchWalletPnl(wallet: string, maxTxs = 160): Promise<string[
 export async function fetchWalletPnl(wallet: string, decimalsByToken: Record<string, number>, maxTxs = 160): Promise<Record<string, TokenPnl>> {
   const w = wallet.toLowerCase();
   // 1+2) tx list and receipts — usually already in flight or done (prefetchWalletPnl)
-  const recent = await prefetchWalletPnl(w, maxTxs);
+  // ⛔ 10-15 (owner: "P&L … needs to show as soon as the tokens show"): P&L waited on receipts for the newest 160 txs
+  // (~220 browser RPC calls, +2.7 s after the bag). When our own index answered, it already holds every one of those
+  // txs' wallet transfers — the same logs legsOf() reads from a receipt — so P&L is computed from it at once (receipts
+  // already cached still win, as before); the receipts keep loading in the background for the chart's trade markers.
+  // No index (API down) → wait for the receipts exactly as before.
+  const listed = await sharedTxHashes(w, maxTxs);
+  const fromIndex = ownLegs.has(w);
+  const recentP = prefetchWalletPnl(w, maxTxs);
+  if (fromIndex) recentP.catch(() => {}); // background only — its failure must not surface
+  const recent = fromIndex ? listed : await recentP;
   // every tx: the newest maxTxs from their receipts (as before), all older ones from our own index (ownLegs)
   const idx = ownLegs.get(w);
   const hashes = idx ? [...new Set([...recent, ...idx.keys()])] : recent;
