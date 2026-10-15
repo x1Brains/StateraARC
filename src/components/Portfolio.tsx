@@ -122,20 +122,36 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         // NFTs (ERC-721/1155) — non-blocking, from the same explorer endpoint; paints alongside the bag.
         fetchNftHoldings(addr).then((n) => { if (alive) setNfts(n); }).catch(() => {});
 
+        // PHASE 2's request needs only the address — start it NOW (10-14: it used to start after phase 1 settled, i.e. up to
+        // 25 s later on a new wallet, on top of its own ~60 s cold scan). It is still awaited and applied below, same as before.
+        const ocP = fetchHoldingsOnchain(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[], ok: false }));
+
         // PHASE 1 — fast indexer sources (RadarDEX + explorer) so the wallet's bag paints in ~1-2s
         // instead of a long blank spinner while the full on-chain scan runs.
-        const [rp, pf] = await Promise.all([
-          fetchRadarPortfolio(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] })),
-          fetchPortfolioMainnet(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] })),
-        ]);
-        if (!alive) return;
-        const fast = pf.holdings.length >= rp.holdings.length ? pf.holdings : rp.holdings;
-        if (fast.length) {
+        // ⛔ 10-14 (owner: "portfolio takes forever to load"): this awaited BOTH sources before painting anything. For a wallet
+        // our API hasn't seen, /v2/wallet/<a>/holdings builds its transfer history first (~20 s, then 202 → 25 s abort), so the
+        // page sat on a blank "Loading holdings…" for 25 s although RadarDEX had answered in 0.9 s (measured). Now each source
+        // paints the moment it lands; the second repaints only if it lists MORE tokens — the same "longer list wins" rule, so
+        // the bag the page settles on is unchanged.
+        let fast: RadarHolding[] = [];
+        const paint = (list: RadarHolding[]) => {
+          if (!alive || !list.length || list.length <= fast.length) return;
+          fast = list;
           const fs = apply(fast); setLoading(false); setEnriching(true); enrich(fs.h, fs.seeded);
           // The full scan can take up to ~90s cold; the fast bag + Warp enrich is already priced, so don't
           // leave the "reading the chain" bar up that whole time — retire it after ~18s regardless. Phase 2
           // still replaces the view with the complete bag whenever it lands.
-          hideTimer = setTimeout(() => { if (alive) setEnriching(false); }, 18000);
+          if (!hideTimer) hideTimer = setTimeout(() => { if (alive) setEnriching(false); }, 18000);
+        };
+        const [rp, pf] = await Promise.all([
+          fetchRadarPortfolio(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] })),
+          fetchPortfolioMainnet(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] })),
+        ].map((p) => p.then((r) => { paint(r.holdings); return r; })));
+        if (!alive) return;
+        // pf first on a tie, as before (pf.length >= rp.length → pf)
+        if (pf.holdings.length && pf.holdings.length >= rp.holdings.length && fast !== pf.holdings) { fast = []; paint(pf.holdings); }
+        if (fast.length) {
+          /* painted above */
         } else {
           // ⛔ An EMPTY wallet used to sit on a blank "Loading holdings…" for the whole cold scan (~60-90s) plus the
           // curated fallback, and read as a broken site (owner, 09-24). The quick sources found nothing, so say so
@@ -145,7 +161,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
 
         // PHASE 2 — the COMPLETE on-chain read (Transfer-log discovery + Multicall3 balanceOf + V3/V2/
         // Warp/V4 pricing across our RPCs). It's the full, correct bag; it replaces the fast view.
-        const oc = await fetchHoldingsOnchain(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[], ok: false }));
+        const oc = await ocP;
         if (!alive) return;
         let finalSet: { h: Holding[]; seeded: Record<string, number> };
         if (oc.holdings.length || fast.length) { finalSet = apply(mergeHoldings(fast, oc.holdings)); } // merged, never replaced (10-02)
