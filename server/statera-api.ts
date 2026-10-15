@@ -25,7 +25,7 @@ import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
 import { indexHolders, indexStats, indexBatch, batchStats, holderCountOf } from './holder-index.ts';
-import { walletTransfers, walletStats, blockTimes, NATIVE_LOG } from './wallet-index.ts';
+import { walletTransfers, walletSaved, walletStats, blockTimes, NATIVE_LOG } from './wallet-index.ts';
 import { cacheStats, tokenDetail, tokenTrades, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, flowsBackfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
@@ -251,7 +251,11 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     const hm = path.match(/^\/wallet\/(0x[0-9a-fA-F]{40})\/holdings$/);
     if (hm) {
       const wallet = hm[1].toLowerCase();
-      const w = await Promise.race([walletTransfers(wallet), new Promise<null>((r) => setTimeout(() => r(null), 20_000))]);
+      // ⛔ 10-15 (owner: "portfolio used to be instant"): a stored wallet waited on its history update (up to 20 s, then 202)
+      // although this answer only needs the LIST of tokens it ever received — balances are re-read live just below. A stored
+      // wallet now gets its saved copy after 2.5 s while the update carries on; a new wallet still waits for its first build.
+      const saved = walletSaved(wallet);
+      const w = await Promise.race([walletTransfers(wallet).then((x) => x ?? saved), new Promise<typeof saved>((r) => setTimeout(() => r(saved), saved ? 2_500 : 20_000))]);
       if (!w) { send(req, res, 202, JSON.stringify({ building: true }), undefined, 0); return; }
       const toks = [...new Set(w.x.map((x) => x.t))].filter((t) => t !== NATIVE_LOG).slice(0, 300); // the native-USDC log is not a token
       const pad = wallet.slice(2).padStart(64, '0');
@@ -317,30 +321,33 @@ setTimeout(warmLoop, 15_000);
 // Our own holder index (server/holder-index.ts): every listed token, never-indexed first, then any older than 10 min —
 // one at a time, on the wide-range RPCs (not the ones visitors' pages use).
 const indexLoop = async () => {
-  let did = false;
+  let did = false, ok = false;
   try {
     const rows = listed(), now = Date.now();
     // freshness from the small counts list (holderCountOf) — never parse 100 token files per tick
     const next = rows.map((t) => ({ t, at: holderCountOf(t.address)?.at ?? 0 })).filter((x) => now - x.at > 10 * 60_000).sort((a, b) => a.at - b.at)[0];
-    if (next) { await indexHolders(next.t.address); did = true; }
+    if (next) { did = true; ok = await indexHolders(next.t.address); }
   } catch { /* next tick */ }
-  setTimeout(indexLoop, did ? 2_000 : 20_000);
+  // ⛔ 10-15: a FAILED index counted as work done and retried in 2 s — 981 failures in a day (Blockdaemon pruned its old logs,
+  // Tenderly then 429'd this box), and that hammering kept the box rate-limited, so wallet history updates failed too
+  // (owner's portfolio). A failure now waits 60 s.
+  setTimeout(indexLoop, !did ? 20_000 : ok ? 2_000 : 60_000);
 };
 setTimeout(indexLoop, 30_000);
 // Every LIQUID token (≥ $100 in pools, ~800) — the screener's holder counts, no longer from arc-scan (09-30). Batches of 40:
 // never-indexed first, then any count older than 30 min. The listed tokens above also refresh every 10 min on their own.
 const batchLoop = async () => {
-  let did = false;
+  let did = false, ok = false;
   try {
     if (view) {
       const now = Date.now();
       const all = view.tokens.filter((t) => (t.liq ?? 0) >= 100).map((t) => t.address.toLowerCase());
       let pick = all.filter((a) => !holderCountOf(a)).slice(0, 40);
       if (!pick.length) pick = all.map((a) => ({ a, at: holderCountOf(a)?.at ?? 0 })).filter((x) => now - x.at > 30 * 60_000).sort((x, y) => x.at - y.at).slice(0, 40).map((x) => x.a);
-      if (pick.length) { await indexBatch(pick); did = true; }
+      if (pick.length) { did = true; ok = (await indexBatch(pick)) > 0; }
     }
   } catch { /* next tick */ }
-  setTimeout(batchLoop, did ? 3_000 : 60_000);
+  setTimeout(batchLoop, !did ? 60_000 : ok ? 3_000 : 90_000); // a failed batch waits (see indexLoop)
 };
 setTimeout(batchLoop, 90_000);
 setInterval(saveCaches, 5 * 60_000);

@@ -33,11 +33,14 @@ async function call(url: string, method: string, params: unknown[]): Promise<any
 async function logs(topics: (string | null)[], lo: number, hi: number, head: number, address?: string): Promise<any[]> {
   const old = head - lo > 1_900_000;
   const order = old ? [1, 1, 1] : [0, 1, 0];
-  let last = '';
+  let last = '', pruned = false;
   for (let i = 0; i < 10; i++) {
     await sleep(old ? 150 : 60);
-    try { return await call(WIDE[order[i % 3]], 'eth_getLogs', [{ ...(address ? { address } : {}), topics, fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) }]); }
-    catch (e) { last = (e as Error).message; await sleep(400 * (i + 1)); }
+    // ⛔ 10-15: Blockdaemon now prunes well inside 1.9M blocks (a range 690k back: "pruned history unavailable") — once it
+    // says so for this range, every further try goes to Tenderly instead of burning half the retries on a certain "no".
+    const n = pruned && order[i % 3] === 0 ? 1 : order[i % 3];
+    try { return await call(WIDE[n], 'eth_getLogs', [{ ...(address ? { address } : {}), topics, fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) }]); }
+    catch (e) { last = (e as Error).message; if (/pruned/i.test(last)) { pruned = true; continue; } await sleep(400 * (i + 1)); }
   }
   throw new Error(`getLogs failed: ${last}`);
 }
@@ -75,11 +78,19 @@ async function build(w: string): Promise<W | null> {
       s.x.push({ h: l.transactionHash, b: parseInt(l.blockNumber, 16), i: parseInt(l.logIndex, 16), t: String(l.address).toLowerCase(),
         f: '0x' + l.topics[1].slice(26), to: '0x' + l.topics[2].slice(26), v: l.data && l.data !== '0x' ? BigInt(l.data).toString() : '0' });
     } };
-    let next = 0;
+    // ⛔ 10-15: one failed range threw away EVERY range already read, so a wallet whose gap outgrew one RPC's history never
+    // caught up (owner's copy stuck at 10-11, 30 failed updates). Now the contiguous prefix of finished ranges is kept: on
+    // failure s.last moves to the end of that prefix and the copy is saved (s.at unchanged, so the next request resumes).
+    let next = 0, prefix = 0;
+    const done = new Array(ranges.length).fill(false);
     const worker = async () => { for (;;) { const k = next++; if (k >= ranges.length) return; const [lo, hi] = ranges[k];
       const sent = await logs([TRANSFER, pad], lo, hi, head); const got = await logs([TRANSFER, null, pad], lo, hi, head);
-      add(sent); add(got); } };
-    await Promise.all(Array.from({ length: Math.min(CONC, ranges.length) }, worker));
+      add(sent); add(got); done[k] = true; while (prefix < ranges.length && done[prefix]) prefix++; } };
+    try { await Promise.all(Array.from({ length: Math.min(CONC, ranges.length) }, worker)); }
+    catch (e) {
+      if (prefix > 0) { s.x.sort((a, b) => b.b - a.b || b.i - a.i); s.last = ranges[prefix - 1][1]; put(w, s); save(w, s); }
+      throw e;
+    }
     s.x.sort((a, b) => b.b - a.b || b.i - a.i); // newest first
     s.last = head; s.at = Date.now();
     put(w, s); save(w, s);
@@ -117,6 +128,8 @@ async function backfillNative(w: string, s: W) {
   } catch (e) { lastError = 'native backfill: ' + String((e as Error).message).slice(0, 160); }
   finally { backfilling.delete(w); }
 }
+/** The saved copy as it is (possibly behind the chain), or null — for answers that must not wait on an update. */
+export function walletSaved(wallet: string): W | null { const s = load(wallet.toLowerCase()); return s && s.at ? s : null; }
 /** The wallet's transfers, newest first — up to date within `maxAgeMs` (the saved copy is extended from its last block). */
 export async function walletTransfers(wallet: string, maxAgeMs = 30_000): Promise<W | null> {
   const w = wallet.toLowerCase();
