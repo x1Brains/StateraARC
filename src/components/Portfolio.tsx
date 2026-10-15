@@ -12,6 +12,7 @@ const USDC_ADDR = '0x3600000000000000000000000000000000000000';
 
 export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = false }: { tokens: Token[]; wallet: string | null; onConnect: () => void; onOpenToken?: (addr: string) => void; mainnet?: boolean }) {
   const [addr, setAddr] = useState('');
+  const [startedFor, setStartedFor] = useState(''); // the address the load effect last started for (no empty-state flash)
   const [input, setInput] = useState('');
   // Arc name for the wallet being viewed. Only forward-confirmed names come back (see lib/names.ts).
   const names = useNames([addr]);
@@ -84,7 +85,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     if (!addr || !isAddress(addr)) return;
     let alive = true;
     let hideTimer: ReturnType<typeof setTimeout> | undefined;
-    setLoading(true); setErr(null); setHoldings([]); setNfts([]); setLivePx({}); setLiveMcap({}); setEnriching(false);
+    setLoading(true); setStartedFor(addr); setErr(null); setHoldings([]); setNfts([]); setLivePx({}); setLiveMcap({}); setEnriching(false);
     // Map a holdings source into the view + seed the prices it already carries.
     const apply = (src: RadarHolding[]) => {
       const h = src.map((r) => ({ address: r.address, name: r.name, symbol: r.symbol, decimals: r.decimals, balance: r.amount, iconUrl: r.icon }));
@@ -128,13 +129,13 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
 
         // PHASE 1 — fast indexer sources (RadarDEX + explorer) so the wallet's bag paints in ~1-2s
         // instead of a long blank spinner while the full on-chain scan runs.
-        // ⛔ 10-14 (owner: "portfolio takes forever to load"): this awaited BOTH sources before painting anything. For a wallet
-        // our API hasn't seen, /v2/wallet/<a>/holdings builds its transfer history first (~20 s, then 202 → 25 s abort), so the
-        // page sat on a blank "Loading holdings…" for 25 s although RadarDEX had answered in 0.9 s (measured). Now each source
-        // paints the moment it lands; the second repaints only if it lists MORE tokens — the same "longer list wins" rule, so
-        // the bag the page settles on is unchanged.
-        let fast: RadarHolding[] = [];
-        const paint = (list: RadarHolding[]) => {
+        // ⛔ 10-15 (owner: "it loaded like two coins and then the rest … should load everything all at once"): the 10-14 fix
+        // painted RadarDEX the moment it landed — usually just 1-2 coins — then the rest popped in. Now the loading scene
+        // stays up until OUR list (/v2/wallet/<a>/holdings: every token the wallet ever received, balances live — a stored
+        // wallet answers in ~3 s since 7bca3aa) lands, and the whole bag paints once. RadarDEX alone paints only if ours
+        // hasn't answered in 8 s. Same "longer list wins, ours on a tie" rule as ever, so the bag it settles on is unchanged.
+        let fast: RadarHolding[] = [], rpL: RadarHolding[] = [], pfL: RadarHolding[] | null = null, waited = false;
+        const show = (list: RadarHolding[]) => {
           if (!alive || !list.length || list.length <= fast.length) return;
           fast = list;
           const fs = apply(fast); setLoading(false); setEnriching(true); enrich(fs.h, fs.seeded);
@@ -143,13 +144,16 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
           // still replaces the view with the complete bag whenever it lands.
           if (!hideTimer) hideTimer = setTimeout(() => { if (alive) setEnriching(false); }, 18000);
         };
-        const [rp, pf] = await Promise.all([
-          fetchRadarPortfolio(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] })),
-          fetchPortfolioMainnet(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] })),
-        ].map((p) => p.then((r) => { paint(r.holdings); return r; })));
+        const best = () => (pfL && pfL.length >= rpL.length ? pfL : rpL);
+        const waitT = setTimeout(() => { waited = true; show(best()); }, 8000);
+        await Promise.all([
+          fetchRadarPortfolio(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }))
+            .then((r) => { rpL = r.holdings; if (pfL || waited) show(best()); return r; }),
+          fetchPortfolioMainnet(addr).catch(() => ({ total: null, holdings: [] as RadarHolding[] }))
+            .then((r) => { pfL = r.holdings; if (pfL.length && pfL.length === fast.length && fast !== pfL) fast = []; show(best()); return r; }),
+        ]);
+        clearTimeout(waitT);
         if (!alive) return;
-        // pf first on a tie, as before (pf.length >= rp.length → pf)
-        if (pf.holdings.length && pf.holdings.length >= rp.holdings.length && fast !== pf.holdings) { fast = []; paint(pf.holdings); }
         if (fast.length) {
           /* painted above */
         } else {
@@ -268,6 +272,8 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   const total = rows.reduce((s, r) => s + (r.value ?? 0), 0);
   const totalPnlSum = rows.reduce((s, r) => s + (r.totalPnl ?? 0), 0);
   const hasPnl = pnl != null && rows.some((r) => r.totalPnl != null);
+  // first render after a new address = before the load effect ran: count it as loading, not as an empty wallet
+  const busy = loading || (!!addr && isAddress(addr) && startedFor !== addr);
   const track = () => { if (isAddress(input)) setAddr(input.trim()); else setErr('Enter a valid 0x… address'); };
 
   return (
@@ -285,9 +291,16 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
 
       {err && <div className="msg err">{err}</div>}
       {!addr && !loading && <div className="msg">Paste an address or connect a wallet to begin.</div>}
-      {loading && <div className="msg">Loading holdings…</div>}
+      {busy && (
+        // the Statera S breathes until the whole bag is in (same scene as a token page), then everything paints at once
+        <div className="tload pf-load" role="status" aria-live="polite">
+          <img className="tload-s" src="/statera-s-192.webp" alt="" />
+          <div className="tload-t">Loading portfolio<span className="tload-dots"><i>.</i><i>.</i><i>.</i></span></div>
+          <div className="tload-sub">reading every token this wallet holds, live from Arc</div>
+        </div>
+      )}
 
-      {addr && !loading && (
+      {addr && !busy && (
         <>
           {enriching && (
             <div className="pf-scan">

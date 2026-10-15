@@ -2208,3 +2208,6 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
   .tx-actions > :not(.tx-act) { grid-column: 1 / -1; } /* the address chip keeps its own full-width row */
   .tx-actions .tx-act { justify-content: center; padding: 0 6px; white-space: nowrap; font-size: 11.5px; gap: 5px; }
 }
+
+/* Portfolio loading scene (10-15): the token page's breathing S, in the page flow instead of over a dashboard */
+.tload.pf-load { position: static; min-height: 46vh; }
