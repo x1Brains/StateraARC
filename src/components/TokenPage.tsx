@@ -113,6 +113,26 @@ export function TokenPage() {
 
       <div className="wrap">
 
+      {show.length > 0 && (
+      <section className="section">
+        <div className="section-head"><div><div className="kicker">Statera Robots · 4,444</div><h2>Every Robot comes with 10,000 STR</h2>
+          <p className="sub">A random pick of the rarest — 88 Mythic · 379 Legendary · 658 Epic. Which one you get is drawn when you mint.</p></div></div>
+        <div className="tok-robots">
+          {show.map(x => (
+            <a className={'tok-robot tr-' + x.t} key={x.d} href={MINT_URL} target="_blank" rel="noreferrer">
+              <img src={ROBOT_IMG + x.d + '.png'} alt={'Statera Robot #' + x.d} loading="lazy" />
+              <span className="tr-tag">{{ M: 'MYTHIC', L: 'LEGENDARY', E: 'EPIC' }[x.t]}</span>
+              <span className="tr-str"><img src="/str-token-256.png" alt="" />+10,000 STR</span>
+            </a>
+          ))}
+        </div>
+        <div className="tok-robots-cta">
+          <div><b>Mint a Robot → get <span className="r">10,000 STR</span></b><span>Your X1 City citizenship + 10,000 Statera tokens in one transaction · from $8 USDC</span></div>
+          <a className="btn solid" href={MINT_URL} target="_blank" rel="noreferrer">Mint now <IconArrowRight className="arw" /></a>
+        </div>
+      </section>
+      )}
+
       {/* how to get STR: the Robots bonding curve */}
       <section className="section">
         <div className="section-head"><div><div className="kicker">How to get STR</div><h2>Mint a Statera Robot → get 10,000 STR</h2>
@@ -133,25 +153,6 @@ export function TokenPage() {
         </div>
       </section>
 
-      {show.length > 0 && (
-      <section className="section">
-        <div className="section-head"><div><div className="kicker">Statera Robots · 4,444</div><h2>Every Robot comes with 10,000 STR</h2>
-          <p className="sub">A random pick of the rarest — 88 Mythic · 379 Legendary · 658 Epic. Which one you get is drawn when you mint.</p></div></div>
-        <div className="tok-robots">
-          {show.map(x => (
-            <a className={'tok-robot tr-' + x.t} key={x.d} href={MINT_URL} target="_blank" rel="noreferrer">
-              <img src={ROBOT_IMG + x.d + '.png'} alt={'Statera Robot #' + x.d} loading="lazy" />
-              <span className="tr-tag">{{ M: 'MYTHIC', L: 'LEGENDARY', E: 'EPIC' }[x.t]}</span>
-              <span className="tr-str"><img src="/str-token-256.png" alt="" />+10,000 STR</span>
-            </a>
-          ))}
-        </div>
-        <div className="tok-robots-cta">
-          <div><b>Mint a Robot → get <span className="r">10,000 STR</span></b><span>Your X1 City citizenship + 10,000 Statera tokens in one transaction · from $8 USDC</span></div>
-          <a className="btn solid" href={MINT_URL} target="_blank" rel="noreferrer">Mint now <IconArrowRight className="arw" /></a>
-        </div>
-      </section>
-      )}
 
       <section className="section">
         <div className="section-head"><div><div className="kicker">The Token</div><h2>Built to be bulletproof</h2>
