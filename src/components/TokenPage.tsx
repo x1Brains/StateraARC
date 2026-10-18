@@ -224,6 +224,7 @@ export function TokenPage() {
         <div className="tok-warn">
           <b>Only one real STR.</b> The official Statera token contract is <code>{STR_ADDRESS}</code> on Arc mainnet — always check the address.
           Any other “STR” or “Statera” token is not ours. There is no presale: STR comes from minting Statera Robots. Not financial advice — DYOR.
+          <br />Official contact: <a href="mailto:stateraarc@gmail.com">stateraarc@gmail.com</a>
         </div>
       </section>
       </div>
