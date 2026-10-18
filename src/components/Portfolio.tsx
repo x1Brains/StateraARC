@@ -4,11 +4,13 @@ import { mergeHoldings, fetchHoldings, fetchHoldingsMainnet, fetchHoldingsOnchai
 import { fetchWarpToken } from '../lib/warp';
 import { TokenLogo } from './TokenLogo';
 import { SendModal, type SendToken } from './SendModal';
+import { NftPanel } from './NftPanel';
 import { IconExternal, IconCheck, IconCopy, IconSend } from './icons';
 import { useNames, displayName, hasName } from '../lib/names';
 
 const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
 const USDC_ADDR = '0x3600000000000000000000000000000000000000';
+const STR_ADDR = '0xaaeea145196107f96a209a843e4f14a69dae99d0';
 
 export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = false }: { tokens: Token[]; wallet: string | null; onConnect: () => void; onOpenToken?: (addr: string) => void; mainnet?: boolean }) {
   const [addr, setAddr] = useState('');
@@ -267,7 +269,8 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   // Default view = your VALUED bag. Hidden by default (all revealed by "Show"): counterfeit airdrops, sub-$1
   // PRICED dust, AND unpriced tokens — the ones with no USDC pool to value them ("—"), which are almost
   // always airdrop junk (the "?" no-metadata token, dust XAUM, etc.). A real unpriced hold is one click away.
-  const isDust = (r: typeof rows[number]) => r.value == null || r.value < 1;
+  // Our own STR is never "dust": it has no pool yet (so no price), but it's the real token every Robot mint pays out.
+  const isDust = (r: typeof rows[number]) => r.address.toLowerCase() !== STR_ADDR && (r.value == null || r.value < 1);
   const hiddenCount = useMemo(() => rows.filter((r) => r.counterfeit || isDust(r)).length, [rows]);
   const spamCount = hiddenCount;
   const shownRows = useMemo(() => (showSpam ? rows : rows.filter((r) => !r.counterfeit && !isDust(r))), [rows, showSpam]);
@@ -395,22 +398,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
               ); })}
             </div>
           )}
-          {!!nfts.length && (
-            <div className="pf-nfts">
-              <div className="pf-nfts-head">NFTs <span>{nfts.length} {nfts.length === 1 ? 'collection' : 'collections'}</span></div>
-              <div className="pf-nft-grid">
-                {nfts.map((n) => (
-                  <a className="pf-nft" key={n.address} href={`${CHAIN.scan}/token/${n.address}`} target="_blank" rel="noreferrer" title={n.name}>
-                    <TokenLogo symbol={n.symbol || n.name} seed={n.address} url={n.icon} />
-                    <span className="pf-nft-id">
-                      <span className="pf-nft-nm">{n.name}</span>
-                      <span className="pf-nft-ct">{compact(n.count)} {n.type.includes('1155') ? 'items' : n.count === 1 ? 'NFT' : 'NFTs'}</span>
-                    </span>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
+          {addr && <NftPanel owner={addr} wallet={wallet} isOwnWallet={isOwnWallet} collections={nfts} />}
           {!rows.length && !nfts.length && (enriching
             ? <div className="msg">No tokens found in the quick check. Doing a full on-chain scan to be sure — for a wallet the site hasn't seen before this can take up to a minute.</div>
             : <div className="msg">This wallet doesn't hold any tokens on {mainnet ? 'Arc Mainnet' : CHAIN.name}.</div>)}
