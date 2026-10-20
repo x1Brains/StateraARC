@@ -265,7 +265,8 @@ export function storeStats() {
   const d = conn(); if (!d) return { ok: false };
   try {
     const n = d.prepare('SELECT COUNT(*) n FROM pools WHERE ok=1').get() as { n: number };
-    return { ok: true, pools: n.n, ...coverage() };
+    const day = new Date().toISOString().slice(0, 10), today = metaGet(d, 'day:' + day);
+    return { ok: true, pools: n.n, ...coverage(), today: today ? { day, ...JSON.parse(today) } : null, tstatsAt: Number(metaGet(d, 'tstats_at') || 0) || null };
   } catch (e) { return { ok: false, error: (e as Error).message }; }
 }
 

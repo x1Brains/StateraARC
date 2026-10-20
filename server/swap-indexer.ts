@@ -204,6 +204,15 @@ const LIVE_FILTER = { topics: [[T_V3_SWAP, T_V2_SWAP, T_V4_SWAP, T_V4_INIT]] };
 export const stats = { stored: 0, skipped: 0, calls: 0 };
 
 // Fetch + store one block range (logs already sorted by the node). Returns how many logs came back.
+// Per-UTC-day counters of the live stream (meta day:<YYYY-MM-DD>): every Swap event SEEN by venue (stored or not) and how many were
+// STORED — to cross-check against outside counts (e.g. Eita's uni_swaps) and see what the USDC/verified-pool filter drops.
+const dayCounts = new Map<string, Record<string, number>>();
+function countDay(l: any, stored: boolean) {
+  const day = new Date(Number(BigInt(l.blockTimestamp)) * 1000).toISOString().slice(0, 10), t = l.topics[0].toLowerCase();
+  const c = dayCounts.get(day) || (() => { const o = JSON.parse(metaGet(db, 'day:' + day) || '{}'); dayCounts.set(day, o); return o; })();
+  const k = t === T_V4_SWAP ? 'v4' : t === T_V2_SWAP ? 'v2' : 'v3cl';
+  c[k] = (c[k] || 0) + 1; if (stored) c.stored = (c.stored || 0) + 1;
+}
 async function ingest(logs: any[], fromLive = false): Promise<number> {
   storeInits(logs);
   const swapLogs = logs.filter((l) => l.topics?.[0] && l.topics[0].toLowerCase() !== T_V4_INIT);
@@ -222,11 +231,12 @@ async function ingest(logs: any[], fromLive = false): Promise<number> {
       const t = l.topics[0].toLowerCase(), a = l.address.toLowerCase();
       if (t === T_V4_SWAP && a !== PM_V4) continue;
       const p = poolByKey.get(t === T_V4_SWAP ? l.topics[1].toLowerCase() : a);
-      if (!p || !p.ok) { stats.skipped++; continue; }
-      const r = decode(l, p); if (!r) { stats.skipped++; continue; }
+      if (!p || !p.ok) { stats.skipped++; if (fromLive) countDay(l, false); continue; }
+      const r = decode(l, p); if (!r) { stats.skipped++; if (fromLive) countDay(l, false); continue; }
       const ts = Number(BigInt(l.blockTimestamp));
       const res = insSwap.run(Number(BigInt(l.blockNumber)), Number(BigInt(l.logIndex)), p.pid, ts, r.side, r.price, r.usd, r.amt, txToBlob(l.transactionHash));
       if (res.changes) { stats.stored++; touched.add(p.pid + ':' + Math.floor(ts / 60) * 60); if (fromLive) makerQueue.set(l.transactionHash.toLowerCase(), 0); }
+      if (fromLive && res.changes) countDay(l, true);
     }
     for (const k of touched) {
       const [pid, t] = k.split(':').map(Number);
@@ -236,6 +246,8 @@ async function ingest(logs: any[], fromLive = false): Promise<number> {
       for (const x of rows) { if (x.price > h) h = x.price; if (x.price < lo) lo = x.price; v += x.usd; }
       upC1m.run(pid, t, rows[0].price, h, lo, rows[rows.length - 1].price, v, rows.length);
     }
+    for (const [day, c] of dayCounts) metaSet(db, 'day:' + day, JSON.stringify(c));
+    if (dayCounts.size > 2) dayCounts.delete(dayCounts.keys().next().value!);
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   return logs.length;
