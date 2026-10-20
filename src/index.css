@@ -2368,3 +2368,4 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .pf-closed-h span { font-family: var(--mono); font-size: 12px; color: var(--gray); margin-left: 8px; font-weight: 500; }
 .pf-crow { grid-template-columns: 38px minmax(120px, 1fr) 96px 96px 64px 104px; }
 @media (max-width: 640px) { .pf-crow { grid-template-columns: 30px minmax(80px, 1fr) auto; gap: 8px; } }
+@media (max-width: 640px) { .chart-ohlc { padding: 0 2px 6px; gap: 2px 8px; font-size: 10px; } }

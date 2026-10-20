@@ -256,7 +256,7 @@ async function initPrepass(head: number) {
 }
 
 // ── back cursor: from the first live block down to START_BLOCK, 3 ranges in flight ───────────────────────────────────
-let span = 4000;
+let span = 4000, lastLog = 0;
 async function backfill() {
   const stopAt = STOP_AT ?? START_BLOCK;
   let back = Number(metaGet(db, 'back'));
@@ -279,7 +279,7 @@ async function backfill() {
     await sleep(PACE_MS);
     const most = Math.max(...res.map((r) => r.length));
     span = most > 15000 ? Math.max(500, Math.floor(span / 2)) : most < 6000 ? Math.min(WIDE_RPCS.length ? WIDE_RANGE : MAX_RANGE, Math.floor(span * 1.5)) : span;
-    if (stats.calls % 30 < parts.length) log(`back ${lo} (${((hi - START_BLOCK) / 1e6).toFixed(2)}M left) logs ${all.length} stored ${stats.stored} span ${span} ${Date.now() - t0}ms`);
+    if (Date.now() - lastLog > 20_000) { lastLog = Date.now(); log(`back ${lo} (${((hi - START_BLOCK) / 1e6).toFixed(2)}M left) logs ${all.length} stored ${stats.stored} span ${span} ${Date.now() - t0}ms`); }
   }
   metaSet(db, 'back_done', Date.now());
   log('BACKFILL COMPLETE — stored', stats.stored, 'swaps; unknown factories:', JSON.stringify([...unknownFactories].sort((a, b) => b[1] - a[1]).slice(0, 10)));
