@@ -102,10 +102,26 @@ const intOf = (r: string) => { if (!r || r.length < 66) return null; let v = Big
 // ── DB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const db = openSwapDb(false);
 type PoolRow = { pid: number; key: string; kind: string; token: string | null; usdc0: number; dec: number; ok: number };
-const poolByKey = new Map<string, PoolRow>();
-for (const r of db.prepare('SELECT pid,key,kind,token,usdc0,dec,ok FROM pools').all() as PoolRow[]) poolByKey.set(r.key, r);
-const v4 = new Map<string, { c0: string; c1: string }>();
-for (const r of db.prepare('SELECT pool,c0,c1 FROM v4init').all() as { pool: string; c0: string; c1: string }[]) v4.set(r.pool, r);
+// ⛔ 10-20: these were loaded WHOLE into memory at start (every pool ever seen + 264k V4 Initialize rows, mostly decoys) —
+// ~600 MB, OOM-killed under the VPS unit's 300 MB cap. Now: read from SQLite on demand behind a bounded LRU (misses cached too).
+class DbMap<V> {
+  private m = new Map<string, V | null>();
+  private q: (k: string) => V | undefined;
+  private max: number;
+  constructor(q: (k: string) => V | undefined, max = 40_000) { this.q = q; this.max = max; }
+  get(k: string): V | undefined {
+    if (this.m.has(k)) { const v = this.m.get(k)!; this.m.delete(k); this.m.set(k, v); return v ?? undefined; }
+    const v = this.q(k); this.put(k, v ?? null); return v;
+  }
+  has(k: string) { return this.get(k) !== undefined; }
+  set(k: string, v: V) { this.put(k, v); }
+  private put(k: string, v: V | null) { this.m.delete(k); this.m.set(k, v); if (this.m.size > this.max) this.m.delete(this.m.keys().next().value!); }
+}
+const poolQ = db.prepare('SELECT pid,key,kind,token,usdc0,dec,ok FROM pools WHERE key=?');
+const poolByKey = new DbMap<PoolRow>((k) => poolQ.get(k) as PoolRow | undefined);
+const v4Q = db.prepare('SELECT c0,c1 FROM v4init WHERE pool=?');
+const v4 = new DbMap<{ c0: string; c1: string }>((k) => v4Q.get(k) as { c0: string; c1: string } | undefined);
+let v4Seen = 0;
 const decCache = new Map<string, number | null>();
 const insPool = db.prepare('INSERT INTO pools(key,kind,venue,token,usdc0,dec,ok,why,at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(key) DO NOTHING');
 const insInit = db.prepare('INSERT OR IGNORE INTO v4init(pool,c0,c1,fee,ts,hooks,blk) VALUES(?,?,?,?,?,?,?)');
@@ -170,7 +186,7 @@ function storeInits(logs: any[]) {
     const id = l.topics[1].toLowerCase(), c0 = ('0x' + l.topics[2].slice(26)).toLowerCase(), c1 = ('0x' + l.topics[3].slice(26)).toLowerCase();
     const d = l.data.slice(2);
     insInit.run(id, c0, c1, Number(word(d, 0)), Number(BigInt(l.blockTimestamp || '0x0')), '0x' + d.slice(64 * 2 + 24, 64 * 3), Number(BigInt(l.blockNumber)));
-    v4.set(id, { c0, c1 });
+    v4.set(id, { c0, c1 }); v4Seen++;
   }
 }
 // Decode one Swap log for a known USDC pool → the row (or null for an unpriceable / zero swap).
@@ -263,9 +279,9 @@ async function initPrepass(head: number) {
     const logs = await getLogs({ address: PM_V4, topics: [T_V4_INIT] }, from, to); stats.calls++;
     db.exec('BEGIN'); try { storeInits(logs); metaSet(db, 'init_cursor', to + 1); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
     from = to + 1;
-    if (stats.calls % 50 === 0) log('init pre-pass at', from, 'v4 pools', v4.size);
+    if (stats.calls % 50 === 0) log('init pre-pass at', from, 'v4 pools', v4Seen);
   }
-  log('V4 pre-pass done:', v4.size, 'pools');
+  log('V4 pre-pass done:', v4Seen, 'new pools');
 }
 
 // ── back cursor: from the first live block down to START_BLOCK, 3 ranges in flight ───────────────────────────────────
