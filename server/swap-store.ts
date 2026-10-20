@@ -19,20 +19,22 @@ const WEEK_OFFSET = 4 * 86400; // unix 0 was a Thursday → +4 days puts week bu
 const bucketOf = (t: number, sec: number) => (sec === 604800 ? Math.floor((t - WEEK_OFFSET) / sec) * sec + WEEK_OFFSET : Math.floor(t / sec) * sec);
 
 export interface Bar { time: number; open: number; high: number; low: number; close: number; volume: number; trades: number }
-type PoolInfo = { pid: number; venue: string; kind: string; vol: number; first: number; last: number };
+type PoolInfo = { pid: number; venue: string; kind: string; vol: number; n: number; first: number; last: number };
 
 // Which pools of a token feed its chart. ⛔ Anyone can open a decoy pool for a pair (GLITCH had 11 V4 pools) and print
-// any price on it with a few cents; a pool counts only when it carries ≥1% of the token's all-time USD volume (and $25).
+// any price on it with a few cents. ⛔ USD volume alone is fakeable too (a "cirBTC" copy showed $156M over 124 swaps —
+// one wallet trading huge size against itself); every trade costs gas, so the trade COUNT is the harder signal.
+// A pool counts when it has ≥3 trades and ≥1% of the token's trades or ≥1% of its USD volume (and ≥$25).
 const poolCache = new Map<string, { at: number; v: PoolInfo[] }>();
 function poolsOf(token: string): PoolInfo[] {
   const d = conn(); if (!d) return [];
   const t = token.toLowerCase(), hit = poolCache.get(t);
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.v;
   const rows = d.prepare('SELECT pid, venue, kind FROM pools WHERE token=? AND ok=1').all(t) as { pid: number; venue: string; kind: string }[];
-  const st = d.prepare('SELECT COALESCE(SUM(v),0) vol, MIN(t) first, MAX(t) last FROM c1m WHERE pid=?');
-  const all = rows.map((r) => { const s = st.get(r.pid) as { vol: number; first: number | null; last: number | null }; return { ...r, vol: s.vol, first: s.first ?? 0, last: s.last ?? 0 }; }).filter((p) => p.last > 0);
-  const total = all.reduce((s, p) => s + p.vol, 0);
-  const v = all.filter((p) => p.vol >= Math.max(25, total * 0.01)).sort((a, b) => b.vol - a.vol);
+  const st = d.prepare('SELECT COALESCE(SUM(v),0) vol, COALESCE(SUM(n),0) n, MIN(t) first, MAX(t) last FROM c1m WHERE pid=?');
+  const all = rows.map((r) => { const s = st.get(r.pid) as { vol: number; n: number; first: number | null; last: number | null }; return { ...r, vol: s.vol, n: s.n, first: s.first ?? 0, last: s.last ?? 0 }; }).filter((p) => p.last > 0);
+  const total = all.reduce((s, p) => s + p.vol, 0), totalN = all.reduce((s, p) => s + p.n, 0);
+  const v = all.filter((p) => p.n >= 3 && (p.n >= totalN * 0.01 || p.vol >= Math.max(25, total * 0.01))).sort((a, b) => b.n - a.n);
   poolCache.set(t, { at: Date.now(), v });
   if (poolCache.size > 3000) poolCache.delete(poolCache.keys().next().value!);
   return v;
@@ -45,7 +47,7 @@ export function coverage() {
 }
 
 // Candles for `token` at `res`, the newest `limit` buckets ending before `before` (unix s; default = now).
-// Per bucket: OHLC from the pool that traded the most USD in it (pools are arbitraged together, and one pool's own path is
+// Per bucket: OHLC from the pool with the most TRADES in it (pools are arbitraged together, and one pool's own path is
 // a real price path — mixing the swaps of several pools would draw their tiny offsets as wicks); volume = every counted pool.
 // Each candle opens at the previous close (no gaps between candles); a bucket without trades is a flat 0-volume candle.
 // A token quiet for the whole window gets the window that ends at its last trade instead of an empty chart.
@@ -84,7 +86,7 @@ export function candles(token: string, resKey: string, limit = 1000, before?: nu
     const B = buckets.get(t);
     if (B) {
       let best: Acc | null = null;
-      for (const a of B.per.values()) if (!best || a.v > best.v || (a.v === best.v && a.n > best.n)) best = a;
+      for (const a of B.per.values()) if (!best || a.n > best.n || (a.n === best.n && a.v > best.v)) best = a;
       const open = prev ?? best!.o;
       out.push({ time: t, open, high: Math.max(best!.h, open), low: Math.min(best!.l, open), close: best!.c, volume: B.v, trades: B.n });
       prev = best!.c;
