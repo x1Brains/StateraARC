@@ -306,7 +306,10 @@ async function live() {
 async function main() {
   const head = parseInt(await rpc(HEAD_RPCS, 'eth_blockNumber', []), 16);
   if (metaGet(db, 'live') == null) { metaSet(db, 'live', head); metaSet(db, 'back', head + 1); metaSet(db, 'started', Date.now()); }
-  await initPrepass(head);
+  // The pre-pass only has to reach the block the live follower started at — the live filter includes Initialize from there.
+  // ⛔ Re-running it to the CURRENT head on every restart sent wide getLogs to tenderly, which 429s the VPS (crash loop).
+  if (metaGet(db, 'init_to') == null) metaSet(db, 'init_to', metaGet(db, 'live')!);
+  await initPrepass(Number(metaGet(db, 'init_to')));
   // the pre-pass covered Initialize up to `head`; the live loop's filter includes Initialize from here on
   if (!NO_LIVE) live();
   await backfill();

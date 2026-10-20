@@ -15,6 +15,9 @@ Nice=10
 MemoryMax=300M
 Environment=NODE_ENV=production
 Environment=SWAPS_DB=/root/statera-swaps/swaps.db
+# Head follower only (the history was backfilled elsewhere): blockdaemon first (has recent logs), tenderly as the spare —
+# ~1 call / 2 s. ⛔ No backfill from this box (tenderly 429s it; arc.io + blockdaemon are the money bots' RPCs).
+Environment=SWAPS_RPCS=https://rpc.blockdaemon.mainnet.arc.io,https://arc.gateway.tenderly.co
 
 [Install]
 WantedBy=multi-user.target
