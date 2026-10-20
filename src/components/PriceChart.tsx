@@ -67,6 +67,10 @@ const priceFmt = (p: number) => {
   return sgn + (zeros >= 4 ? `$0.0${String(zeros).split('').map((d) => SUB[+d]).join('')}${digits}` : `$0.${'0'.repeat(zeros)}${digits}`);
 };
 const mcapFmt = (p: number) => (!isFinite(p) ? '—' : '$' + compact(p));
+// the price axis keeps empty room under the lowest candle for the volume bars — never label that room as a negative price
+const axisFmt = (f: (v: number) => string) => (v: number) => (v <= 0 ? '' : f(v));
+// short dollar amounts for marker labels: $26.83 · $750 · $12.4K
+const usdShort = (v: number) => (v >= 1000 ? '$' + compact(v) : v >= 100 ? '$' + v.toFixed(0) : '$' + v.toFixed(2));
 
 export function PriceChart({ address, symbol, decimals, priceScale = 1, change24h, trades, supply }: { address: string; symbol?: string; decimals?: number; priceScale?: number; change24h?: number | null; trades?: WalletTrade[] | null; supply?: number | null }) {
   const [res, setRes] = useState(() => (SEC[lsGet('statera-chart-res', '5m')] != null ? lsGet('statera-chart-res', '5m') : '5m'));
@@ -86,6 +90,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   const [loading, setLoading] = useState(true);
   const [older, setOlder] = useState(false);
   const [hover, setHover] = useState<Bar | null>(null);
+  const [dense, setDense] = useState(false); // candles narrower than ~7px: marker labels hidden
 
   const cardRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -204,7 +209,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     chartRef.current = chart;
     const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth, height: el.clientHeight || 380 }));
     ro.observe(el);
-    chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r && r.from < 40) loadOlderRef.current(); });
+    chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r && r.from < 40) loadOlderRef.current(); if (r) setDense(el.clientWidth / Math.max(1, r.to - r.from) < 7); });
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; mainRef.current = null; mainTypeRef.current = null; volRef.current = null; indRef.current = []; markersRef.current = null; };
   }, []);
   const loadOlderRef = useRef(loadOlder); loadOlderRef.current = loadOlder;
@@ -249,7 +254,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     const max = display.reduce((m, c) => Math.max(m, c.high), 0);
     // tick size ~5 significant digits below the top price (a 1e-9 token needs a far finer step than 1e-10 ⇢ "precision 10")
     const minMove = mult !== 1 ? 1 : max > 0 ? Math.pow(10, Math.floor(Math.log10(max)) - 5) : 1e-8;
-    main.applyOptions({ priceFormat: { type: 'custom', formatter: fmt, minMove } });
+    main.applyOptions({ priceFormat: { type: 'custom', formatter: axisFmt(fmt), minMove } });
     main.setData((ctype === 'line' || ctype === 'area' ? display.map((c) => ({ time: c.time as Time, value: c.close })) : display.map((c) => ({ ...c, time: c.time as Time }))) as any);
 
     // volume (overlay at the bottom of the price pane)
@@ -319,11 +324,19 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     // the candle a trade belongs to = the last candle that opened at or before it (works for weeks and calendar months too)
     const times = display.map((c) => c.time);
     const bucket = (ts: number) => { let lo = 0, hi = times.length - 1; if (ts < times[0]) return -1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (times[m] <= ts) lo = m; else hi = m - 1; } return times[lo]; };
-    const marks = (trades || []).map((t) => ({ ...t, b: bucket(t.ts / 1000) })).filter((t) => t.b >= first && t.b < lastT).sort((a, b) => a.b - b.b)
-      .map((t) => ({ time: t.b as Time, position: t.side === 'buy' ? 'belowBar' as const : 'aboveBar' as const, color: t.side === 'buy' ? '#4ecb71' : '#ff5a3c',
-        shape: t.side === 'buy' ? 'arrowUp' as const : 'arrowDown' as const, text: `${t.side === 'buy' ? 'B' : 'S'} ${usd(t.usd)}` }));
+    // one marker per candle and side (several buys in one candle stacked their labels on top of each other): "B $750", "B×3 $1.2K"
+    const groups = new Map<string, { b: number; side: 'buy' | 'sell'; usd: number; n: number }>();
+    for (const t of trades || []) {
+      const b = bucket(t.ts / 1000); if (b < first || b >= lastT) continue;
+      const k = b + t.side, g = groups.get(k);
+      if (g) { g.usd += t.usd; g.n++; } else groups.set(k, { b, side: t.side, usd: t.usd, n: 1 });
+    }
+    const marks = [...groups.values()].sort((a, b) => a.b - b.b).map((g) => ({ time: g.b as Time, position: g.side === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
+      color: g.side === 'buy' ? '#4ecb71' : '#ff5a3c', shape: g.side === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
+      // zoomed out (thin candles) the labels collide — arrows only; hovering the candle still shows the trade in the legend
+      text: dense ? '' : `${g.side === 'buy' ? 'B' : 'S'}${g.n > 1 ? '×' + g.n : ''} ${usdShort(g.usd)}` }));
     markersRef.current.setMarkers(marks);
-  }, [trades, display, sec, ctype]);
+  }, [trades, display, sec, ctype, dense]);
 
   // ── drawings: time ↔ x over the loaded bars (interpolated inside, extrapolated past either end) ─────────────────────
   const timeToLogical = (t: number): number | null => {
@@ -414,6 +427,16 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   const chg = change24h != null && isFinite(change24h) && Math.abs(change24h) < 1e5 ? change24h : null;
   const k = hover ?? lastBar;
   const kChg = k && k.open > 0 ? ((k.close - k.open) / k.open) * 100 : null;
+  // the wallet's own trades inside the candle under the cursor (labels on the chart hide when zoomed out)
+  const kMine = (() => {
+    if (!k || !trades?.length || !display) return null;
+    const i = display.findIndex((c) => c.time === k.time); if (i < 0) return null;
+    const end = display[i + 1]?.time ?? k.time + sec;
+    const inBar = trades.filter((t) => t.ts / 1000 >= k.time && t.ts / 1000 < end);
+    if (!inBar.length) return null;
+    const b = inBar.filter((t) => t.side === 'buy').reduce((x, t) => x + t.usd, 0), sl = inBar.filter((t) => t.side === 'sell').reduce((x, t) => x + t.usd, 0);
+    return { b, sl };
+  })();
   const toggleInd = (key: string) => setInd((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const since = meta.backTs && meta.source === 'store' ? new Date(meta.backTs * 1000).toISOString().slice(0, 10) : null;
 
@@ -475,7 +498,8 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
               {kChg != null && <span className={kChg >= 0 ? 'up' : 'down'}>{kChg >= 0 ? '+' : ''}{kChg.toFixed(2)}%</span>}
               <span>Vol <b>{usd(k.volume ?? 0)}</b></span>
               {k.trades != null && k.trades > 0 && <span>Trades <b>{k.trades}</b></span>}
-              {!!trades?.length && <span className="chart-mine">Your trades <i className="b">B</i><i className="s">S</i></span>}
+              {kMine ? <span className="chart-mine">You: {kMine.b > 0 && <i className="b">B {usdShort(kMine.b)}</i>}{kMine.sl > 0 && <i className="s">S {usdShort(kMine.sl)}</i>}</span>
+                : !!trades?.length && <span className="chart-mine">Your trades <i className="b">B</i><i className="s">S</i></span>}
             </div>
           )}
           {tool !== 'pointer' && <div className="chart-hint">{TOOL_POINTS[tool] === 1 ? 'Click to place' : drawRef.current.draft ? 'Click the second point' : 'Click the first point'} · Esc cancels</div>}
