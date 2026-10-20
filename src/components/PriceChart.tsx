@@ -90,7 +90,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   const [loading, setLoading] = useState(true);
   const [older, setOlder] = useState(false);
   const [hover, setHover] = useState<Bar | null>(null);
-  const [dense, setDense] = useState(false); // candles narrower than ~7px: marker labels hidden
+  const [clusterBars, setClusterBars] = useState(1); // wallet markers closer than ~70px merge into one labelled marker
 
   const cardRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -209,7 +209,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     chartRef.current = chart;
     const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth, height: el.clientHeight || 380 }));
     ro.observe(el);
-    chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r && r.from < 40) loadOlderRef.current(); if (r) setDense(el.clientWidth / Math.max(1, r.to - r.from) < 7); });
+    chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r && r.from < 40) loadOlderRef.current(); if (r) { const px = el.clientWidth / Math.max(1, r.to - r.from); setClusterBars(Math.max(1, Math.ceil(70 / px))); } });
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; mainRef.current = null; mainTypeRef.current = null; volRef.current = null; indRef.current = []; markersRef.current = null; };
   }, []);
   const loadOlderRef = useRef(loadOlder); loadOlderRef.current = loadOlder;
@@ -324,19 +324,21 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     // the candle a trade belongs to = the last candle that opened at or before it (works for weeks and calendar months too)
     const times = display.map((c) => c.time);
     const bucket = (ts: number) => { let lo = 0, hi = times.length - 1; if (ts < times[0]) return -1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (times[m] <= ts) lo = m; else hi = m - 1; } return times[lo]; };
-    // one marker per candle and side (several buys in one candle stacked their labels on top of each other): "B $750", "B×3 $1.2K"
+    // ⛔ owner 10-20: per-trade labels piled on top of each other, but arrows WITHOUT amounts said nothing. Trades of one side
+    // within ~70px of each other merge into ONE labelled marker ("B×3 $1.2K", sum of USD) — how many candles that spans follows
+    // the zoom (clusterBars), so zooming in splits them back into single trades.
+    const idx = new Map(times.map((t, i) => [t, i]));
     const groups = new Map<string, { b: number; side: 'buy' | 'sell'; usd: number; n: number }>();
     for (const t of trades || []) {
       const b = bucket(t.ts / 1000); if (b < first || b >= lastT) continue;
-      const k = b + t.side, g = groups.get(k);
-      if (g) { g.usd += t.usd; g.n++; } else groups.set(k, { b, side: t.side, usd: t.usd, n: 1 });
+      const cell = Math.floor((idx.get(b) ?? 0) / clusterBars), k = cell + t.side, g = groups.get(k);
+      if (g) { g.usd += t.usd; g.n++; if (b < g.b) g.b = b; } else groups.set(k, { b, side: t.side, usd: t.usd, n: 1 });
     }
     const marks = [...groups.values()].sort((a, b) => a.b - b.b).map((g) => ({ time: g.b as Time, position: g.side === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
       color: g.side === 'buy' ? '#4ecb71' : '#ff5a3c', shape: g.side === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
-      // zoomed out (thin candles) the labels collide — arrows only; hovering the candle still shows the trade in the legend
-      text: dense ? '' : `${g.side === 'buy' ? 'B' : 'S'}${g.n > 1 ? '×' + g.n : ''} ${usdShort(g.usd)}` }));
+      text: `${g.side === 'buy' ? 'B' : 'S'}${g.n > 1 ? '×' + g.n : ''} ${usdShort(g.usd)}` }));
     markersRef.current.setMarkers(marks);
-  }, [trades, display, sec, ctype, dense]);
+  }, [trades, display, sec, ctype, clusterBars]);
 
   // ── drawings: time ↔ x over the loaded bars (interpolated inside, extrapolated past either end) ─────────────────────
   const timeToLogical = (t: number): number | null => {
