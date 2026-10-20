@@ -13,8 +13,9 @@ import path from 'node:path';
 
 export const SWAPS_DB = process.env.SWAPS_DB || '/root/statera-swaps/swaps.db';
 export const USDC = '0x3600000000000000000000000000000000000000';
-// First block with a Uniswap deployment on Arc mainnet (V3 swaps start at 1,948,019, V4 at 1,948,056).
-export const START_BLOCK = Number(process.env.SWAPS_START || 1_948_000);
+// History starts at the PUBLIC MAINNET LAUNCH, 2026-09-16 00:00 UTC = block 21,068,653 (owner 10-20: "it should be when the
+// mainnet launched on the 16th"). The chain has blocks back to May (pre-launch) — those trades are not charted.
+export const START_BLOCK = Number(process.env.SWAPS_START || 21_068_653);
 
 export function openSwapDb(readonly = false): DatabaseSync {
   if (!readonly) fs.mkdirSync(path.dirname(SWAPS_DB), { recursive: true });

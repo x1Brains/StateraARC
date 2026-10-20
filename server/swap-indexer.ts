@@ -3,7 +3,7 @@
 //   node --disable-warning=ExperimentalWarning server/swap-indexer.ts      (systemd: server/statera-swaps.service)
 // Two cursors, one process:
 //   live — follows the head every ~2 s (getLogs from the last indexed block; includes V4 Initialize so new pools are known)
-//   back — walks from the first live block DOWN to START_BLOCK, newest history first, until the whole chain is in
+//   back — walks from the first live block DOWN to START_BLOCK (mainnet launch, 2026-09-16), newest history first
 // A V4 Initialize pre-pass (the whole chain, ~300 calls) runs once first so every V4 swap can be attributed.
 // Venues: Uniswap V3 + Aerodrome/Archery CL (same Swap event), V2 forks (DyorSwap, UniV2, WarpV2, Arctide), Uniswap V4.
 // ⛔ A V3/V2/CL pool is accepted only when its factory is a KNOWN factory AND that factory's getPool/getPair returns this
