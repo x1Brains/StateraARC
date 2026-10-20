@@ -20,6 +20,7 @@
 //   /v2/token/<addr>/bars?res&limit&before    chart candles from the swap store (1m…1w, all history, paged backwards)
 //   /v2/token/<addr>/history?limit&before&side&min   the token's trades from the swap store, any age
 //   /v2/wallet/<addr>/swaps?token     every swap in the wallet's own transactions (B/S markers, position, P&L)
+//   /v2/token/<addr>/flow | traders?sort=pnl|volume|loss | profitability   money flow, top traders, holder profitability
 import http from 'node:http';
 import fs from 'node:fs';
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
@@ -255,8 +256,15 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     const hsm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/history$/);
     if (hsm) {
       const sd = u.searchParams.get('side'), before = u.searchParams.get('before') ? intIn(u.searchParams.get('before'), 0, 0, 4e9) : undefined;
-      const r = Swaps.trades(hsm[1].toLowerCase(), intIn(u.searchParams.get('limit'), 100, 1, 500), before, sd === 'buy' || sd === 'sell' ? sd : undefined, Math.max(0, Number(u.searchParams.get('min')) || 0));
+      const mk = (u.searchParams.get('maker') || '').toLowerCase();
+      const r = Swaps.trades(hsm[1].toLowerCase(), intIn(u.searchParams.get('limit'), 100, 1, 500), before, sd === 'buy' || sd === 'sell' ? sd : undefined, Math.max(0, Number(u.searchParams.get('min')) || 0), /^0x[0-9a-f]{40}$/.test(mk) ? mk : undefined);
       send(req, res, r ? 200 : 503, JSON.stringify(r ?? { error: 'swap store unavailable' }), undefined, r ? (before ? 60 : 5) : 0); return;
+    }
+    const am = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/(flow|traders|profitability)$/);
+    if (am) {
+      const a = am[1].toLowerCase(), so = u.searchParams.get('sort');
+      const r = am[2] === 'flow' ? Swaps.flow(a) : am[2] === 'traders' ? Swaps.topTraders(a, so === 'volume' || so === 'loss' ? so : 'pnl', intIn(u.searchParams.get('limit'), 50, 1, 200)) : Swaps.profitability(a);
+      send(req, res, r ? 200 : 503, JSON.stringify(r ?? { error: 'swap store unavailable' }), undefined, r ? 30 : 0); return;
     }
     const sm = path.match(/^\/wallet\/(0x[0-9a-fA-F]{40})\/swaps$/);
     if (sm) {

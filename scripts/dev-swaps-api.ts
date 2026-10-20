@@ -16,7 +16,9 @@ http.createServer(async (req, res) => {
   let m = p.match(/^\/token\/(0x[0-9a-fA-F]{40})\/bars$/);
   if (m) { const b = u.searchParams.get('before'); return json(res, 200, Swaps.candles(m[1].toLowerCase(), u.searchParams.get('res') || '5m', Number(u.searchParams.get('limit') || 1000), b ? Number(b) : undefined)); }
   m = p.match(/^\/token\/(0x[0-9a-fA-F]{40})\/history$/);
-  if (m) { const b = u.searchParams.get('before'), sd = u.searchParams.get('side'); return json(res, 200, Swaps.trades(m[1].toLowerCase(), Number(u.searchParams.get('limit') || 100), b ? Number(b) : undefined, sd === 'buy' || sd === 'sell' ? sd : undefined, Number(u.searchParams.get('min') || 0))); }
+  if (m) { const b = u.searchParams.get('before'), sd = u.searchParams.get('side'); return json(res, 200, Swaps.trades(m[1].toLowerCase(), Number(u.searchParams.get('limit') || 100), b ? Number(b) : undefined, sd === 'buy' || sd === 'sell' ? sd : undefined, Number(u.searchParams.get('min') || 0), u.searchParams.get('maker') || undefined)); }
+  m = p.match(/^\/token\/(0x[0-9a-fA-F]{40})\/(flow|traders|profitability)$/);
+  if (m) { const a = m[1].toLowerCase(), so = u.searchParams.get('sort') as any; return json(res, 200, m[2] === 'flow' ? Swaps.flow(a) : m[2] === 'traders' ? Swaps.topTraders(a, so || 'pnl', Number(u.searchParams.get('limit') || 50)) : Swaps.profitability(a)); }
   m = p.match(/^\/wallet\/(0x[0-9a-fA-F]{40})\/swaps$/);
   if (m) {
     // the real API reads the wallet's tx list from its wallet index; here it comes from the tunnel's /transfers

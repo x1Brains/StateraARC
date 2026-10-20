@@ -6,6 +6,8 @@
 //   swaps  — the raw trades (price = USDC per token after the swap, usd = the USDC leg, amt = token amount, side 1 buy / -1 sell)
 //   c1m    — 1-minute OHLCV per pool, rebuilt from `swaps` whenever a minute gets a new swap; every timeframe is derived from it
 //   v4init — V4 Initialize events (poolId → currencies), so a V4 swap can be priced and attributed
+//   makers — tx → the wallet that sent it (tx.from). Swap events only name the ROUTER; the trader is the tx sender. Filled
+//            for new swaps by the indexer (batched tx lookups) and for history by scripts/makers-backfill.ts (block reads)
 //   meta   — cursors (back = lowest block indexed, live = highest) + counters
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
@@ -20,9 +22,9 @@ export const START_BLOCK = Number(process.env.SWAPS_START || 21_068_653);
 export function openSwapDb(readonly = false): DatabaseSync {
   if (!readonly) fs.mkdirSync(path.dirname(SWAPS_DB), { recursive: true });
   const db = new DatabaseSync(SWAPS_DB, readonly ? { readOnly: true } : {});
-  if (readonly) { db.exec('PRAGMA query_only=1; PRAGMA cache_size=-32000;'); return db; }
+  if (readonly) { db.exec('PRAGMA busy_timeout=5000; PRAGMA query_only=1; PRAGMA cache_size=-32000;'); return db; }
   db.exec(`
-    PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-32000;
+    PRAGMA busy_timeout=15000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-32000;
     CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
     CREATE TABLE IF NOT EXISTS pools (pid INTEGER PRIMARY KEY, key TEXT UNIQUE NOT NULL, kind TEXT, venue TEXT,
       token TEXT, usdc0 INTEGER, dec INTEGER, ok INTEGER NOT NULL DEFAULT 0, why TEXT, at INTEGER);
@@ -33,6 +35,8 @@ export function openSwapDb(readonly = false): DatabaseSync {
       PRIMARY KEY (blk, li)) WITHOUT ROWID;
     CREATE INDEX IF NOT EXISTS swaps_pid_ts ON swaps(pid, ts);
     CREATE INDEX IF NOT EXISTS swaps_tx ON swaps(tx);
+    CREATE TABLE IF NOT EXISTS makers (tx BLOB PRIMARY KEY, maker BLOB NOT NULL) WITHOUT ROWID;
+    CREATE INDEX IF NOT EXISTS makers_maker ON makers(maker);
     CREATE TABLE IF NOT EXISTS c1m (pid INTEGER NOT NULL, t INTEGER NOT NULL, o REAL, h REAL, l REAL, c REAL, v REAL, n INTEGER,
       PRIMARY KEY (pid, t)) WITHOUT ROWID;
   `);
@@ -41,6 +45,7 @@ export function openSwapDb(readonly = false): DatabaseSync {
 
 export const txToBlob = (h: string) => Buffer.from(h.slice(2), 'hex');
 export const blobToTx = (b: Uint8Array) => '0x' + Buffer.from(b).toString('hex');
+export const addrToBlob = (a: string) => Buffer.from(a.toLowerCase().slice(2), 'hex');
 export function metaGet(db: DatabaseSync, k: string): string | null {
   const r = db.prepare('SELECT v FROM meta WHERE k=?').get(k) as { v: string } | undefined;
   return r ? r.v : null;

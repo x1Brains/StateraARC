@@ -12,7 +12,7 @@
 // Archive RPC: tenderly (blockdaemon is pruned before ~26M, publicnode needs a token). ⛔ rpc.mainnet.arc.io + blockdaemon are what
 // the live Arc grid bot and bridge keepers on this box use — the backfill stays OFF them (and paces itself) so it can never get
 // this IP rate-limited for the money bots. The head follower makes ~1 call / 2 s.
-import { openSwapDb, metaGet, metaSet, txToBlob, USDC, START_BLOCK } from './swap-db.ts';
+import { openSwapDb, metaGet, metaSet, txToBlob, addrToBlob, USDC, START_BLOCK } from './swap-db.ts';
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
 
 const T_V3_SWAP = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
@@ -203,7 +203,7 @@ const LIVE_FILTER = { topics: [[T_V3_SWAP, T_V2_SWAP, T_V4_SWAP, T_V4_INIT]] };
 export const stats = { stored: 0, skipped: 0, calls: 0 };
 
 // Fetch + store one block range (logs already sorted by the node). Returns how many logs came back.
-async function ingest(logs: any[]): Promise<number> {
+async function ingest(logs: any[], fromLive = false): Promise<number> {
   storeInits(logs);
   const swapLogs = logs.filter((l) => l.topics?.[0] && l.topics[0].toLowerCase() !== T_V4_INIT);
   const kinds = new Map<string, 'v3' | 'v2'>(), addrs: string[] = [], ids: string[] = [];
@@ -225,7 +225,7 @@ async function ingest(logs: any[]): Promise<number> {
       const r = decode(l, p); if (!r) { stats.skipped++; continue; }
       const ts = Number(BigInt(l.blockTimestamp));
       const res = insSwap.run(Number(BigInt(l.blockNumber)), Number(BigInt(l.logIndex)), p.pid, ts, r.side, r.price, r.usd, r.amt, txToBlob(l.transactionHash));
-      if (res.changes) { stats.stored++; touched.add(p.pid + ':' + Math.floor(ts / 60) * 60); }
+      if (res.changes) { stats.stored++; touched.add(p.pid + ':' + Math.floor(ts / 60) * 60); if (fromLive) makerQueue.set(l.transactionHash.toLowerCase(), 0); }
     }
     for (const k of touched) {
       const [pid, t] = k.split(':').map(Number);
@@ -294,7 +294,7 @@ async function live() {
       while (cur < head) {
         const to = Math.min(head, cur + MAX_RANGE);
         const logs = await getLogs(LIVE_FILTER, cur + 1, to); stats.calls++;
-        await ingest(logs);
+        await ingest(logs, true);
         metaSet(db, 'live', to); metaSet(db, 'live_at', Date.now());
         cur = to;
       }
@@ -302,6 +302,37 @@ async function live() {
     await sleep(2000);
   }
 }
+
+// ── makers: who sent each new swap's transaction (swap events only name the router) ─────────────────────────────────
+// Batched eth_getTransactionByHash on a node that still indexes recent txs (blockdaemon answers 100/100 per batch; arc.io
+// caps a batch at 30 and has pruned its tx index for older txs — history is filled by scripts/makers-backfill.ts instead).
+const MAKER_RPCS = (process.env.SWAPS_MAKER_RPCS || 'https://rpc.blockdaemon.mainnet.arc.io').split(',');
+const makerQueue = new Map<string, number>(); // tx → failed attempts
+const insMaker = db.prepare('INSERT OR IGNORE INTO makers(tx, maker) VALUES(?, ?)');
+export const makerStats = { resolved: 0, dropped: 0 };
+async function resolveMakers() {
+  const want = [...makerQueue.keys()].slice(0, 500);
+  for (let i = 0; i < want.length; i += 100) {
+    const part = want.slice(i, i + 100);
+    try {
+      const r = await fetch(MAKER_RPCS[(rr++) % MAKER_RPCS.length], { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(part.map((h, k) => ({ jsonrpc: '2.0', id: k, method: 'eth_getTransactionByHash', params: [h] }))), signal: AbortSignal.timeout(20_000) });
+      const j: any = await r.json();
+      if (!Array.isArray(j)) throw new Error('batch refused');
+      db.exec('BEGIN');
+      try {
+        for (const x of j) {
+          const h = part[x.id], from = x?.result?.from;
+          if (h && from) { insMaker.run(txToBlob(h), addrToBlob(from)); makerQueue.delete(h); makerStats.resolved++; }
+          else if (h) { const n = (makerQueue.get(h) || 0) + 1; if (n >= 6) { makerQueue.delete(h); makerStats.dropped++; } else makerQueue.set(h, n); }
+        }
+        db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
+    } catch (e) { log('makers:', (e as Error).message); return; }
+    await sleep(300);
+  }
+}
+async function makersLoop() { for (;;) { if (makerQueue.size) await resolveMakers().catch(() => {}); await sleep(15_000); } }
 
 async function main() {
   const head = parseInt(await rpc(HEAD_RPCS, 'eth_blockNumber', []), 16);
@@ -311,7 +342,7 @@ async function main() {
   if (metaGet(db, 'init_to') == null) metaSet(db, 'init_to', metaGet(db, 'live')!);
   await initPrepass(Number(metaGet(db, 'init_to')));
   // the pre-pass covered Initialize up to `head`; the live loop's filter includes Initialize from here on
-  if (!NO_LIVE) live();
+  if (!NO_LIVE) { live(); makersLoop(); }
   await backfill();
   setInterval(() => metaSet(db, 'unknown_factories', JSON.stringify([...unknownFactories])), 600_000).unref();
 }

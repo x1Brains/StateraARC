@@ -3,7 +3,7 @@
 // Read-only: if the DB is missing (indexer not deployed yet) every function returns null and the API keeps its old path.
 import fs from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
-import { openSwapDb, SWAPS_DB, metaGet, txToBlob, blobToTx } from './swap-db.ts';
+import { openSwapDb, SWAPS_DB, metaGet, txToBlob, blobToTx, addrToBlob } from './swap-db.ts';
 
 let db: DatabaseSync | null = null, triedAt = 0;
 function conn(): DatabaseSync | null {
@@ -106,20 +106,133 @@ export function candles(token: string, resKey: string, limit = 1000, before?: nu
   return v;
 }
 
-// Trade history of a token from the store, newest first, older pages by `before` (unix s) — past the server's 24h list.
-export function trades(token: string, limit = 100, before?: number, side?: 'buy' | 'sell', minUsd = 0) {
+// Trade history of a token from the store, newest first, older pages by `before` (unix s) — any age. Each row carries its
+// maker (the tx sender, from `makers`; null until resolved). Filters: side, min USD, one maker.
+type Row = { blk: number; li: number; pid: number; ts: number; side: number; price: number; usd: number; amt: number; tx: Uint8Array; maker: Uint8Array | null };
+const rowOut = (venue: Map<number, string>) => (r: Row) => ({ side: r.side > 0 ? 'buy' : 'sell', usd: r.usd, amount: r.amt, price: r.price,
+  tx: blobToTx(r.tx), time: r.ts * 1000, block: r.blk, logIndex: r.li, venue: venue.get(r.pid), trader: r.maker ? blobToTx(r.maker) : null });
+export function trades(token: string, limit = 100, before?: number, side?: 'buy' | 'sell', minUsd = 0, maker?: string) {
   const d = conn(); if (!d) return null;
   const pools = poolsOf(token); if (!pools.length) return { trades: [], hasMore: false };
   const venue = new Map(pools.map((p) => [p.pid, p.venue]));
-  const pids = pools.map((p) => p.pid);
-  const q = `SELECT blk, li, pid, ts, side, price, usd, amt, tx FROM swaps WHERE pid IN (${pids.map(() => '?').join(',')}) AND ts < ?${side ? ' AND side = ?' : ''}${minUsd > 0 ? ' AND usd >= ?' : ''} ORDER BY ts DESC, blk DESC, li DESC LIMIT ?`;
-  const args: (number | string)[] = [...pids, before ?? 4e9];
+  const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(',');
+  const args: (number | string | Buffer)[] = [];
+  let q: string;
+  if (maker) {
+    // one wallet: start from its own txs (index on makers.maker), not from the token's whole history
+    q = `SELECT s.blk, s.li, s.pid, s.ts, s.side, s.price, s.usd, s.amt, s.tx, m.maker FROM makers m JOIN swaps s ON s.tx = m.tx
+      WHERE m.maker = ? AND s.pid IN (${ph}) AND s.ts < ?${side ? ' AND s.side = ?' : ''}${minUsd > 0 ? ' AND s.usd >= ?' : ''} ORDER BY s.ts DESC, s.blk DESC, s.li DESC LIMIT ?`;
+    args.push(addrToBlob(maker));
+  } else {
+    q = `SELECT s.blk, s.li, s.pid, s.ts, s.side, s.price, s.usd, s.amt, s.tx, m.maker FROM swaps s LEFT JOIN makers m ON m.tx = s.tx
+      WHERE s.pid IN (${ph}) AND s.ts < ?${side ? ' AND s.side = ?' : ''}${minUsd > 0 ? ' AND s.usd >= ?' : ''} ORDER BY s.ts DESC, s.blk DESC, s.li DESC LIMIT ?`;
+  }
+  args.push(...pids, before ?? 4e9);
   if (side) args.push(side === 'buy' ? 1 : -1);
   if (minUsd > 0) args.push(minUsd);
   args.push(limit + 1);
-  const rows = d.prepare(q).all(...args) as { blk: number; li: number; pid: number; ts: number; side: number; price: number; usd: number; amt: number; tx: Uint8Array }[];
-  return { hasMore: rows.length > limit, trades: rows.slice(0, limit).map((r) => ({ side: r.side > 0 ? 'buy' : 'sell', usd: r.usd, amount: r.amt, price: r.price,
-    tx: blobToTx(r.tx), time: r.ts * 1000, block: r.blk, logIndex: r.li, venue: venue.get(r.pid) })) };
+  const rows = d.prepare(q).all(...args) as Row[];
+  return { hasMore: rows.length > limit, trades: rows.slice(0, limit).map(rowOut(venue)) };
+}
+
+const lastPrice = (d: DatabaseSync, pids: number[]) => {
+  const r = d.prepare(`SELECT c FROM c1m WHERE pid IN (${pids.map(() => '?').join(',')}) ORDER BY t DESC LIMIT 1`).get(...pids) as { c: number } | undefined;
+  return r ? r.c : null;
+};
+const aggCache = new Map<string, { at: number; v: unknown }>();
+function cached<T>(k: string, ms: number, f: () => T): T {
+  const h = aggCache.get(k); if (h && Date.now() - h.at < ms) return h.v as T;
+  const v = f(); aggCache.set(k, { at: Date.now(), v }); if (aggCache.size > 1500) aggCache.delete(aggCache.keys().next().value!);
+  return v;
+}
+
+// Money flow: buy vs sell pressure over 1H / 24H / 7D — counts, USD, net, the biggest single buy/sell, distinct buyers/sellers
+// and the wallet that bought (sold) the most net. Wallet numbers cover the trades whose maker is known (`makersKnown`).
+export function flow(token: string) {
+  const d = conn(); if (!d) return null;
+  const pools = poolsOf(token); if (!pools.length) return { windows: [] };
+  return cached('flow:' + token, 30_000, () => {
+    const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(','), now = Math.floor(Date.now() / 1000);
+    const windows = [['1h', 3600], ['24h', 86400], ['7d', 604800]].map(([k, sec]) => {
+      const from = now - (sec as number);
+      const sides = d.prepare(`SELECT side, COUNT(*) n, COALESCE(SUM(usd),0) usd, COALESCE(MAX(usd),0) big FROM swaps WHERE pid IN (${ph}) AND ts >= ? GROUP BY side`).all(...pids, from) as { side: number; n: number; usd: number; big: number }[];
+      const b = sides.find((x) => x.side > 0), s2 = sides.find((x) => x.side < 0);
+      const w = d.prepare(`SELECT m.maker w, SUM(CASE WHEN s.side > 0 THEN s.usd ELSE -s.usd END) net, SUM(s.side > 0) nb, SUM(s.side < 0) ns, COUNT(*) n
+        FROM swaps s JOIN makers m ON m.tx = s.tx WHERE s.pid IN (${ph}) AND s.ts >= ? GROUP BY m.maker`).all(...pids, from) as { w: Uint8Array; net: number; nb: number; ns: number; n: number }[];
+      let top: typeof w[number] | null = null, bot: typeof w[number] | null = null, known = 0;
+      for (const x of w) { known += x.n; if (!top || x.net > top.net) top = x; if (!bot || x.net < bot.net) bot = x; }
+      const total = (b?.n ?? 0) + (s2?.n ?? 0);
+      return { window: k, buys: b?.n ?? 0, sells: s2?.n ?? 0, buyUsd: b?.usd ?? 0, sellUsd: s2?.usd ?? 0, net: (b?.usd ?? 0) - (s2?.usd ?? 0),
+        biggestBuy: b?.big ?? 0, biggestSell: s2?.big ?? 0, buyers: w.filter((x) => x.nb > 0).length, sellers: w.filter((x) => x.ns > 0).length,
+        topBuyer: top && top.net > 0 ? { wallet: blobToTx(top.w), net: top.net } : null, topSeller: bot && bot.net < 0 ? { wallet: blobToTx(bot.w), net: bot.net } : null,
+        makersKnown: total ? known / total : null };
+    });
+    return { windows };
+  });
+}
+
+// Every wallet that traded the token (maker known), with average-cost P&L: realized = sold USD − avg buy × qty sold (only up
+// to what it bought — tokens that came in by transfer have no known cost), open = what it still holds from its own trades
+// marked to the last price. Shared by Top traders and Holder profitability. Cached 5 min (a busy token is ~1 s to build).
+type Trader = { wallet: string; bought: number; sold: number; qtyBought: number; qtySold: number; buys: number; sells: number; first: number; last: number;
+  avgBuy: number | null; held: number; realized: number; unrealized: number; pnl: number; roi: number | null };
+function tradersOf(token: string): { list: Trader[]; price: number | null; coverage: number | null } | null {
+  const d = conn(); if (!d) return null;
+  const pools = poolsOf(token); if (!pools.length) return { list: [], price: null, coverage: null };
+  return cached('traders:' + token, 5 * 60_000, () => {
+    const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(',');
+    const rows = d.prepare(`SELECT m.maker w, s.side, SUM(s.usd) usd, SUM(s.amt) amt, COUNT(*) n, MIN(s.ts) first, MAX(s.ts) last
+      FROM swaps s JOIN makers m ON m.tx = s.tx WHERE s.pid IN (${ph}) GROUP BY m.maker, s.side`).all(...pids) as { w: Uint8Array; side: number; usd: number; amt: number; n: number; first: number; last: number }[];
+    const all = (d.prepare(`SELECT COUNT(*) n FROM swaps WHERE pid IN (${ph})`).get(...pids) as { n: number }).n;
+    const price = lastPrice(d, pids);
+    const by = new Map<string, Trader>();
+    let known = 0;
+    for (const r of rows) {
+      known += r.n;
+      const k = blobToTx(r.w);
+      const t = by.get(k) || { wallet: k, bought: 0, sold: 0, qtyBought: 0, qtySold: 0, buys: 0, sells: 0, first: r.first, last: r.last, avgBuy: null, held: 0, realized: 0, unrealized: 0, pnl: 0, roi: null };
+      if (r.side > 0) { t.bought += r.usd; t.qtyBought += r.amt; t.buys += r.n; } else { t.sold += r.usd; t.qtySold += r.amt; t.sells += r.n; }
+      t.first = Math.min(t.first, r.first); t.last = Math.max(t.last, r.last);
+      by.set(k, t);
+    }
+    for (const t of by.values()) {
+      t.avgBuy = t.qtyBought > 0 ? t.bought / t.qtyBought : null;
+      const matched = Math.min(t.qtySold, t.qtyBought);
+      t.realized = t.avgBuy != null && t.qtySold > 0 ? t.sold * (matched / t.qtySold) - t.avgBuy * matched : 0;
+      t.held = Math.max(0, t.qtyBought - t.qtySold);
+      t.unrealized = t.avgBuy != null && price != null ? t.held * (price - t.avgBuy) : 0;
+      t.pnl = t.realized + t.unrealized;
+      t.roi = t.bought >= 1 ? (t.pnl / t.bought) * 100 : null;
+    }
+    return { list: [...by.values()], price, coverage: all ? known / all : null };
+  });
+}
+export function topTraders(token: string, sort: 'pnl' | 'volume' | 'loss' = 'pnl', limit = 50) {
+  const r = tradersOf(token); if (!r) return null;
+  const list = [...r.list].filter((t) => t.avgBuy != null);
+  list.sort(sort === 'volume' ? (a, b) => (b.bought + b.sold) - (a.bought + a.sold) : sort === 'loss' ? (a, b) => a.pnl - b.pnl : (a, b) => b.pnl - a.pnl);
+  return { price: r.price, coverage: r.coverage, traders: list.length, rows: list.slice(0, limit) };
+}
+// Holder profitability: wallets that still hold from their own buys — how many (and how much of what they hold) are above
+// their average entry, the median entry, and how entries spread around today's price.
+export function profitability(token: string) {
+  const r = tradersOf(token); if (!r) return null;
+  const holders = r.list.filter((t) => t.held > 0 && t.avgBuy != null && t.avgBuy > 0);
+  if (!holders.length || r.price == null) return { price: r.price, coverage: r.coverage, holders: 0 };
+  const px = r.price;
+  const inProfit = holders.filter((t) => px > t.avgBuy!);
+  const heldAll = holders.reduce((s, t) => s + t.held, 0), heldUp = inProfit.reduce((s, t) => s + t.held, 0);
+  const entries = holders.map((t) => t.avgBuy!).sort((a, b) => a - b);
+  const median = entries[Math.floor(entries.length / 2)];
+  // entry spread: share of holders by entry vs today's price
+  const bands = [[0, 0.5, '≤ −50%'], [0.5, 0.8, '−50…−20%'], [0.8, 1, '−20…0%'], [1, 1.25, '0…+25%'], [1.25, 2, '+25…+100%'], [2, Infinity, '> +100%']] as const;
+  const dist = bands.map(([lo, hi, label]) => {
+    // a holder's position vs now: price / entry. ≥ 1 = in profit
+    const n = holders.filter((t) => { const x = px / t.avgBuy!; return x >= lo && x < hi; }).length;
+    return { label, holders: n, pct: (n / holders.length) * 100 };
+  });
+  return { price: px, coverage: r.coverage, holders: holders.length, inProfit: inProfit.length, pctHolders: (inProfit.length / holders.length) * 100,
+    pctSupply: heldAll > 0 ? (heldUp / heldAll) * 100 : null, medianEntry: median, avgEntry: holders.reduce((s, t) => s + t.avgBuy! * t.held, 0) / heldAll, dist };
 }
 
 // Every swap inside the given transactions (a wallet's own tx list from server/wallet-index.ts) — for the chart's B/S markers,
