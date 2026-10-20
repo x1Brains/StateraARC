@@ -88,3 +88,18 @@ export const v2Lending = () => get<V2Lending>('lending', 8000).then((l) => { if 
 // Where each Circle asset's supply sits (server/where.ts).
 export interface V2Where { at: number; assets: { sym: string; supply: number; price: number | null; buckets: { lending: number; dex: number; bridge: number; contracts: number; wallets: number }; lendingBy: Record<string, number> }[] }
 export const v2Where = () => get<V2Where>('where', 8000).then((w) => { if (!w || !Array.isArray(w.assets)) throw new Error('v2 where: bad shape'); return w; });
+// ── The swap store (server/swap-store.ts): real history for every timeframe, the full trade history, a wallet's own swaps ──
+export interface V2Bar { time: number; open: number; high: number; low: number; close: number; volume: number; trades: number }
+export interface V2Bars { res: string; candles: V2Bar[]; hasMore: boolean; first: number | null; lastTrade?: number; pools: { venue: string; kind: string; vol: number }[];
+  coverage: { backTs: number | null; backBlock: number | null; liveBlock: number | null; liveAt: number | null; backDone: boolean } | null }
+export const v2Bars = (addr: string, res: string, limit = 1000, before?: number) =>
+  get<V2Bars>(`token/${addr.toLowerCase()}/bars?res=${res}&limit=${limit}${before ? `&before=${before}` : ''}`, 12000)
+    .then((j) => { if (!j || !Array.isArray(j.candles)) throw new Error('v2 bars: bad shape'); return j; });
+export interface V2HistTrade { side: 'buy' | 'sell'; usd: number; amount: number; price: number; tx: string; time: number; block: number; logIndex: number; venue?: string }
+export const v2History = (addr: string, o: { before?: number; limit?: number; side?: 'buy' | 'sell'; minUsd?: number } = {}) =>
+  get<{ trades: V2HistTrade[]; hasMore: boolean }>(`token/${addr.toLowerCase()}/history?${new URLSearchParams({ limit: String(o.limit ?? 100), ...(o.before ? { before: String(o.before) } : {}), ...(o.side ? { side: o.side } : {}), ...(o.minUsd ? { min: String(o.minUsd) } : {}) })}`, 12000)
+    .then((j) => { if (!j || !Array.isArray(j.trades)) throw new Error('v2 history: bad shape'); return j; });
+export interface V2WalletSwap { token: string; side: 'buy' | 'sell'; usd: number; amount: number; price: number; tx: string; ts: number; block: number; logIndex: number; venue: string }
+export const v2WalletSwaps = (wallet: string, token?: string) =>
+  get<{ wallet: string; at: number; swaps: V2WalletSwap[]; building?: boolean }>(`wallet/${wallet.toLowerCase()}/swaps${token ? `?token=${token.toLowerCase()}` : ''}`, 25000)
+    .then((j) => { if (!j || (!Array.isArray(j.swaps) && !j.building)) throw new Error('v2 wallet swaps: bad shape'); return j; });

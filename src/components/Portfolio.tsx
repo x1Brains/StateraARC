@@ -7,6 +7,9 @@ import { SendModal, type SendToken } from './SendModal';
 import { NftPanel } from './NftPanel';
 import { IconExternal, IconCheck, IconCopy, IconSend } from './icons';
 import { useNames, displayName, hasName } from '../lib/names';
+import { v2Enabled, v2WalletSwaps, type V2WalletSwap } from '../lib/v2';
+import { storePnl, type StorePnl } from '../lib/pnl';
+import { PnlChart } from './PnlChart';
 
 const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
 const USDC_ADDR = '0x3600000000000000000000000000000000000000';
@@ -34,6 +37,10 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   const [pnlLoading, setPnlLoading] = useState(false);
   // 10-15 (owner: P&L must show WITH the tokens): the loading scene also waits for the first P&L — at most 3 s past the bag
   const [pnlGate, setPnlGate] = useState(false);
+  // 10-20: the swap store's list of every swap in this wallet's transactions → time-ordered P&L, closed positions, P&L chart.
+  // 'fail' (store unreachable / wallet still building) falls back to the in-tab receipt reconstruction below.
+  const [storeSwaps, setStoreSwaps] = useState<V2WalletSwap[] | null>(null);
+  const [storeState, setStoreState] = useState<'idle' | 'loading' | 'ok' | 'fail'>('idle');
 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sendTok, setSendTok] = useState<SendToken | null>(null);
@@ -207,9 +214,22 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     return () => { alive = false; clearInterval(id); document.removeEventListener('visibilitychange', vis); };
   }, [addr, mainnet]); // eslint-disable-line
 
-  // P&L: reconstruct cost basis from the wallet's on-chain swaps once holdings are known (mainnet only).
+  useEffect(() => {
+    setStoreSwaps(null);
+    if (!mainnet || !addr || !isAddress(addr) || !v2Enabled) { setStoreState('fail'); return; }
+    let alive = true; setStoreState('loading');
+    v2WalletSwaps(addr).then((r) => { if (!alive) return; if (r.building || !Array.isArray(r.swaps)) { setStoreState('fail'); return; } setStoreSwaps(r.swaps); setStoreState('ok'); })
+      .catch(() => { if (alive) setStoreState('fail'); });
+    return () => { alive = false; };
+  }, [addr, mainnet, refreshTick]);
+  useEffect(() => {
+    if (storeState !== 'ok' || !storeSwaps) return;
+    setPnl(storePnl(storeSwaps)); setPnlLoading(false); setPnlGate(false);
+  }, [storeState, storeSwaps]);
+  // P&L (fallback): reconstruct cost basis from the wallet's on-chain swaps once holdings are known (mainnet only).
   const holdKey = holdings.map((h) => h.address).join(',');
   useEffect(() => {
+    if (storeState === 'ok' || storeState === 'loading') { if (storeState === 'loading') setPnlLoading(true); return; }
     setPnl(null);
     if (!mainnet || !addr || !isAddress(addr) || !holdings.length) return;
     let alive = true; setPnlLoading(true);
@@ -218,7 +238,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
     for (const h of holdings) decs[h.address.toLowerCase()] = h.decimals ?? 18;
     fetchWalletPnl(addr, decs).then((p) => { if (alive) setPnl(p); }).catch(() => { if (alive) setPnl({}); }).finally(() => { if (alive) { setPnlLoading(false); setPnlGate(false); } });
     return () => { alive = false; clearTimeout(gateT); };
-  }, [addr, mainnet, holdKey]); // eslint-disable-line
+  }, [addr, mainnet, holdKey, storeState]); // eslint-disable-line
 
   const rows = useMemo(() => {
     return holdings
@@ -275,9 +295,20 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
   const spamCount = hiddenCount;
   const shownRows = useMemo(() => (showSpam ? rows : rows.filter((r) => !r.counterfeit && !isDust(r))), [rows, showSpam]);
 
+  // Closed positions (store P&L only): tokens this wallet traded and no longer holds (or holds < $1 of) — their realized result
+  // used to vanish from the page and from Total P&L.
+  const closed = useMemo(() => {
+    if (storeState !== 'ok' || !pnl) return [];
+    const held = new Map(rows.map((r) => [r.address.toLowerCase(), r]));
+    return Object.entries(pnl as Record<string, StorePnl>).filter(([a, p]) => {
+      const r = held.get(a); return p.qtySold > 0 && (!r || r.balance <= 0 || (r.value != null && r.value < 1));
+    }).map(([a, p]) => { const rd = radarByAddr.get(a), h = held.get(a); return { address: a, symbol: rd?.symbol || h?.symbol || short(a), name: rd?.name || h?.name || '', iconUrl: rd?.iconUrl || h?.iconUrl || null, p }; })
+      .sort((x, y) => Math.abs(y.p.realized) - Math.abs(x.p.realized));
+  }, [pnl, rows, storeState, radarByAddr]);
+  const closedAddrs = useMemo(() => new Set(closed.map((c) => c.address)), [closed]);
   const total = rows.reduce((s, r) => s + (r.value ?? 0), 0);
-  const totalPnlSum = rows.reduce((s, r) => s + (r.totalPnl ?? 0), 0);
-  const hasPnl = pnl != null && rows.some((r) => r.totalPnl != null);
+  const totalPnlSum = rows.reduce((s, r) => s + (closedAddrs.has(r.address.toLowerCase()) ? 0 : (r.totalPnl ?? 0)), 0) + closed.reduce((s, c) => s + c.p.realized, 0);
+  const hasPnl = pnl != null && (rows.some((r) => r.totalPnl != null) || closed.length > 0);
   // first render after a new address = before the load effect ran: count it as loading, not as an empty wallet
   const busy = loading || (!!addr && isAddress(addr) && startedFor !== addr) || (mainnet && pnlGate && holdings.length > 0);
   const track = () => { if (isAddress(input)) setAddr(input.trim()); else setErr('Enter a valid 0x… address'); };
@@ -322,6 +353,8 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
             <div className="stat"><div className="v">{shownRows.length}</div><div className="l">Tokens Held</div></div>
             <div className="stat" title={addr}><div className={`v${hasName(addr, names) ? ' named' : ''}`}>{displayName(addr, names, short)}</div><div className="l">{hasName(addr, names) ? 'Arc Name' : 'Address'}</div></div>
           </div>
+
+          {mainnet && storeState === 'ok' && storeSwaps && storeSwaps.length > 0 && <PnlChart swaps={storeSwaps} nowPx={Object.fromEntries(priceMap)} />}
 
           {spamCount > 0 && (
             <div className="pf-hidden">
@@ -396,6 +429,25 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
                 )}
                 </div>
               ); })}
+            </div>
+          )}
+          {closed.length > 0 && (
+            <div className="pf-closed">
+              <h3 className="pf-closed-h">Closed positions <span>{closed.length} · realized {(() => { const r = closed.reduce((s2, c) => s2 + c.p.realized, 0); return `${r >= 0 ? '+' : '−'}${usd(Math.abs(r))}`; })()}</span></h3>
+              <div className="table">
+                <div className="trow head pf-crow"><span /><span>Token</span><span className="num hidesm">Bought</span><span className="num hidesm">Sold</span><span className="num hidesm">Trades</span><span className="num">Realized</span></div>
+                {closed.map((c) => (
+                  <div className={`trow tok pf-crow${onOpenToken ? ' clickable' : ''}`} key={c.address} onClick={() => onOpenToken?.(c.address)} title={`Last trade ${new Date(c.p.lastTs * 1000).toLocaleDateString()}`}>
+                    <TokenLogo symbol={c.symbol} seed={c.address} url={c.iconUrl} />
+                    <span className="pf-id"><span className="pf-nm"><span className="tname">{c.name || c.symbol}</span></span><span className="tsym">{c.symbol}</span></span>
+                    <span className="num hidesm">{usd(c.p.invested)}</span>
+                    <span className="num hidesm">{usd(c.p.proceeds)}</span>
+                    <span className="num hidesm">{c.p.trades}</span>
+                    <span className={`num pf-pnl ${c.p.realized >= 0 ? 'up' : 'down'}`}><span className="pf-pnl-v">{c.p.realized >= 0 ? '+' : '−'}{usd(Math.abs(c.p.realized))}</span>
+                      {c.p.invested >= 1 && <span className="pf-pnl-pct">{c.p.realized >= 0 ? '+' : ''}{Math.max(-100, Math.min(9999, (c.p.realized / c.p.invested) * 100)).toFixed(0)}%</span>}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {addr && <NftPanel owner={addr} wallet={wallet} isOwnWallet={isOwnWallet} collections={nfts} />}

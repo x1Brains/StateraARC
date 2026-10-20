@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "StateraArc \u2014 token screener for Circle's Arc chain",
+  "description": "StateraArc — token screener for Circle's Arc chain",
   "scripts": {
     "dev": "vite",
     "build": "npm run check:api && npm run check:server && tsc && vite build",
@@ -14,7 +14,7 @@
   "dependencies": {
     "@noble/hashes": "^1.5.0",
     "@resvg/resvg-wasm": "^2.6.2",
-    "lightweight-charts": "^4.2.3",
+    "lightweight-charts": "^5.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

@@ -5,7 +5,7 @@ import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
-import { v2Enabled, v2TokenDetail, v2Trades, type V2TokenDetail, type V2Trades } from '../lib/v2';
+import { v2Enabled, v2TokenDetail, v2Trades, v2WalletSwaps, v2History, type V2TokenDetail, type V2Trades, type V2HistTrade } from '../lib/v2';
 import { isStateraImpersonator, stateraHasToken } from '../lib/rules';
 import { fetchWalletTokenTrades, type WalletTrade } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX, IconLink, IconCamera } from './icons';
@@ -58,7 +58,10 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   // The connected wallet's own buys/sells of this token (rebuilt in this browser from its transactions) — listed in
   // "My trades" and marked on the chart.
   const [mine, setMine] = useState<WalletTrade[] | null>(null);
+  // 10-20: trades older than the 24h list, paged from the swap store ("Load older trades")
+  const [olderTx, setOlderTx] = useState<{ rows: V2HistTrade[]; more: boolean; busy: boolean; err?: boolean }>({ rows: [], more: true, busy: false });
   const [txFilter, setTxFilter] = useState<'all' | 'buy' | 'sell'>('all');
+  useEffect(() => { setOlderTx({ rows: [], more: true, busy: false }); }, [address, txFilter]);
   // Trades paging (10-02): the detail carries the newest 100 + the day's counts; any other page / filter asks the server.
   const [tradeSum, setTradeSum] = useState<{ total: number; buys: number; sells: number; since: number | null } | null>(null);
   const [txPage, setTxPage] = useState(0);
@@ -184,7 +187,19 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   useEffect(() => {
     if (!wallet || dec == null) { setMine(null); return; }
     let alive = true; setMine(null);
-    fetchWalletTokenTrades(wallet, address, dec).then((t) => { if (alive) setMine(t); }).catch(() => { if (alive) setMine([]); });
+    // 10-20: the swap store first — every swap in ALL of the wallet's transactions (exact price + time), not just the newest 160
+    // receipts read in this tab; falls back to the in-tab read when the store is unreachable or the wallet is still building.
+    const viaStore = v2Enabled ? v2WalletSwaps(wallet, address).then((r) => {
+      if (r.building || !Array.isArray(r.swaps)) throw new Error('building');
+      const by = new Map<string, WalletTrade>();
+      for (const x of r.swaps) {
+        const k = x.tx + ':' + x.side, cur = by.get(k);
+        if (cur) { cur.qty += x.amount; cur.usd += x.usd; cur.price = cur.qty > 0 ? cur.usd / cur.qty : cur.price; }
+        else by.set(k, { ts: x.ts * 1000, side: x.side, qty: x.amount, usd: x.usd, price: x.price, tx: x.tx });
+      }
+      return [...by.values()].sort((p1, p2) => p2.ts - p1.ts);
+    }) : Promise.reject(new Error('v2 off'));
+    viaStore.catch(() => fetchWalletTokenTrades(wallet, address, dec)).then((t) => { if (alive) setMine(t); }).catch(() => { if (alive) setMine([]); });
     return () => { alive = false; };
   }, [wallet, address, dec]);
 
@@ -538,7 +553,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
           </div>
 
           <div style={{ marginTop: 12 }}>
-            {dec != null && <PriceChart address={address} symbol={sym} decimals={dec} priceScale={chartScale} change24h={chg} trades={mine} />}
+            {dec != null && <PriceChart address={address} symbol={sym} decimals={dec} priceScale={chartScale} change24h={chg} trades={mine} supply={mc != null && px != null && px > 0 ? mc / px : null} />}
           </div>
 
 
@@ -589,6 +604,35 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                       {txRows == null ? <div className="side-note">Loading page {txPage + 1}…</div> : null}
                     </div>
                     {pager}
+                    {v2Enabled && (txPage >= txPages - 1) && (() => {
+                      const oldest = olderTx.rows.length ? olderTx.rows[olderTx.rows.length - 1].time : (since ? since * 1000 : (rows.length ? rows[rows.length - 1].time : Date.now()));
+                      const more = () => {
+                        setOlderTx((o) => ({ ...o, busy: true, err: false }));
+                        v2History(address, { before: Math.floor(oldest / 1000), limit: 100, side: txFilter === 'all' ? undefined : txFilter })
+                          .then((r) => setOlderTx((o) => ({ rows: [...o.rows, ...r.trades], more: r.hasMore, busy: false })))
+                          .catch(() => setOlderTx((o) => ({ ...o, busy: false, err: true })));
+                      };
+                      return (<>
+                        {olderTx.rows.length > 0 && (
+                          <div className="tr-table tr-older">
+                            <div className="tr-older-h">Older trades · full on-chain history</div>
+                            {olderTx.rows.map((s2, i) => (
+                              <div className="tr-row" key={s2.tx + s2.logIndex + i}>
+                                <span className="tr-age" title={new Date(s2.time).toLocaleString()}>{new Date(s2.time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                                <span className={`tr-side ${s2.side}`}>{s2.side === 'buy' ? 'Buy' : 'Sell'}</span>
+                                <span className={`num mono tr-usd ${s2.side}`}>{usd(s2.usd)}</span>
+                                <span className="num mono">{compact(s2.amount)}</span>
+                                <span className="num mono tr-px">{tprice(s2.price)}</span>
+                                <span className="tr-mk mono" title="pool">{s2.venue || ''}</span>
+                                <a className="tr-tx num tx" href={`https://explorer.arc.io/tx/${s2.tx}`} target="_blank" rel="noreferrer"><IconExternal className="i" /></a>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {olderTx.more && <div className="tr-more"><button className="btn ghost" disabled={olderTx.busy} onClick={more}>{olderTx.busy ? 'Loading…' : olderTx.err ? 'Retry — load older trades' : olderTx.rows.length ? 'Load more' : 'Load older trades'}</button></div>}
+                        {!olderTx.more && olderTx.rows.length > 0 && <div className="side-note">That's the first trade on record.</div>}
+                      </>);
+                    })()}
                   </>);
                 })()
                   : swaps == null && txs == null ? <div className="side-note">Loading transactions…</div>

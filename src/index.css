@@ -2315,3 +2315,56 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 @keyframes nd-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes nd-slide { from { opacity: 0; transform: translateY(20px) scale(.96); } to { opacity: 1; transform: none; } }
 @media (max-width: 680px) { .nd-card { flex-direction: column; overflow-y: auto; } .nd-img { flex: 0 0 auto; height: 260px; } .nd-specs { grid-template-columns: 1fr 1fr; } }
+
+/* ── token chart v2 (10-20): TradingView-style toolbar, drawing rail, indicator menu, fullscreen ── */
+.chart-tools { align-items: center; }
+.chart-tools-r { display: inline-flex; gap: 6px; margin-left: auto; }
+.chart-btn { font: 700 10.5px var(--disp); letter-spacing: .4px; color: var(--gray-2); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.chart-btn:hover, .chart-btn.on { color: var(--white); border-color: var(--line-2); background: rgba(255,255,255,.04); }
+.chart-seg button:disabled { opacity: .35; cursor: not-allowed; }
+.chart-ind { position: relative; }
+.chart-ind-pop { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; min-width: 210px; padding: 6px; background: #0e0b09; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 18px 40px -16px #000; }
+.chart-ind-pop label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; font-size: 12px; color: var(--chrome); cursor: pointer; }
+.chart-ind-pop label:hover { background: rgba(255,255,255,.04); }
+.chart-ind-pop input { accent-color: #ff7a1a; margin: 0; }
+.chart-ind-pop i { width: 10px; height: 3px; border-radius: 2px; flex: none; }
+.chart-ind-pop em { margin-left: auto; font-style: normal; font-size: 10px; color: var(--gray-2); }
+.chart-body { display: flex; gap: 6px; }
+.chart-rail { display: flex; flex-direction: column; gap: 3px; flex: none; padding-top: 26px; }
+.chart-rail button { width: 28px; height: 28px; display: grid; place-items: center; font: 600 14px/1 var(--mono); color: var(--gray-2); background: transparent; border: 1px solid transparent; border-radius: 7px; cursor: pointer; }
+.chart-rail button:hover:not(:disabled) { color: var(--white); background: rgba(255,255,255,.05); }
+.chart-rail button.on { color: var(--red-hi); border-color: var(--red-dim); background: rgba(255,122,30,.12); }
+.chart-rail button:disabled { opacity: .3; cursor: default; }
+.chart-rail-sep { height: 1px; margin: 3px 4px; background: var(--line); }
+.chart-body .chart-box-wrap { flex: 1; min-width: 0; }
+.chart-box { height: auto; }
+.chart-ohlc { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 11px var(--mono); color: var(--gray-2); padding: 0 70px 10px 2px; }
+.chart-ohlc b { color: var(--chrome); font-weight: 600; }
+.chart-ohlc .up, .chart-ohlc b.up { color: #5ad18a; } .chart-ohlc .down, .chart-ohlc b.down { color: #ff5a5a; }
+.chart-hint { position: absolute; z-index: 5; top: 28px; left: 50%; transform: translateX(-50%); font: 700 10px var(--disp); letter-spacing: .6px; text-transform: uppercase; color: var(--red-hi); background: rgba(10,8,6,.85); border: 1px solid var(--red-dim); border-radius: 999px; padding: 4px 10px; pointer-events: none; }
+.chart-older { position: absolute; z-index: 5; left: 8px; bottom: 34px; font: 10px var(--mono); color: var(--gray-2); background: rgba(0,0,0,.6); padding: 3px 8px; border-radius: 6px; }
+.chart-src a { color: inherit; }
+.chart-card.chart-full { margin: 0; border-radius: 0; height: 100vh; overflow: auto; background: var(--bg); padding: 14px 16px; }
+@media (max-width: 640px) {
+  .chart-rail { flex-direction: row; flex-wrap: wrap; padding-top: 0; }
+  .chart-body { flex-direction: column-reverse; }
+  .chart-tools-r { margin-left: 0; }
+  .chart-seg button { padding: 5px 9px; }
+}
+.tr-older { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 6px; }
+.tr-older-h { font: 700 10px var(--disp); letter-spacing: 1.2px; text-transform: uppercase; color: var(--gray-2); padding: 4px 2px 6px; }
+.tr-more { display: flex; justify-content: center; padding: 10px 0 4px; }
+/* Portfolio: P&L over time + closed positions (10-20) */
+.pnl-chart { margin: 12px 0; padding: 12px 12px 8px; }
+.pnl-chart-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.pnl-chart-l { font: 700 10px var(--disp); letter-spacing: 1.2px; text-transform: uppercase; color: var(--gray-2); }
+.pnl-chart-v { font: 700 22px var(--mono); margin-top: 2px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.pnl-chart-v.up { color: #5ad18a; } .pnl-chart-v.down { color: #ff5a5a; }
+.pnl-chart-v span { font-size: 11.5px; font-weight: 500; color: var(--gray); }
+.pnl-chart-v span.up { color: #5ad18a; } .pnl-chart-v span.down { color: #ff5a5a; }
+.pnl-chart-box { width: 100%; height: 220px; }
+.pf-closed { margin-top: 18px; }
+.pf-closed-h { font-family: var(--disp); font-size: 14px; margin: 0 0 8px; color: var(--white); }
+.pf-closed-h span { font-family: var(--mono); font-size: 12px; color: var(--gray); margin-left: 8px; font-weight: 500; }
+.pf-crow { grid-template-columns: 38px minmax(120px, 1fr) 96px 96px 64px 104px; }
+@media (max-width: 640px) { .pf-crow { grid-template-columns: 30px minmax(80px, 1fr) auto; gap: 8px; } }

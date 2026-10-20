@@ -17,6 +17,9 @@
 //   /v2/lending                       Morpho Blue markets + Aave V4 Hub assets (supplied / borrowed), read on chain
 //   /v2/where                         where USDC / EURC / cirBTC supply sits: lending, DEX pools, Gateway, contracts, wallets
 //   /v2/list                          the whole live list (v1-compatible shape: { generatedAt, tokens })
+//   /v2/token/<addr>/bars?res&limit&before    chart candles from the swap store (1m…1w, all history, paged backwards)
+//   /v2/token/<addr>/history?limit&before&side&min   the token's trades from the swap store, any age
+//   /v2/wallet/<addr>/swaps?token     every swap in the wallet's own transactions (B/S markers, position, P&L)
 import http from 'node:http';
 import fs from 'node:fs';
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
@@ -29,6 +32,7 @@ import { walletTransfers, walletSaved, walletStats, relayStats, lastError as wal
 import { cacheStats, tokenDetail, tokenTrades, prewarm, detailStats, tokenCandles, candleTfOk, warmNext, warmStats, saveCaches, loadCaches } from './token-detail.ts';
 import { pollChain, chainSummary, chainStats, backfillStep, flowsBackfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
+import * as Swaps from './swap-store.ts';
 import { refreshWhere, whereSummary, whereStats } from './where.ts';
 
 const PORT = Number(process.env.PORT || 8790);
@@ -179,7 +183,7 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, mem: (() => { const m = process.memoryUsage(); return { rssMb: Math.round(m.rss / 1048576), heapMb: Math.round(m.heapUsed / 1048576), extMb: Math.round((m.external + m.arrayBuffers) / 1048576) }; })(), caches: cacheStats(), ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, wallets: { ...walletStats, relay: relayStats, lastError: walletLastError }, chain: chainStats, lending: lendingStats, where: whereStats }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, mem: (() => { const m = process.memoryUsage(); return { rssMb: Math.round(m.rss / 1048576), heapMb: Math.round(m.heapUsed / 1048576), extMb: Math.round((m.external + m.arrayBuffers) / 1048576) }; })(), caches: cacheStats(), ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, wallets: { ...walletStats, relay: relayStats, lastError: walletLastError }, chain: chainStats, lending: lendingStats, where: whereStats, swaps: Swaps.storeStats() }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
@@ -239,6 +243,29 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
         .then((c) => send(req, res, 200, JSON.stringify({ candles: c }), undefined, 20))
         .catch((e) => send(req, res, 502, JSON.stringify({ error: 'candles failed: ' + (e as Error).message }), undefined, 0));
       return;
+    }
+    // ── swap store (server/swap-store.ts ← statera-swaps.service): history for every timeframe, older trades, wallet swaps.
+    // 503 while the store is missing, so the page keeps its old scan path.
+    const bm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/bars$/);
+    if (bm) {
+      const before = u.searchParams.get('before') ? intIn(u.searchParams.get('before'), 0, 0, 4e9) : undefined;
+      const r = Swaps.candles(bm[1].toLowerCase(), u.searchParams.get('res') || '5m', intIn(u.searchParams.get('limit'), 1000, 10, 2000), before);
+      send(req, res, r ? 200 : 503, JSON.stringify(r ?? { error: 'swap store unavailable' }), undefined, r ? (before ? 120 : 5) : 0); return;
+    }
+    const hsm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/history$/);
+    if (hsm) {
+      const sd = u.searchParams.get('side'), before = u.searchParams.get('before') ? intIn(u.searchParams.get('before'), 0, 0, 4e9) : undefined;
+      const r = Swaps.trades(hsm[1].toLowerCase(), intIn(u.searchParams.get('limit'), 100, 1, 500), before, sd === 'buy' || sd === 'sell' ? sd : undefined, Math.max(0, Number(u.searchParams.get('min')) || 0));
+      send(req, res, r ? 200 : 503, JSON.stringify(r ?? { error: 'swap store unavailable' }), undefined, r ? (before ? 60 : 5) : 0); return;
+    }
+    const sm = path.match(/^\/wallet\/(0x[0-9a-fA-F]{40})\/swaps$/);
+    if (sm) {
+      const wallet = sm[1].toLowerCase(), tok = (u.searchParams.get('token') || '').toLowerCase();
+      const saved = walletSaved(wallet);
+      const w = await Promise.race([walletTransfers(wallet).then((x) => x ?? saved), new Promise<typeof saved>((r) => setTimeout(() => r(saved), saved ? 2_500 : 20_000))]);
+      if (!w) { send(req, res, 200, JSON.stringify({ wallet, building: true, swaps: [] }), undefined, 0); return; }
+      const r = Swaps.swapsInTxs([...new Set(w.x.map((x) => x.h))], /^0x[0-9a-f]{40}$/.test(tok) ? tok : undefined);
+      send(req, res, r ? 200 : 503, JSON.stringify(r ? { wallet, at: w.at, swaps: r } : { error: 'swap store unavailable' }), undefined, 0); return;
     }
     const m = path.match(/^\/token\/(0x[0-9a-fA-F]{40})$/);
     if (m) {
