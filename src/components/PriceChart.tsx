@@ -45,12 +45,15 @@ const IND = [
   { k: 'vol', l: 'Volume', pane: 0 }, { k: 'ma20', l: 'MA 20', pane: 0 }, { k: 'ma50', l: 'MA 50', pane: 0 }, { k: 'ema9', l: 'EMA 9', pane: 0 },
   { k: 'ema21', l: 'EMA 21', pane: 0 }, { k: 'vwap', l: 'VWAP', pane: 0 }, { k: 'bb', l: 'Bollinger 20,2', pane: 0 }, { k: 'rsi', l: 'RSI 14', pane: 1 }, { k: 'macd', l: 'MACD 12,26,9', pane: 1 },
 ] as const;
+const P_DEFAULT = { ma20: 20, ma50: 50, ema9: 9, ema21: 21, bb: 20, bbk: 2, rsi: 14 };
+const PARAM_OF: Record<string, (keyof typeof P_DEFAULT)[]> = { ma20: ['ma20'], ma50: ['ma50'], ema9: ['ema9'], ema21: ['ema21'], bb: ['bb', 'bbk'], rsi: ['rsi'] };
 const IND_COL: Record<string, string> = { ma20: '#f5c451', ma50: '#6aa9ff', ema9: '#ff7ad9', ema21: '#4fd1c5', vwap: '#c9a0ff', bb: 'rgba(160,170,190,.75)', rsi: '#c9a0ff', macd: '#6aa9ff', signal: '#ff9a3c' };
 const UPC = '#5ad18a', DNC = '#ff5a5a';
 const TOOLS: { k: Tool; l: string; tip: string }[] = [
   { k: 'pointer', l: '↖', tip: 'Pointer — click a drawing to select it (Delete removes it)' }, { k: 'hline', l: '―', tip: 'Horizontal line (1 click)' },
   { k: 'trend', l: '╱', tip: 'Trend line (2 clicks)' }, { k: 'ray', l: '↗', tip: 'Ray (2 clicks)' }, { k: 'rect', l: '▭', tip: 'Rectangle (2 clicks)' },
-  { k: 'fib', l: 'ƒ', tip: 'Fibonacci retracement (2 clicks: from, to)' }, { k: 'measure', l: '⇕', tip: 'Measure — % change, $ change and time between 2 clicks' },
+  { k: 'fib', l: 'ƒ', tip: 'Fibonacci retracement (2 clicks: from, to)' }, { k: 'channel', l: '⫽', tip: 'Parallel channel (3 clicks: line start, line end, channel width)' },
+  { k: 'measure', l: '⇕', tip: 'Measure — % change, $ change and time between 2 clicks' }, { k: 'text', l: 'T', tip: 'Text note (click, then type)' },
 ];
 const lsGet = (k: string, d: string) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } };
@@ -82,9 +85,13 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   const [ind, setInd] = useState<Set<string>>(() => new Set(lsGet('statera-chart-ind', 'vol').split(',').filter(Boolean)));
   const [utc, setUtc] = useState(() => lsGet('statera-chart-tz', 'local') === 'utc');
   const [indOpen, setIndOpen] = useState(false);
+  // indicator periods (owner can set e.g. MA 100, RSI 21) — remembered per browser
+  const [P, setP] = useState<typeof P_DEFAULT>(() => { try { return { ...P_DEFAULT, ...JSON.parse(lsGet('statera-chart-indp', '{}')) }; } catch { return P_DEFAULT; } });
+  useEffect(() => { lsSet('statera-chart-indp', JSON.stringify(P)); }, [P]);
   const [tool, setTool] = useState<Tool>('pointer');
   const [drawings, setDrawings] = useState<Drawing[]>(() => loadDrawings(address));
   const [selected, setSelected] = useState<string | null>(null);
+  const [draftN, setDraftN] = useState(0); // points placed of the drawing in progress (for the hint)
   const [full, setFull] = useState(false);
   const [bars, setBars] = useState<Bar[] | null>(null);
   const [meta, setMeta] = useState<{ source: 'store' | 'legacy' | 'warp' | null; hasMore: boolean; pools: string[]; backTs: number | null }>({ source: null, hasMore: false, pools: [], backTs: null });
@@ -272,15 +279,15 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       const s = chart.addSeries(LineSeries, { color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...(pane === 0 ? { priceFormat: { type: 'custom', formatter: fmt, minMove: 1e-18 } } : {}), ...opts }, pane);
       s.setData(vals.map((v, i) => (v == null ? { time: times[i] } : { time: times[i], value: v })) as any); indRef.current.push(s); return s;
     };
-    if (ind.has('ma20')) line(sma(closes, 20), IND_COL.ma20);
-    if (ind.has('ma50')) line(sma(closes, 50), IND_COL.ma50);
-    if (ind.has('ema9')) line(ema(closes, 9), IND_COL.ema9);
-    if (ind.has('ema21')) line(ema(closes, 21), IND_COL.ema21);
+    if (ind.has('ma20')) line(sma(closes, P.ma20), IND_COL.ma20);
+    if (ind.has('ma50')) line(sma(closes, P.ma50), IND_COL.ma50);
+    if (ind.has('ema9')) line(ema(closes, P.ema9), IND_COL.ema9);
+    if (ind.has('ema21')) line(ema(closes, P.ema21), IND_COL.ema21);
     if (ind.has('vwap')) line(vwap(display), IND_COL.vwap, 0, { lineStyle: LineStyle.Dotted, lineWidth: 2 });
-    if (ind.has('bb')) { const b = bollinger(closes); line(b.up, IND_COL.bb); line(b.mid, IND_COL.bb, 0, { lineStyle: LineStyle.Dashed }); line(b.lo, IND_COL.bb); }
+    if (ind.has('bb')) { const b = bollinger(closes, P.bb, P.bbk); line(b.up, IND_COL.bb); line(b.mid, IND_COL.bb, 0, { lineStyle: LineStyle.Dashed }); line(b.lo, IND_COL.bb); }
     let pane = 1;
     if (ind.has('rsi')) {
-      const s = line(rsi(closes), IND_COL.rsi, pane, { lastValueVisible: true, priceFormat: { type: 'custom', formatter: (v: number) => v.toFixed(0), minMove: 0.1 } });
+      const s = line(rsi(closes, P.rsi), IND_COL.rsi, pane, { lastValueVisible: true, priceFormat: { type: 'custom', formatter: (v: number) => v.toFixed(0), minMove: 0.1 } });
       s.createPriceLine({ price: 70, color: 'rgba(255,90,90,.45)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: '' });
       s.createPriceLine({ price: 30, color: 'rgba(90,209,138,.45)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: '' });
       pane++;
@@ -306,7 +313,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       if (fine && display.length > SHOW) chart.timeScale().setVisibleLogicalRange({ from: display.length - SHOW, to: display.length + 4 } as { from: Logical; to: Logical });
       else chart.timeScale().fitContent();
     }
-  }, [display, ctype, ind, mult, fmt]); // eslint-disable-line
+  }, [display, ctype, ind, mult, fmt, P]); // eslint-disable-line
 
   // price scale mode
   useEffect(() => { chartRef.current?.priceScale('right', 0).applyOptions({ mode: scale === 'log' ? PriceScaleMode.Logarithmic : scale === 'pct' ? PriceScaleMode.Percentage : PriceScaleMode.Normal }); }, [scale, display]);
@@ -379,13 +386,19 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       const d = drawRef.current, tl = toolRef.current;
       if (tl === 'pointer') { if (p.point && (p.paneIndex ?? 0) === 0) setSelected(d.hit(p.point.x, p.point.y)); return; }
       const pt = ptAtRef.current(p); if (!pt) return;
+      const id = Math.random().toString(36).slice(2);
       if (!d.draft) {
-        d.draft = { id: Math.random().toString(36).slice(2), tool: tl as Drawing['tool'], pts: [pt, pt] };
-        if (TOOL_POINTS[tl] === 1) { const done = { ...d.draft, pts: [pt] }; d.draft = null; setDrawings((x) => [...x, done]); setTool('pointer'); }
-        d.redraw(); return;
+        if (TOOL_POINTS[tl] === 1) {
+          let text: string | undefined;
+          if (tl === 'text') { text = (window.prompt('Note text') || '').trim().slice(0, 80); if (!text) { setTool('pointer'); return; } }
+          setDrawings((x) => [...x, { id, tool: tl as Drawing['tool'], pts: [pt], text }]); setTool('pointer'); return;
+        }
+        d.draft = { id, tool: tl as Drawing['tool'], pts: [pt, pt] }; // the last point follows the cursor until it's clicked
+        d.redraw(); setDraftN(1); return;
       }
-      const done = { ...d.draft, pts: [d.draft.pts[0], pt] }; d.draft = null;
-      setDrawings((x) => [...x, done]); setTool('pointer');
+      d.draft.pts[d.draft.pts.length - 1] = pt;
+      if (d.draft.pts.length >= TOOL_POINTS[d.draft.tool]) { const done = { ...d.draft, pts: [...d.draft.pts] }; d.draft = null; setDraftN(0); setDrawings((x) => [...x, done]); setTool('pointer'); }
+      else { d.draft.pts.push(pt); setDraftN(d.draft.pts.length - 1); d.redraw(); }
     };
     const onMove = (p: MouseEventParams<Time>) => {
       const bar = p.time != null && mainRef.current ? (p.seriesData.get(mainRef.current) as any) : null;
@@ -393,7 +406,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
         setHover(bar.open != null ? { time: p.time as number, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: v ?? (src?.volume ?? 0) * 1, trades: src?.trades } : { time: p.time as number, open: bar.value, high: bar.value, low: bar.value, close: bar.value, volume: src?.volume ?? 0, trades: src?.trades }); }
       else setHover(null);
       const d = drawRef.current;
-      if (d.draft) { const pt = ptAtRef.current(p); if (pt) { d.draft.pts[1] = pt; d.redraw(); } }
+      if (d.draft) { const pt = ptAtRef.current(p); if (pt) { d.draft.pts[d.draft.pts.length - 1] = pt; d.redraw(); } }
     };
     // ⛔ the chart's own subscribeClick drops a second click that follows the first within its double-click window (a 2-point
     // drawing never finished) — clicks are read from the DOM instead and mapped to the price pane by hand
@@ -404,10 +417,45 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       if (x < 0 || x > w0 || y < 0 || y > h0) return; // outside the price pane (price axis, time axis, indicator panes)
       onClick({ point: { x, y }, paneIndex: 0 });
     };
+    // pointer tool: press on a drawing's point to reshape it, on its body to move it (the chart doesn't pan meanwhile)
+    let drag: { id: string; i: number | null; start: { t: number; p: number }; orig: Drawing } | null = null, moved = false;
+    const local = (e: MouseEvent) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    const down = (e: MouseEvent) => {
+      if (toolRef.current !== 'pointer' || e.button !== 0) return;
+      const d = drawRef.current, { x, y } = local(e);
+      if (y > chart.paneSize(0).height) return;
+      const hp = d.hitPoint(x, y), id = hp?.id ?? d.hit(x, y); if (!id) return;
+      const orig = d.items.find((k) => k.id === id); const start = ptAtRef.current({ point: { x, y }, paneIndex: 0 });
+      if (!orig || !start) return;
+      e.preventDefault(); e.stopPropagation();
+      drag = { id, i: hp ? hp.i : null, start, orig: { ...orig, pts: orig.pts.map((q) => ({ ...q })) } }; moved = false;
+      chart.applyOptions({ handleScroll: false, handleScale: false });
+      window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    };
+    const move = (e: MouseEvent) => {
+      if (!drag) return;
+      const pt = ptAtRef.current({ point: local(e), paneIndex: 0 }); if (!pt) return;
+      const d = drawRef.current, it = d.items.find((k) => k.id === drag!.id); if (!it) return;
+      moved = true;
+      if (drag.i != null) it.pts[drag.i] = pt;
+      else {
+        // move the whole drawing: shift time by the drag, and price by the same RATIO (works on log charts and tiny prices)
+        const dt = pt.t - drag.start.t, rp = drag.start.p > 0 ? pt.p / drag.start.p : 1;
+        it.pts = drag.orig.pts.map((q) => ({ t: it.tool === 'hline' ? q.t : q.t + dt, p: q.p * rp }));
+      }
+      d.redraw();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+      chart.applyOptions({ handleScroll: true, handleScale: true });
+      if (drag && moved) { const id = drag.id; setDrawings([...drawRef.current.items]); setSelected(id); }
+      drag = null;
+    };
+    el.addEventListener('mousedown', down, true);
     el.addEventListener('click', domClick); chart.subscribeCrosshairMove(onMove);
-    return () => { el.removeEventListener('click', domClick); chart.unsubscribeCrosshairMove(onMove); };
+    return () => { el.removeEventListener('mousedown', down, true); el.removeEventListener('click', domClick); chart.unsubscribeCrosshairMove(onMove); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, []);
-  useEffect(() => { const d = drawRef.current; if (d.draft && d.draft.tool !== tool) { d.draft = null; d.redraw(); } }, [tool]);
+  useEffect(() => { const d = drawRef.current; if (d.draft && d.draft.tool !== tool) { d.draft = null; setDraftN(0); d.redraw(); } }, [tool]);
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest?.('input,textarea,[contenteditable]')) return;
@@ -474,10 +522,18 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
           <button className={`chart-btn${indOpen ? ' on' : ''}`} onClick={() => setIndOpen((o) => !o)}>ƒx Indicators{ind.size ? ` · ${ind.size}` : ''}</button>
           {indOpen && (
             <div className="chart-ind-pop" onMouseLeave={() => setIndOpen(false)}>
-              {IND.map((i) => (
-                <label key={i.k}><input type="checkbox" checked={ind.has(i.k)} onChange={() => toggleInd(i.k)} />
-                  <i style={{ background: IND_COL[i.k] || 'rgba(255,255,255,.4)' }} />{i.l}{i.pane ? <em>own pane</em> : null}</label>
-              ))}
+              {IND.map((i) => {
+                const pk = PARAM_OF[i.k];
+                return (
+                  <div className="chart-ind-row" key={i.k}>
+                    <label><input type="checkbox" checked={ind.has(i.k)} onChange={() => toggleInd(i.k)} />
+                      <i style={{ background: IND_COL[i.k] || 'rgba(255,255,255,.4)' }} />{pk ? i.l.replace(/\d+(,\d+)?$/, '').trim() : i.l}{i.pane ? <em>own pane</em> : null}</label>
+                    {pk && pk.map((k) => <input key={k} className="chart-ind-n" type="number" min={k === 'bbk' ? 0.5 : 2} max={k === 'bbk' ? 5 : 400} step={k === 'bbk' ? 0.5 : 1} value={P[k]}
+                      title={k === 'bbk' ? 'Band width (standard deviations)' : 'Period (candles)'}
+                      onChange={(e) => { const v = Number(e.target.value); if (isFinite(v) && v > 0) setP((o) => ({ ...o, [k]: k === 'bbk' ? Math.min(5, v) : Math.min(400, Math.max(2, Math.round(v))) })); }} />)}
+                  </div>);
+              })}
+              <button className="chart-ind-reset" onClick={() => setP(P_DEFAULT)}>Reset periods</button>
             </div>
           )}
         </div>
@@ -508,7 +564,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
             </div>
           )}
           {maker && <div className="chart-maker">Showing wallet {maker.slice(0, 6)}…{maker.slice(-4)}{makerTrades ? ` · ${makerTrades.length} trades` : ' …'} <i className="b">● B</i><i className="s">● S</i>{onClearMaker && <button onClick={onClearMaker} aria-label="Hide this wallet's trades">✕</button>}</div>}
-          {tool !== 'pointer' && <div className="chart-hint">{TOOL_POINTS[tool] === 1 ? 'Click to place' : drawRef.current.draft ? 'Click the second point' : 'Click the first point'} · Esc cancels</div>}
+          {tool !== 'pointer' && <div className="chart-hint">{TOOL_POINTS[tool] === 1 ? 'Click to place' : `Click point ${draftN + 1} of ${TOOL_POINTS[tool]}`} · Esc cancels</div>}
           <div className="chart-box" ref={boxRef} style={{ height: boxH, cursor: tool !== 'pointer' ? 'crosshair' : undefined }} />
           {older && <div className="chart-older">loading older candles…</div>}
           {(loading || empty) && (

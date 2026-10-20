@@ -2413,3 +2413,16 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .chart-maker { position: absolute; z-index: 5; top: 28px; left: 8px; display: inline-flex; align-items: center; gap: 6px; font: 600 11px var(--mono); color: #9cc3ff; background: rgba(10,10,14,.88); border: 1px solid rgba(106,169,255,.35); border-radius: 999px; padding: 3px 4px 3px 10px; }
 .chart-maker i { font-style: normal; } .chart-maker i.b { color: #6aa9ff; } .chart-maker i.s { color: #c98aff; }
 .chart-maker button { background: none; border: 0; color: inherit; cursor: pointer; }
+.pf-kpis { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 0 0 12px; }
+.pf-kpis > div { flex: 1 1 130px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.pf-kpis span { display: block; font: 700 9px var(--disp); letter-spacing: 1.2px; text-transform: uppercase; color: var(--gray-2); }
+.pf-kpis b { display: block; font: 700 17px var(--mono); color: var(--white); margin-top: 2px; } .pf-kpis b.up { color: #5ad18a; } .pf-kpis b.down { color: #ff5a5a; }
+.pf-kpis small { font-size: 11px; color: var(--gray); }
+.pf-csv { align-self: center; }
+.pnl-compact { margin: 6px 0 10px; padding: 8px 10px 4px; background: rgba(255,255,255,.015); }
+.pnl-compact .pnl-chart-v { font-size: 16px; }
+.chart-ind-row { display: flex; align-items: center; gap: 6px; }
+.chart-ind-row label { flex: 1; }
+.chart-ind-n { width: 52px; background: rgba(0,0,0,.4); border: 1px solid var(--line); border-radius: 6px; color: var(--white); padding: 3px 5px; font: 11px var(--mono); }
+.chart-ind-reset { width: 100%; margin-top: 4px; background: none; border: 0; border-top: 1px solid var(--line); color: var(--gray-2); font: 700 10px var(--disp); letter-spacing: .6px; text-transform: uppercase; padding: 8px 0 4px; cursor: pointer; }
+.chart-ind-reset:hover { color: var(--white); }

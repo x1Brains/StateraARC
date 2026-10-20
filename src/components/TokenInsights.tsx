@@ -34,8 +34,8 @@ export function MoneyFlowCard({ address, onMaker }: { address: string; onMaker?:
         <div className="ta-grid">
           <div className="ta-cell"><div className="ta-v">{x.buys.toLocaleString()}</div><div className="ta-l">Buys</div></div>
           <div className="ta-cell"><div className="ta-v">{x.sells.toLocaleString()}</div><div className="ta-l">Sells</div></div>
-          <div className="ta-cell"><div className="ta-v">{x.buyers.toLocaleString()}</div><div className="ta-l">Buyers</div></div>
-          <div className="ta-cell"><div className="ta-v">{x.sellers.toLocaleString()}</div><div className="ta-l">Sellers</div></div>
+          <div className="ta-cell"><div className="ta-v">{x.makersKnown ? x.buyers.toLocaleString() : '—'}</div><div className="ta-l">Buyers</div></div>
+          <div className="ta-cell"><div className="ta-v">{x.makersKnown ? x.sellers.toLocaleString() : '—'}</div><div className="ta-l">Sellers</div></div>
           <div className="ta-cell"><div className="ta-v">{usd(x.biggestBuy)}</div><div className="ta-l">Biggest buy</div></div>
           <div className="ta-cell"><div className="ta-v">{usd(x.biggestSell)}</div><div className="ta-l">Biggest sell</div></div>
         </div>
@@ -43,7 +43,7 @@ export function MoneyFlowCard({ address, onMaker }: { address: string; onMaker?:
           {x.topBuyer && <button onClick={() => onMaker?.(x.topBuyer!.wallet)} title="Show this wallet's trades on the chart"><span>Top buyer</span><b>{displayName(x.topBuyer.wallet, names, short)}</b><i className="up">{signed(x.topBuyer.net)}</i></button>}
           {x.topSeller && <button onClick={() => onMaker?.(x.topSeller!.wallet)} title="Show this wallet's trades on the chart"><span>Top seller</span><b>{displayName(x.topSeller.wallet, names, short)}</b><i className="down">{signed(x.topSeller.net)}</i></button>}
         </div>}
-        {x.makersKnown != null && x.makersKnown < 0.97 && <div className="side-note">Wallet figures cover {Math.round(x.makersKnown * 100)}% of trades — the rest are still being matched to their wallets.</div>}
+        {!!x.makersKnown && x.makersKnown < 0.97 && <div className="side-note">Wallet figures cover {Math.round(x.makersKnown * 100)}% of trades — the rest are still being matched to their wallets.</div>}
       </>)}
     </div>
   );

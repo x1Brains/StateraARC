@@ -7,7 +7,7 @@ import { usd } from '../lib/arc';
 // The wallet's total P&L over time (Portfolio): each day = realized so far + open positions marked to that day's close
 // (daily candles from the swap store). Green above zero, red below; the dotted line is the realized part alone.
 const RANGES = [{ k: 7, l: '7D' }, { k: 30, l: '30D' }, { k: 90, l: '90D' }, { k: 0, l: 'ALL' }];
-export function PnlChart({ swaps, nowPx }: { swaps: V2WalletSwap[]; nowPx: Record<string, number> }) {
+export function PnlChart({ swaps, nowPx, title = 'P&L over time', compact = false }: { swaps: V2WalletSwap[]; nowPx: Record<string, number>; title?: string; compact?: boolean }) {
   const [closes, setCloses] = useState<Record<string, Map<number, number>> | null>(null);
   const [range, setRange] = useState(0);
   const [hover, setHover] = useState<{ time: number; value: number; realized: number } | null>(null);
@@ -35,7 +35,7 @@ export function PnlChart({ swaps, nowPx }: { swaps: V2WalletSwap[]; nowPx: Recor
   useEffect(() => {
     const el = boxRef.current; if (!el) return;
     const chart = createChart(el, {
-      width: el.clientWidth, height: 220,
+      width: el.clientWidth, height: compact ? 150 : 220,
       layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#8f8478', fontFamily: 'JetBrains Mono, monospace' },
       grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(255,255,255,.04)' } },
       rightPriceScale: { borderColor: 'rgba(255,255,255,.08)' }, timeScale: { borderColor: 'rgba(255,255,255,.08)' },
@@ -65,19 +65,19 @@ export function PnlChart({ swaps, nowPx }: { swaps: V2WalletSwap[]; nowPx: Recor
   const first = shown && shown.length ? shown[0] : null;
   const delta = last && first && range ? last.value - first.value : null;
   return (
-    <div className="panel pnl-chart">
+    <div className={`panel pnl-chart${compact ? ' pnl-compact' : ''}`}>
       <div className="pnl-chart-h">
         <div>
-          <div className="pnl-chart-l">P&amp;L over time{k ? ` · ${new Date(k.time * 1000).toLocaleDateString([], { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' })}` : ''}</div>
+          <div className="pnl-chart-l">{title}{k ? ` · ${new Date(k.time * 1000).toLocaleDateString([], { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' })}` : ''}</div>
           {k && <div className={`pnl-chart-v ${k.value >= 0 ? 'up' : 'down'}`}>{k.value >= 0 ? '+' : '−'}{usd(Math.abs(k.value))}
             <span>realized {k.realized >= 0 ? '+' : '−'}{usd(Math.abs(k.realized))}</span>
             {delta != null && !hover && <span className={delta >= 0 ? 'up' : 'down'}>{delta >= 0 ? '+' : '−'}{usd(Math.abs(delta))} in {RANGES.find((r) => r.k === range)?.l}</span>}</div>}
         </div>
         <div className="chart-seg">{RANGES.map((r) => <button key={r.k} className={range === r.k ? 'on' : ''} onClick={() => setRange(r.k)}>{r.l}</button>)}</div>
       </div>
-      <div ref={boxRef} className="pnl-chart-box" />
+      <div ref={boxRef} className="pnl-chart-box" style={compact ? { height: 150 } : undefined} />
       {!series && <div className="side-note">Building your P&amp;L history…</div>}
-      <div className="chart-src">Each day = realized profit so far + what you held, marked to that day's close (UTC). Dotted = realized only.</div>
+      {!compact && <div className="chart-src">Each day = realized profit so far + what you held, marked to that day's close (UTC). Dotted = realized only.</div>}
     </div>
   );
 }

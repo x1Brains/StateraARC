@@ -1,12 +1,13 @@
 // Drawing tools for the token chart (lightweight-charts v5 series primitive): horizontal line, trend line, ray, rectangle,
-// Fibonacci retracement and a price-range ruler. Points are stored as (unix time, USD price) so a drawing stays put across
+// Fibonacci retracement, a price-range ruler, a parallel channel (3 clicks) and text notes. With the pointer, a drawing's
+// points can be dragged (endpoint = reshape, body = move) — see PriceChart's pointer handlers + hitPoint(). Points are stored as (unix time, USD price) so a drawing stays put across
 // timeframes and the Price / MCap switch; the chart supplies time→x (interpolated over its bars, extrapolated past them).
 import type { ISeriesPrimitive, SeriesAttachedParameter, IPrimitivePaneView, IPrimitivePaneRenderer, ISeriesApi, SeriesType, Time } from 'lightweight-charts';
 
-export type Tool = 'pointer' | 'hline' | 'trend' | 'ray' | 'rect' | 'fib' | 'measure';
-export const TOOL_POINTS: Record<Tool, number> = { pointer: 0, hline: 1, trend: 2, ray: 2, rect: 2, fib: 2, measure: 2 };
+export type Tool = 'pointer' | 'hline' | 'trend' | 'ray' | 'rect' | 'fib' | 'measure' | 'channel' | 'text';
+export const TOOL_POINTS: Record<Tool, number> = { pointer: 0, hline: 1, trend: 2, ray: 2, rect: 2, fib: 2, measure: 2, channel: 3, text: 1 };
 export interface Pt { t: number; p: number }
-export interface Drawing { id: string; tool: Exclude<Tool, 'pointer'>; pts: Pt[] }
+export interface Drawing { id: string; tool: Exclude<Tool, 'pointer'>; pts: Pt[]; text?: string }
 const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const COL = '#ff9a3c', SEL = '#ffd27a', UP = '#5ad18a', DN = '#ff5a5a';
 
@@ -65,10 +66,30 @@ export class Drawings implements ISeriesPrimitive<Time> {
         const secs = Math.abs(d.pts[1].t - d.pts[0].t);
         const txt = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%  ${dv >= 0 ? '+' : '−'}${this.fmt(Math.abs(dv))}  ${dur(secs)}`;
         label(c, txt, (a[0] + b[0]) / 2, Math.min(a[1], b[1]) - 6, mc, 'center', true);
+      } else if (d.tool === 'channel' && a && b) {
+        line(c, a[0], a[1], b[0], b[1]); dot(c, a); dot(c, b);
+        const e = d.pts[2] && this.xy(d.pts[2]);
+        if (e && b[0] !== a[0]) {
+          // the parallel goes through the 3rd point: same slope, shifted vertically
+          const k = (b[1] - a[1]) / (b[0] - a[0]), off = e[1] - (a[1] + k * (e[0] - a[0]));
+          line(c, a[0], a[1] + off, b[0], b[1] + off);
+          c.globalAlpha = 0.1; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.lineTo(b[0], b[1] + off); c.lineTo(a[0], a[1] + off); c.closePath(); c.fill(); c.globalAlpha = 1;
+          c.setLineDash([4, 4]); c.globalAlpha = 0.5; line(c, a[0], a[1] + off / 2, b[0], b[1] + off / 2); c.setLineDash([]); c.globalAlpha = 1;
+        }
+      } else if (d.tool === 'text' && a) {
+        c.font = '12px Inter, system-ui, sans-serif'; label(c, d.text || 'Note', a[0] + 6, a[1] + 4, sel ? SEL : '#ffe2c4', 'left', true); dot(c, a);
       } else if (a) dot(c, a);
       c.restore();
     }
     void H;
+  }
+  // a drawing's own point under (x, y) — the pointer drags it to reshape the drawing
+  hitPoint(x: number, y: number, tol = 7): { id: string; i: number } | null {
+    for (const d of [...this.items].reverse()) for (let i = 0; i < d.pts.length; i++) {
+      if (d.tool === 'hline') continue;
+      const p = this.xy(d.pts[i]); if (p && Math.hypot(p[0] - x, p[1] - y) <= tol) return { id: d.id, i };
+    }
+    return null;
   }
   // nearest drawing within `tol` px of (x, y), for selecting with the pointer tool
   hit(x: number, y: number, tol = 6): string | null {
@@ -77,7 +98,8 @@ export class Drawings implements ISeriesPrimitive<Time> {
       const a = d.pts[0] && this.xy(d.pts[0]), b = d.pts[1] && this.xy(d.pts[1]);
       let dist = Infinity;
       if (d.tool === 'hline' && a) dist = Math.abs(y - a[1]);
-      else if (a && b && (d.tool === 'trend' || d.tool === 'ray' || d.tool === 'measure')) dist = segDist(x, y, a, b);
+      else if (a && b && (d.tool === 'trend' || d.tool === 'ray' || d.tool === 'measure' || d.tool === 'channel')) dist = segDist(x, y, a, b);
+      else if (d.tool === 'text' && a) dist = x >= a[0] - tol && x <= a[0] + 140 && Math.abs(y - a[1]) <= 12 ? 0 : Infinity;
       else if (a && b && (d.tool === 'rect' || d.tool === 'fib')) {
         const inX = x >= Math.min(a[0], b[0]) - tol && (d.tool === 'fib' || x <= Math.max(a[0], b[0]) + tol), inY = y >= Math.min(a[1], b[1]) - tol && y <= Math.max(a[1], b[1]) + tol;
         dist = inX && inY ? 0 : Infinity;

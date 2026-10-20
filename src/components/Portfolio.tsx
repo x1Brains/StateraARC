@@ -355,6 +355,36 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
           </div>
 
           {mainnet && storeState === 'ok' && storeSwaps && storeSwaps.length > 0 && <PnlChart swaps={storeSwaps} nowPx={Object.fromEntries(priceMap)} />}
+          {mainnet && storeState === 'ok' && storeSwaps && storeSwaps.length > 0 && pnl && (() => {
+            // positions = every token this wallet traded: win rate over the ones that realized something, best / worst by total P&L
+            const sym = (a: string) => radarByAddr.get(a)?.symbol || holdings.find((x) => x.address.toLowerCase() === a)?.symbol || short(a);
+            const held = new Map(rows.map((r) => [r.address.toLowerCase(), r]));
+            const pos = Object.entries(pnl as Record<string, StorePnl>).map(([a, p]) => {
+              const r = held.get(a), un = r && r.price != null && p.openQty > 0 ? Math.min(p.openQty, r.balance) * (r.price - (p.openCost / p.openQty)) : 0;
+              return { a, p, total: p.realized + un };
+            });
+            const decided = pos.filter((x) => x.p.qtySold > 0), wins = decided.filter((x) => x.p.realized > 0).length;
+            const best = pos.reduce<typeof pos[number] | null>((m, x) => (!m || x.total > m.total ? x : m), null), worst = pos.reduce<typeof pos[number] | null>((m, x) => (!m || x.total < m.total ? x : m), null);
+            const trades = pos.reduce((s2, x) => s2 + x.p.trades, 0);
+            const csv = () => {
+              const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+              const lines = ['date_utc,token,token_address,side,amount,price_usd,value_usd,venue,tx'];
+              for (const s2 of [...storeSwaps].sort((x, y) => x.block - y.block || x.logIndex - y.logIndex))
+                lines.push([new Date(s2.ts * 1000).toISOString(), sym(s2.token), s2.token, s2.side, String(s2.amount), String(s2.price), s2.usd.toFixed(6), s2.venue, s2.tx].map(esc).join(','));
+              const b = new Blob([lines.join('\n')], { type: 'text/csv' }), el = document.createElement('a');
+              el.href = URL.createObjectURL(b); el.download = `statera-trades-${addr.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.csv`; el.click(); setTimeout(() => URL.revokeObjectURL(el.href), 4000);
+            };
+            const sgn = (v: number) => `${v >= 0 ? '+' : '−'}${usd(Math.abs(v))}`;
+            return (
+              <div className="pf-kpis">
+                <div><span>Win rate</span><b>{decided.length ? `${Math.round((wins / decided.length) * 100)}%` : '—'}</b><small>{wins}/{decided.length} positions sold in profit</small></div>
+                <div><span>Best</span><b className="up">{best && best.total > 0 ? sgn(best.total) : '—'}</b><small>{best && best.total > 0 ? sym(best.a) : ''}</small></div>
+                <div><span>Worst</span><b className="down">{worst && worst.total < 0 ? sgn(worst.total) : '—'}</b><small>{worst && worst.total < 0 ? sym(worst.a) : ''}</small></div>
+                <div><span>Trades</span><b>{trades.toLocaleString()}</b><small>{pos.length} tokens</small></div>
+                <button className="btn ghost pf-csv" onClick={csv} title="Every swap in this wallet's history — date, token, side, amount, price, USD, tx">Export CSV</button>
+              </div>
+            );
+          })()}
 
           {spamCount > 0 && (
             <div className="pf-hidden">
@@ -407,6 +437,9 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
                 </div>
                 {isOpen && (
                   <div className="pf-detail">
+                    {storeState === 'ok' && storeSwaps && storeSwaps.some((x) => x.token.toLowerCase() === h.address.toLowerCase()) && (
+                      <PnlChart compact title={`${h.symbol} P&L over time`} swaps={storeSwaps.filter((x) => x.token.toLowerCase() === h.address.toLowerCase())} nowPx={Object.fromEntries(priceMap)} />
+                    )}
                     {h.avgCost == null ? (
                       <div className="side-note">{pnlLoading ? 'Loading your trade history…' : 'No on-chain buys found for this token — cost basis unavailable (it may have been received as a transfer, or bought token-to-token).'}</div>
                     ) : (
