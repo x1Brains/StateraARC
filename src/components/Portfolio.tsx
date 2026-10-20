@@ -267,10 +267,13 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
         const pl = pnl?.[h.address.toLowerCase()] ?? null;
         const avgCost = pl?.avgCost ?? null;
         // Unrealized = (current price − avg cost) × current balance; total P&L adds realized.
-        const unrealized = avgCost != null && p != null ? (p - avgCost) * h.balance : null;
+        // store P&L: only tokens this wallet BOUGHT and still holds carry an unrealized result (tokens that arrived by transfer
+        // or airdrop have no known cost — counting them at the average buy price invented losses/gains); same rule as PnlChart
+        const pnlQty = pl && 'openQty' in pl ? Math.min((pl as StorePnl).openQty, h.balance) : h.balance;
+        const unrealized = avgCost != null && p != null ? (p - avgCost) * pnlQty : null;
         const realized = pl?.realized ?? 0;
         const totalPnl = avgCost != null ? (realized + (unrealized ?? 0)) : null;
-        const costOfBag = avgCost != null ? avgCost * h.balance : null; // cost basis of what's held now
+        const costOfBag = avgCost != null ? avgCost * pnlQty : null; // cost basis of what's held now (bought part)
         // Only show a % when there's a meaningful cost basis (>= $1). Airdrops / dust have a near-zero
         // cost, which makes the percentage explode (e.g. +1,930,679,167,577%). Clamp for safety too.
         const pnlPct = costOfBag != null && costOfBag >= 1 && totalPnl != null
@@ -306,6 +309,10 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
       .sort((x, y) => Math.abs(y.p.realized) - Math.abs(x.p.realized));
   }, [pnl, rows, storeState, radarByAddr]);
   const closedAddrs = useMemo(() => new Set(closed.map((c) => c.address)), [closed]);
+  // stable maps for the P&L charts (a fresh object every render would rebuild their series each time)
+  // the rows' OWN cleaned prices (counterfeit / impossible prices dropped) — the header ignores those, so must the chart
+  const pxNow = useMemo(() => Object.fromEntries(rows.filter((r) => r.price != null).map((r) => [r.address.toLowerCase(), r.price as number])), [rows]);
+  const balNow = useMemo(() => Object.fromEntries(holdings.map((h) => [h.address.toLowerCase(), h.balance])), [holdings]);
   const total = rows.reduce((s, r) => s + (r.value ?? 0), 0);
   const totalPnlSum = rows.reduce((s, r) => s + (closedAddrs.has(r.address.toLowerCase()) ? 0 : (r.totalPnl ?? 0)), 0) + closed.reduce((s, c) => s + c.p.realized, 0);
   const hasPnl = pnl != null && (rows.some((r) => r.totalPnl != null) || closed.length > 0);
@@ -354,7 +361,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
             <div className="stat" title={addr}><div className={`v${hasName(addr, names) ? ' named' : ''}`}>{displayName(addr, names, short)}</div><div className="l">{hasName(addr, names) ? 'Arc Name' : 'Address'}</div></div>
           </div>
 
-          {mainnet && storeState === 'ok' && storeSwaps && storeSwaps.length > 0 && <PnlChart swaps={storeSwaps} nowPx={Object.fromEntries(priceMap)} />}
+          {mainnet && storeState === 'ok' && storeSwaps && storeSwaps.length > 0 && <PnlChart swaps={storeSwaps} nowPx={pxNow} balances={balNow} />}
           {mainnet && storeState === 'ok' && storeSwaps && storeSwaps.length > 0 && pnl && (() => {
             // positions = every token this wallet traded: win rate over the ones that realized something, best / worst by total P&L
             const sym = (a: string) => radarByAddr.get(a)?.symbol || holdings.find((x) => x.address.toLowerCase() === a)?.symbol || short(a);
@@ -438,7 +445,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
                 {isOpen && (
                   <div className="pf-detail">
                     {storeState === 'ok' && storeSwaps && storeSwaps.some((x) => x.token.toLowerCase() === h.address.toLowerCase()) && (
-                      <PnlChart compact title={`${h.symbol} P&L over time`} swaps={storeSwaps.filter((x) => x.token.toLowerCase() === h.address.toLowerCase())} nowPx={Object.fromEntries(priceMap)} />
+                      <PnlChart compact title={`${h.symbol} P&L over time`} swaps={storeSwaps.filter((x) => x.token.toLowerCase() === h.address.toLowerCase())} nowPx={pxNow} balances={balNow} />
                     )}
                     {h.avgCost == null ? (
                       <div className="side-note">{pnlLoading ? 'Loading your trade history…' : 'No on-chain buys found for this token — cost basis unavailable (it may have been received as a transfer, or bought token-to-token).'}</div>

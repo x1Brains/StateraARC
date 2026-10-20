@@ -7,7 +7,7 @@ import { usd } from '../lib/arc';
 // The wallet's total P&L over time (Portfolio): each day = realized so far + open positions marked to that day's close
 // (daily candles from the swap store). Green above zero, red below; the dotted line is the realized part alone.
 const RANGES = [{ k: 7, l: '7D' }, { k: 30, l: '30D' }, { k: 90, l: '90D' }, { k: 0, l: 'ALL' }];
-export function PnlChart({ swaps, nowPx, title = 'P&L over time', compact = false }: { swaps: V2WalletSwap[]; nowPx: Record<string, number>; title?: string; compact?: boolean }) {
+export function PnlChart({ swaps, nowPx, balances, title = 'P&L over time', compact = false }: { swaps: V2WalletSwap[]; nowPx: Record<string, number>; balances?: Record<string, number>; title?: string; compact?: boolean }) {
   const [closes, setCloses] = useState<Record<string, Map<number, number>> | null>(null);
   const [range, setRange] = useState(0);
   const [hover, setHover] = useState<{ time: number; value: number; realized: number } | null>(null);
@@ -29,7 +29,7 @@ export function PnlChart({ swaps, nowPx, title = 'P&L over time', compact = fals
     return () => { alive = false; };
   }, [tokens.join(',')]); // eslint-disable-line
 
-  const series = useMemo(() => (closes ? pnlSeries(swaps, closes, nowPx) : null), [swaps, closes, nowPx]);
+  const series = useMemo(() => (closes ? pnlSeries(swaps, closes, nowPx, balances) : null), [swaps, closes, nowPx, balances]);
   const shown = useMemo(() => (series && range ? series.slice(-range) : series), [series, range]);
 
   useEffect(() => {

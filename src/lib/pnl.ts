@@ -39,7 +39,10 @@ export function storePnl(swaps: V2WalletSwap[]): Record<string, StorePnl> {
 
 // Daily total P&L. closes[token] = daily closes { time (UTC day start, s) → close }. Days before a token's first close use
 // its first known close; a token without any close counts only its realized result.
-export function pnlSeries(swaps: V2WalletSwap[], closes: Record<string, Map<number, number>>, nowPx: Record<string, number>): { time: number; value: number; realized: number }[] {
+// `balances` (token → what the wallet holds NOW): every day counts at most that much of each bought position — bought tokens
+// that later left by transfer are dropped from the whole line (no jump on the last day), and the result matches the Portfolio
+// header, which counts the same min(bought-and-held, balance).
+export function pnlSeries(swaps: V2WalletSwap[], closes: Record<string, Map<number, number>>, nowPx: Record<string, number>, balances?: Record<string, number>): { time: number; value: number; realized: number }[] {
   if (!swaps.length) return [];
   const ordered = [...swaps].sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
   const day = (ts: number) => Math.floor(ts / 86400) * 86400;
@@ -58,10 +61,18 @@ export function pnlSeries(swaps: V2WalletSwap[], closes: Record<string, Map<numb
     let unreal = 0;
     for (const [t, p] of pos) {
       if (p.q <= 0) continue;
+      // a token the Portfolio can't price now (no pool, or a counterfeit / impossible price) carries no unrealized result —
+      // on any day, so the line doesn't jump and ends where the header's Total P&L is
+      if (balances && nowPx[t] == null) continue;
       const cm = closes[t];
-      let px = cm?.get(d) ?? (d === end ? nowPx[t] : undefined);
+      // today = the live price (what the Portfolio header values with); earlier days = that day's close
+      let px = d === end ? (nowPx[t] ?? cm?.get(d)) : cm?.get(d);
       if (px == null) px = lastClose.get(t) ?? (cm && cm.size ? cm.values().next().value : undefined);
-      if (px != null) { lastClose.set(t, px); unreal += p.q * px - p.c; }
+      if (px != null) {
+        lastClose.set(t, px);
+        const q = balances ? Math.min(p.q, balances[t] ?? 0) : p.q;
+        unreal += q * px - p.c * (q / p.q);
+      }
     }
     out.push({ time: d, value: realized + unreal, realized });
   }
