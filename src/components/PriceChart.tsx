@@ -13,12 +13,19 @@ import { Drawings, TOOL_POINTS, loadDrawings, saveDrawings, type Tool, type Draw
 // unreachable the chart falls back to the old per-request pool scan (~5 days), and Warp's candles for a curve-only token.
 // Toolbar: timeframes · Candles/Heikin-Ashi/Bars/Line/Area · Price/MCap · Linear/Log/% · indicators (MA, EMA, VWAP, Bollinger,
 // Volume, RSI and MACD in their own panes) · UTC/local time · fullscreen · snapshot. Left rail: drawing tools, kept per token.
-const RESES = [{ k: '1m', l: '1m', s: 60 }, { k: '5m', l: '5m', s: 300 }, { k: '15m', l: '15m', s: 900 }, { k: '1h', l: '1H', s: 3600 }, { k: '4h', l: '4H', s: 14400 }, { k: '1d', l: '1D', s: 86400 }, { k: '1w', l: '1W', s: 604800 }];
+const RESES = [{ k: '1m', l: '1m', s: 60 }, { k: '5m', l: '5m', s: 300 }, { k: '15m', l: '15m', s: 900 }, { k: '1h', l: '1H', s: 3600 }, { k: '4h', l: '4H', s: 14400 },
+  { k: '1d', l: '1D', s: 86400 }, { k: '1w', l: '1W', s: 604800 }, { k: '1M', l: '1M', s: 2592000 }, { k: 'all', l: 'ALL', s: 0 }];
+// ALL = the whole history in one view: the finest candle that fits it in ≤ ~1,500 candles (a 5-week-old chain → 1H)
+const ALL_PICK = ['5m', '15m', '1h', '4h', '1d'];
+// From 1D up a candle is a calendar day/week/month (UTC): label it by date, never by a local clock time (a Monday-00:00-UTC
+// weekly candle read "13 Sep 20:00" in New York)
+const DAILY = new Set(['1d', '1w', '1M']);
 const SEC: Record<string, number> = Object.fromEntries(RESES.map((r) => [r.k, r.s]));
 // the old scan's windows, for the fallback path only (it can't reach further back than ~5 days)
 const LEGACY: Record<string, { sec: number; look: number; warp: string }> = {
   '1m': { sec: 60, look: 6 * 3600, warp: '1m' }, '5m': { sec: 300, look: 24 * 3600, warp: '5m' }, '15m': { sec: 900, look: 3 * 86400, warp: '5m' },
   '1h': { sec: 3600, look: 3 * 86400, warp: '1h' }, '4h': { sec: 14400, look: 12 * 86400, warp: '1h' }, '1d': { sec: 86400, look: 60 * 86400, warp: '1h' }, '1w': { sec: 43200, look: 3650 * 86400, warp: '1h' },
+  '1M': { sec: 43200, look: 3650 * 86400, warp: '1h' }, 'all': { sec: 43200, look: 3650 * 86400, warp: '1h' },
 };
 const legacyFetch = (a: string, dec: number, sec: number, look: number) =>
   v2Enabled ? v2Candles(a, sec, look).catch(() => fetchPoolCandlesInTab(a, dec, sec, look)) : fetchPoolCandlesInTab(a, dec, sec, look);
@@ -62,7 +69,8 @@ const priceFmt = (p: number) => {
 const mcapFmt = (p: number) => (!isFinite(p) ? '—' : '$' + compact(p));
 
 export function PriceChart({ address, symbol, decimals, priceScale = 1, change24h, trades, supply }: { address: string; symbol?: string; decimals?: number; priceScale?: number; change24h?: number | null; trades?: WalletTrade[] | null; supply?: number | null }) {
-  const [res, setRes] = useState(() => (SEC[lsGet('statera-chart-res', '5m')] ? lsGet('statera-chart-res', '5m') : '5m'));
+  const [res, setRes] = useState(() => (SEC[lsGet('statera-chart-res', '5m')] != null ? lsGet('statera-chart-res', '5m') : '5m'));
+  const [eff, setEff] = useState(res === 'all' ? '1h' : res); // the candle size actually drawn (ALL picks one)
   const [ctype, setCtype] = useState<CType>(() => lsGet('statera-chart-type', 'candles') as CType);
   const [mode, setMode] = useState<'price' | 'mcap'>('price');
   const [scale, setScale] = useState<Scale>('linear');
@@ -97,7 +105,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
 
   const mult = mode === 'mcap' && supply && supply > 0 ? supply : 1;
   const fmt = mult === 1 ? priceFmt : mcapFmt;
-  const sec = SEC[res] ?? 300;
+  const sec = SEC[eff] || 300;
 
   useEffect(() => { lsSet('statera-chart-res', res); }, [res]);
   useEffect(() => { lsSet('statera-chart-type', ctype); }, [ctype]);
@@ -114,11 +122,20 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       let got: Bar[] = [], m: typeof meta = { source: null, hasMore: false, pools: [], backTs: null };
       if (v2Enabled) {
         try {
-          const r: V2Bars = await v2Bars(address, res, 1000);
+          let pick = res, r: V2Bars;
+          if (res === 'all') {
+            // learn the token's first trade from a daily read, then draw the finest candles that fit its whole life
+            const day = await v2Bars(address, '1d', 2000);
+            const span = Math.max(3600, Date.now() / 1000 - (day.first ?? Date.now() / 1000));
+            pick = ALL_PICK.find((k) => span / SEC[k] <= 1500) ?? '1d';
+            r = pick === '1d' ? day : await v2Bars(address, pick, Math.min(2000, Math.ceil(span / SEC[pick]) + 5));
+          } else r = await v2Bars(address, res, res === '1m' || res === '5m' || res === '15m' ? 1000 : 2000);
+          if (id === reqId.current) setEff(pick);
           if (r.candles.length) { got = r.candles; m = { source: 'store', hasMore: r.hasMore, pools: r.pools.map((p) => p.venue), backTs: r.coverage?.backTs ?? null }; }
         } catch { /* store not reachable → the old scan below */ }
       }
       if (!got.length) {
+        if (id === reqId.current) setEff(res === 'all' || res === '1M' ? '1w' : res);
         const cfg = LEGACY[res] ?? LEGACY['5m'];
         let c = await legacyFetch(address, decimals ?? 18, cfg.sec, cfg.look).catch(() => [] as Candle[]);
         let src: 'legacy' | 'warp' = 'legacy';
@@ -141,7 +158,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     const t = setInterval(() => {
       if (document.hidden) return;
       const id = reqId.current;
-      v2Bars(address, res, 3).then((r) => {
+      v2Bars(address, eff, 3).then((r) => {
         if (id !== reqId.current || !r.candles.length) return;
         const cur = barsRef.current.slice();
         for (const b of r.candles) {
@@ -153,7 +170,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       }).catch(() => {});
     }, 5000);
     return () => clearInterval(t);
-  }, [address, res, meta.source]);
+  }, [address, eff, meta.source]);
 
   // ── data: older candles when the view nears the left edge ───────────────────────────────────────────────────────────
   const loadOlder = useCallback(() => {
@@ -161,7 +178,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     if (olderRef.current || !metaRef.current.hasMore || metaRef.current.source !== 'store' || !cur.length) return;
     olderRef.current = true; setOlder(true);
     const id = reqId.current;
-    v2Bars(address, res, 1000, cur[0].time).then((r) => {
+    v2Bars(address, eff, 1000, cur[0].time).then((r) => {
       if (id !== reqId.current) return;
       const add = r.candles.filter((b) => b.time < cur[0].time);
       const chart = chartRef.current, range = chart?.timeScale().getVisibleLogicalRange();
@@ -170,7 +187,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       // keep the view on the same candles (their logical index moved right by the number prepended)
       if (chart && range && add.length) requestAnimationFrame(() => chart.timeScale().setVisibleLogicalRange({ from: range.from + add.length, to: range.to + add.length }));
     }).catch(() => {}).finally(() => { olderRef.current = false; setOlder(false); });
-  }, [address, res]);
+  }, [address, eff]);
 
   // ── chart: created once ───────────────────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -180,7 +197,8 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
       layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#8f8478', fontFamily: 'JetBrains Mono, monospace', panes: { separatorColor: 'rgba(255,255,255,.08)', separatorHoverColor: 'rgba(255,122,26,.25)' } },
       grid: { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } },
       rightPriceScale: { borderColor: 'rgba(255,255,255,.08)', scaleMargins: { top: 0.08, bottom: 0.2 } },
-      timeScale: { borderColor: 'rgba(255,255,255,.08)', timeVisible: true, secondsVisible: false, rightOffset: 6 },
+      // maxBarSpacing: a young chain has 6 weekly / 2 monthly candles — don't blow them up to fill the whole width
+      timeScale: { borderColor: 'rgba(255,255,255,.08)', timeVisible: true, secondsVisible: false, rightOffset: 6, maxBarSpacing: 36 },
       crosshair: { mode: CrosshairMode.Normal, horzLine: { labelBackgroundColor: '#ff5a5a' }, vertLine: { labelBackgroundColor: '#333', style: LineStyle.Dashed } },
     });
     chartRef.current = chart;
@@ -195,13 +213,16 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   useEffect(() => {
     const d = (t: Time) => new Date((t as number) * 1000);
     const p2 = (n: number) => String(n).padStart(2, '0');
-    const parts = (t: Time) => { const x = d(t); return utc ? { Y: x.getUTCFullYear(), M: x.getUTCMonth(), D: x.getUTCDate(), h: x.getUTCHours(), m: x.getUTCMinutes() } : { Y: x.getFullYear(), M: x.getMonth(), D: x.getDate(), h: x.getHours(), m: x.getMinutes() }; };
+    const daily = DAILY.has(eff);
+    const parts = (t: Time) => { const x = d(t); return utc || daily ? { Y: x.getUTCFullYear(), M: x.getUTCMonth(), D: x.getUTCDate(), h: x.getUTCHours(), m: x.getUTCMinutes() } : { Y: x.getFullYear(), M: x.getMonth(), D: x.getDate(), h: x.getHours(), m: x.getMinutes() }; };
     const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     chartRef.current?.applyOptions({
-      localization: { timeFormatter: (t: Time) => { const q = parts(t); return `${q.D} ${MON[q.M]} '${String(q.Y).slice(2)} ${p2(q.h)}:${p2(q.m)}${utc ? ' UTC' : ''}`; } },
-      timeScale: { tickMarkFormatter: (t: Time, type: number) => { const q = parts(t); return type === 0 ? String(q.Y) : type === 1 ? MON[q.M] : type === 2 ? String(q.D) : `${p2(q.h)}:${p2(q.m)}`; } },
+      localization: { timeFormatter: (t: Time) => { const q = parts(t); return eff === '1M' ? `${MON[q.M]} ${q.Y}` : daily ? `${eff === '1w' ? 'Week of ' : ''}${q.D} ${MON[q.M]} '${String(q.Y).slice(2)}` : `${q.D} ${MON[q.M]} '${String(q.Y).slice(2)} ${p2(q.h)}:${p2(q.m)}${utc ? ' UTC' : ''}`; } },
+      // year / month / day ticks sit on UTC boundaries → label them in UTC (Oct 1 00:00 UTC read "Sep" in New York); only the
+      // time-of-day ticks follow the Local/UTC switch
+      timeScale: { tickMarkFormatter: (t: Time, type: number) => { if (type <= 2) { const x = d(t); return type === 0 ? String(x.getUTCFullYear()) : type === 1 ? MON[x.getUTCMonth()] : String(x.getUTCDate()); } const q = parts(t); return `${p2(q.h)}:${p2(q.m)}`; } },
     });
-  }, [utc, fmt]);
+  }, [utc, fmt, eff]);
 
   // ── series: main (by chart type) + volume + indicators, rebuilt when their set changes ──────────────────────────────
   const display = useMemo(() => {
@@ -272,11 +293,14 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     // first draw of a token / timeframe: open on the newest ~120 candles (older ones are a scroll away and load on demand)
     if (fitNext.current) {
       fitNext.current = false;
-      const SHOW = window.innerWidth <= 640 ? 60 : 120;
-      if (display.length > SHOW) chart.timeScale().setVisibleLogicalRange({ from: display.length - SHOW, to: display.length + 4 } as { from: Logical; to: Logical });
+      // 1H and wider (and ALL) open on the WHOLE history since launch; the fine timeframes open on the newest candles
+      // (thousands of 1-minute candles in one width are hairlines) and the rest is a drag away, loading as you go
+      const fine = res === '1m' || res === '5m' || res === '15m';
+      const SHOW = window.innerWidth <= 640 ? 70 : 150;
+      if (fine && display.length > SHOW) chart.timeScale().setVisibleLogicalRange({ from: display.length - SHOW, to: display.length + 4 } as { from: Logical; to: Logical });
       else chart.timeScale().fitContent();
     }
-  }, [display, ctype, ind, mult, fmt]);
+  }, [display, ctype, ind, mult, fmt]); // eslint-disable-line
 
   // price scale mode
   useEffect(() => { chartRef.current?.priceScale('right', 0).applyOptions({ mode: scale === 'log' ? PriceScaleMode.Logarithmic : scale === 'pct' ? PriceScaleMode.Percentage : PriceScaleMode.Normal }); }, [scale, display]);
@@ -292,7 +316,9 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
   useEffect(() => {
     if (!markersRef.current || !display || !display.length) return;
     const first = display[0].time, lastT = display[display.length - 1].time + sec;
-    const bucket = (ts: number) => (sec === 604800 ? Math.floor((ts - 4 * 86400) / sec) * sec + 4 * 86400 : Math.floor(ts / sec) * sec);
+    // the candle a trade belongs to = the last candle that opened at or before it (works for weeks and calendar months too)
+    const times = display.map((c) => c.time);
+    const bucket = (ts: number) => { let lo = 0, hi = times.length - 1; if (ts < times[0]) return -1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (times[m] <= ts) lo = m; else hi = m - 1; } return times[lo]; };
     const marks = (trades || []).map((t) => ({ ...t, b: bucket(t.ts / 1000) })).filter((t) => t.b >= first && t.b < lastT).sort((a, b) => a.b - b.b)
       .map((t) => ({ time: t.b as Time, position: t.side === 'buy' ? 'belowBar' as const : 'aboveBar' as const, color: t.side === 'buy' ? '#4ecb71' : '#ff5a3c',
         shape: t.side === 'buy' ? 'arrowUp' as const : 'arrowDown' as const, text: `${t.side === 'buy' ? 'B' : 'S'} ${usd(t.usd)}` }));
@@ -400,7 +426,8 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
           {chg != null && <span className={`chart-chg ${chg >= 0 ? 'up' : 'down'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(1)}% <span className="chart-chg-l">24h</span></span>}
         </div>
         <div className="chart-tfs">
-          {RESES.map((t) => <button key={t.k} className={res === t.k ? 'on' : ''} onClick={() => setRes(t.k)}>{t.l}</button>)}
+          {RESES.map((t) => <button key={t.k} className={res === t.k ? 'on' : ''} onClick={() => setRes(t.k)}
+            title={t.k === 'all' ? 'Everything since the first trade, in one view' : undefined}>{t.k === 'all' && res === 'all' ? `ALL · ${RESES.find((r) => r.k === eff)?.l ?? ''}` : t.l}</button>)}
         </div>
       </div>
       <div className="chart-tools">

@@ -14,9 +14,16 @@ function conn(): DatabaseSync | null {
 }
 
 // Timeframes the chart offers (seconds per candle). 1W = weekly candles aligned to Monday 00:00 UTC.
-export const RES: Record<string, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1w': 604800 };
+// 1M = calendar months (UTC), so its "seconds" value is only a nominal size; bucketOf / step handle it exactly.
+export const RES: Record<string, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1w': 604800, '1M': 2592000 };
 const WEEK_OFFSET = 4 * 86400; // unix 0 was a Thursday → +4 days puts week buckets on Mondays
-const bucketOf = (t: number, sec: number) => (sec === 604800 ? Math.floor((t - WEEK_OFFSET) / sec) * sec + WEEK_OFFSET : Math.floor(t / sec) * sec);
+const MONTH = 2592000;
+const bucketOf = (t: number, sec: number) => {
+  if (sec === MONTH) { const d = new Date(t * 1000); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000; }
+  return sec === 604800 ? Math.floor((t - WEEK_OFFSET) / sec) * sec + WEEK_OFFSET : Math.floor(t / sec) * sec;
+};
+// the bucket `k` steps after (k < 0: before) bucket b
+const step = (b: number, sec: number, k = 1) => { if (sec !== MONTH) return b + k * sec; const d = new Date(b * 1000); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + k, 1) / 1000; };
 
 export interface Bar { time: number; open: number; high: number; low: number; close: number; volume: number; trades: number }
 type PoolInfo = { pid: number; venue: string; kind: string; vol: number; n: number; first: number; last: number };
@@ -62,9 +69,9 @@ export function candles(token: string, resKey: string, limit = 1000, before?: nu
   if (!pools.length) return { res: resKey, candles: [], hasMore: false, first: null, pools: [], coverage: cov };
   const pids = pools.map((p) => p.pid), first = Math.min(...pools.map((p) => p.first)), lastTrade = Math.max(...pools.map((p) => p.last));
   const now = Math.floor(Date.now() / 1000);
-  let end = bucketOf(Math.min(before ?? now, now), sec) + (before ? 0 : sec);
-  if (!before && lastTrade < end - limit * sec) end = bucketOf(lastTrade, sec) + sec; // quiet token: end at its last trade
-  const start = Math.max(bucketOf(first, sec), end - limit * sec);
+  let end = before ? bucketOf(Math.min(before, now), sec) : step(bucketOf(now, sec), sec);
+  if (!before && lastTrade < step(end, sec, -limit)) end = step(bucketOf(lastTrade, sec), sec); // quiet token: end at its last trade
+  const start = Math.max(bucketOf(first, sec), step(end, sec, -limit));
   const q = `SELECT pid, t, o, h, l, c, v, n FROM c1m WHERE pid IN (${pids.map(() => '?').join(',')}) AND t >= ? AND t < ? ORDER BY t`;
   const rows = d.prepare(q).all(...pids, start, end) as { pid: number; t: number; o: number; h: number; l: number; c: number; v: number; n: number }[];
   // the close just before the window, so the first candle opens where the previous one closed
@@ -82,7 +89,7 @@ export function candles(token: string, resKey: string, limit = 1000, before?: nu
   }
   const out: Bar[] = [];
   let prev: number | null = prevRow ? prevRow.c : null;
-  for (let t = start; t < end; t = sec === 604800 ? t + sec : t + sec) {
+  for (let t = start; t < end; t = step(t, sec)) {
     const B = buckets.get(t);
     if (B) {
       let best: Acc | null = null;
