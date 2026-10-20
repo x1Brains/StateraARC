@@ -120,6 +120,16 @@ function rebuild() {
   // indexed at 235 holders, but its snapshot row said unknown until the next indexer pass, so the board's 50-holder rule hid it).
   // Only fills a missing number, never overrides one, and only when the index's count summed to the token's supply.
   for (const t of tokens) if (t.holders == null) { const h = holderCountOf(t.address); if (h && h.supplyOk && h.count > 0) t.holders = h.count; }
+  // 10-20: 24h volume / trade count, 1h + 24h change and the 7-day sparkline from the swap store (every real trade on every
+  // counted pool) — only for tokens that traded in the store's last 7 days; every other row keeps its snapshot numbers
+  const st = Swaps.tokenStatsNow();
+  if (st) for (const t of tokens) {
+    const x = st.get(t.address.toLowerCase()); if (!x) continue;
+    t.volume24h = x.volume24h; t.txns24 = x.txns24;
+    if (x.change1h != null && isFinite(x.change1h)) t.change1h = x.change1h;
+    if (x.change24h != null && isFinite(x.change24h)) t.change24h = x.change24h;
+    if (x.spark.length >= 2) t.spark = x.spark;
+  }
   const ix = Board.buildIndex(tokens, PINNED);
   const home = {
     asOf, generatedAt, tracked: tokens.length,
@@ -431,3 +441,11 @@ setTimeout(tickWhere, 45_000); setInterval(tickWhere, 10 * 60_000);
 // one shutdown handler — the chain state and the token-page caches both saved before exit
 for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveChain(); saveCaches(); process.exit(0); });
 setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(); } catch { /* keep serving the last good list */ } }, 5000);
+
+// 10-20: the swap store's screener numbers (see rebuild(); built by the indexer into table tstats) — the board picks them up every 2 min
+let swapStatsBusy = false;
+const tickSwapStats = async () => {
+  if (swapStatsBusy) return; swapStatsBusy = true;
+  try { if (Swaps.tokenStatsNow() && tokens.length) rebuild(); } catch (e) { console.error('[swap-stats]', (e as Error).message); } finally { swapStatsBusy = false; }
+};
+setTimeout(tickSwapStats, 30_000); setInterval(tickSwapStats, 120_000);

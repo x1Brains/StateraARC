@@ -14,6 +14,7 @@
 // this IP rate-limited for the money bots. The head follower makes ~1 call / 2 s.
 import { openSwapDb, metaGet, metaSet, txToBlob, addrToBlob, USDC, START_BLOCK } from './swap-db.ts';
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
+import { buildTokenStats } from './swap-stats.ts';
 
 const T_V3_SWAP = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 const T_V2_SWAP = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822';
@@ -334,6 +335,20 @@ async function resolveMakers() {
 }
 async function makersLoop() { for (;;) { if (makerQueue.size) await resolveMakers().catch(() => {}); await sleep(15_000); } }
 
+// screener numbers for statera-api (table tstats), every ~2 min
+async function statsLoop() {
+  for (;;) {
+    try {
+      const t0 = Date.now(), map = await buildTokenStats(db);
+      db.exec('BEGIN');
+      try { db.exec('DELETE FROM tstats'); const ins = db.prepare('INSERT INTO tstats(token, j) VALUES(?, ?)'); for (const [k, v] of map) ins.run(k, JSON.stringify(v)); metaSet(db, 'tstats_at', Date.now()); db.exec('COMMIT'); }
+      catch (e) { db.exec('ROLLBACK'); throw e; }
+      if (Date.now() - t0 > 8000) log('stats took', Date.now() - t0, 'ms for', map.size, 'tokens');
+    } catch (e) { log('stats error:', (e as Error).message); }
+    await sleep(120_000);
+  }
+}
+
 async function main() {
   const head = parseInt(await rpc(HEAD_RPCS, 'eth_blockNumber', []), 16);
   if (metaGet(db, 'live') == null) { metaSet(db, 'live', head); metaSet(db, 'back', head + 1); metaSet(db, 'started', Date.now()); }
@@ -342,7 +357,7 @@ async function main() {
   if (metaGet(db, 'init_to') == null) metaSet(db, 'init_to', metaGet(db, 'live')!);
   await initPrepass(Number(metaGet(db, 'init_to')));
   // the pre-pass covered Initialize up to `head`; the live loop's filter includes Initialize from here on
-  if (!NO_LIVE) { live(); makersLoop(); }
+  if (!NO_LIVE) { live(); makersLoop(); setTimeout(statsLoop, 20_000); }
   await backfill();
   setInterval(() => metaSet(db, 'unknown_factories', JSON.stringify([...unknownFactories])), 600_000).unref();
 }

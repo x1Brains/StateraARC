@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TokenLogo } from './TokenLogo';
 import { PriceChart } from './PriceChart';
+import { MoneyFlowCard, ProfitCard, TopTraders, LiveTrades } from './TokenInsights';
 import { TokenLinks } from './TokenLinks';
 import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
-import { v2Enabled, v2TokenDetail, v2Trades, v2WalletSwaps, v2History, type V2TokenDetail, type V2Trades, type V2HistTrade } from '../lib/v2';
+import { v2Enabled, v2TokenDetail, v2Trades, v2WalletSwaps, v2History, v2MakerTrades, type V2TokenDetail, type V2Trades, type V2HistTrade } from '../lib/v2';
 import { isStateraImpersonator, stateraHasToken } from '../lib/rules';
 import { fetchWalletTokenTrades, type WalletTrade } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX, IconLink, IconCamera } from './icons';
@@ -54,7 +55,20 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   const [holdersOver, setHoldersOver] = useState<V2TokenDetail['holdersOver']>(null);
   const [chainHolders, setChainHolders] = useState<number | null>(null); // our own on-chain index's holder count
   const [burn, setBurn] = useState<{ burnt: number; supply: number | null; pct: number | null } | null>(null);
-  const [tab, setTab] = useState<'txns' | 'holders' | 'mine'>('txns');
+  const [tab, setTab] = useState<'txns' | 'traders' | 'holders' | 'mine'>('txns');
+  // 10-20: the swap store's live feed (filters, any age, maker per row); false = store unreachable → the old 24h table
+  const [storeTx, setStoreTx] = useState(v2Enabled);
+  // a wallet picked from the feed / Top traders / Money flow: its trades are plotted on the chart and filter the feed
+  const [makerSel, setMakerSel] = useState<string | null>(null);
+  const [makerTrades, setMakerTrades] = useState<WalletTrade[] | null>(null);
+  useEffect(() => { setMakerSel(null); setStoreTx(v2Enabled); }, [address]);
+  useEffect(() => {
+    if (!makerSel) { setMakerTrades(null); return; }
+    let alive = true;
+    v2MakerTrades(address, makerSel).then((t) => { if (alive) setMakerTrades(t.map((x) => ({ ts: x.time, side: x.side, qty: x.amount, usd: x.usd, price: x.price, tx: x.tx }))); }).catch(() => { if (alive) setMakerTrades([]); });
+    return () => { alive = false; };
+  }, [address, makerSel]);
+  const pickMaker = (w: string | null) => { setMakerSel(w); if (w) setTab('txns'); };
   // The connected wallet's own buys/sells of this token (rebuilt in this browser from its transactions) — listed in
   // "My trades" and marked on the chart.
   const [mine, setMine] = useState<WalletTrade[] | null>(null);
@@ -553,7 +567,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
           </div>
 
           <div style={{ marginTop: 12 }}>
-            {dec != null && <PriceChart address={address} symbol={sym} decimals={dec} priceScale={chartScale} change24h={chg} trades={mine} supply={mc != null && px != null && px > 0 ? mc / px : null} />}
+            {dec != null && <PriceChart address={address} symbol={sym} decimals={dec} priceScale={chartScale} change24h={chg} trades={mine} supply={mc != null && px != null && px > 0 ? mc / px : null} makerTrades={makerTrades} maker={makerSel} onClearMaker={() => setMakerSel(null)} />}
           </div>
 
 
@@ -561,11 +575,14 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
           <div className="panel td-tabpanel" style={{ marginTop: 12 }}>
             <div className="td-tabs">
               <button className={tab === 'txns' ? 'on' : ''} onClick={() => setTab('txns')}>Transactions</button>
+              {storeTx && <button className={tab === 'traders' ? 'on' : ''} onClick={() => setTab('traders')}>Top traders</button>}
               <button className={tab === 'holders' ? 'on' : ''} onClick={() => setTab('holders')}>Holders{holdersTotal != null ? ` · ${fmtNum(holdersTotal)}` : ''}</button>
               <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>My trades{mine && mine.length ? ` · ${mine.length}` : ''}</button>
             </div>
 
-            {tab === 'txns' && (
+            {tab === 'txns' && storeTx && <LiveTrades address={address} sym={sym} maker={makerSel} onMaker={pickMaker} onUnavailable={() => setStoreTx(false)} />}
+            {tab === 'traders' && storeTx && <TopTraders address={address} sym={sym} onMaker={pickMaker} />}
+            {tab === 'txns' && !storeTx && (
               <div className="td-tabbody">
                 {swaps && swaps.length ? (() => {
                   const rows = txRows ?? [];
@@ -722,6 +739,8 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
 
         </div>
         <aside className="tdx-side">
+          {storeTx && <MoneyFlowCard address={address} onMaker={pickMaker} />}
+          {storeTx && <ProfitCard address={address} />}
           {/* Trade activity (24h) — buy/sell pressure, traders, txns (RadarDEX) */}
           {(buys != null || sells != null || txnsF != null) && (
             <div className="panel side-card">

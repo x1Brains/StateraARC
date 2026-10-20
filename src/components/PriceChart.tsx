@@ -72,7 +72,8 @@ const axisFmt = (f: (v: number) => string) => (v: number) => (v <= 0 ? '' : f(v)
 // short dollar amounts for marker labels: $26.83 · $750 · $12.4K
 const usdShort = (v: number) => (v >= 1000 ? '$' + compact(v) : v >= 100 ? '$' + v.toFixed(0) : '$' + v.toFixed(2));
 
-export function PriceChart({ address, symbol, decimals, priceScale = 1, change24h, trades, supply }: { address: string; symbol?: string; decimals?: number; priceScale?: number; change24h?: number | null; trades?: WalletTrade[] | null; supply?: number | null }) {
+export function PriceChart({ address, symbol, decimals, priceScale = 1, change24h, trades, supply, makerTrades, maker, onClearMaker }: { address: string; symbol?: string; decimals?: number; priceScale?: number; change24h?: number | null; trades?: WalletTrade[] | null; supply?: number | null;
+  makerTrades?: WalletTrade[] | null; maker?: string | null; onClearMaker?: () => void }) {
   const [res, setRes] = useState(() => (SEC[lsGet('statera-chart-res', '5m')] != null ? lsGet('statera-chart-res', '5m') : '5m'));
   const [eff, setEff] = useState(res === 'all' ? '1h' : res); // the candle size actually drawn (ALL picks one)
   const [ctype, setCtype] = useState<CType>(() => lsGet('statera-chart-type', 'candles') as CType);
@@ -328,17 +329,19 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
     // within ~70px of each other merge into ONE labelled marker ("B×3 $1.2K", sum of USD) — how many candles that spans follows
     // the zoom (clusterBars), so zooming in splits them back into single trades.
     const idx = new Map(times.map((t, i) => [t, i]));
-    const groups = new Map<string, { b: number; side: 'buy' | 'sell'; usd: number; n: number }>();
-    for (const t of trades || []) {
+    // your own trades (green/red arrows) and, when a wallet is picked from the feed / Top traders, ITS trades (blue/violet dots)
+    const groups = new Map<string, { b: number; side: 'buy' | 'sell'; usd: number; n: number; who: 'me' | 'w' }>();
+    for (const [list, who] of [[trades, 'me'], [makerTrades, 'w']] as const) for (const t of list || []) {
       const b = bucket(t.ts / 1000); if (b < first || b >= lastT) continue;
-      const cell = Math.floor((idx.get(b) ?? 0) / clusterBars), k = cell + t.side, g = groups.get(k);
-      if (g) { g.usd += t.usd; g.n++; if (b < g.b) g.b = b; } else groups.set(k, { b, side: t.side, usd: t.usd, n: 1 });
+      const cell = Math.floor((idx.get(b) ?? 0) / clusterBars), k = who + cell + t.side, g = groups.get(k);
+      if (g) { g.usd += t.usd; g.n++; if (b < g.b) g.b = b; } else groups.set(k, { b, side: t.side, usd: t.usd, n: 1, who });
     }
     const marks = [...groups.values()].sort((a, b) => a.b - b.b).map((g) => ({ time: g.b as Time, position: g.side === 'buy' ? 'belowBar' as const : 'aboveBar' as const,
-      color: g.side === 'buy' ? '#4ecb71' : '#ff5a3c', shape: g.side === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
+      color: g.who === 'w' ? (g.side === 'buy' ? '#6aa9ff' : '#c98aff') : g.side === 'buy' ? '#4ecb71' : '#ff5a3c',
+      shape: g.who === 'w' ? 'circle' as const : g.side === 'buy' ? 'arrowUp' as const : 'arrowDown' as const,
       text: `${g.side === 'buy' ? 'B' : 'S'}${g.n > 1 ? '×' + g.n : ''} ${usdShort(g.usd)}` }));
     markersRef.current.setMarkers(marks);
-  }, [trades, display, sec, ctype, clusterBars]);
+  }, [trades, makerTrades, display, sec, ctype, clusterBars]);
 
   // ── drawings: time ↔ x over the loaded bars (interpolated inside, extrapolated past either end) ─────────────────────
   const timeToLogical = (t: number): number | null => {
@@ -504,6 +507,7 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
                 : !!trades?.length && <span className="chart-mine">Your trades <i className="b">B</i><i className="s">S</i></span>}
             </div>
           )}
+          {maker && <div className="chart-maker">Showing wallet {maker.slice(0, 6)}…{maker.slice(-4)}{makerTrades ? ` · ${makerTrades.length} trades` : ' …'} <i className="b">● B</i><i className="s">● S</i>{onClearMaker && <button onClick={onClearMaker} aria-label="Hide this wallet's trades">✕</button>}</div>}
           {tool !== 'pointer' && <div className="chart-hint">{TOOL_POINTS[tool] === 1 ? 'Click to place' : drawRef.current.draft ? 'Click the second point' : 'Click the first point'} · Esc cancels</div>}
           <div className="chart-box" ref={boxRef} style={{ height: boxH, cursor: tool !== 'pointer' ? 'crosshair' : undefined }} />
           {older && <div className="chart-older">loading older candles…</div>}

@@ -95,11 +95,26 @@ export interface V2Bars { res: string; candles: V2Bar[]; hasMore: boolean; first
 export const v2Bars = (addr: string, res: string, limit = 1000, before?: number) =>
   get<V2Bars>(`token/${addr.toLowerCase()}/bars?res=${res}&limit=${limit}${before ? `&before=${before}` : ''}`, 12000)
     .then((j) => { if (!j || !Array.isArray(j.candles)) throw new Error('v2 bars: bad shape'); return j; });
-export interface V2HistTrade { side: 'buy' | 'sell'; usd: number; amount: number; price: number; tx: string; time: number; block: number; logIndex: number; venue?: string }
-export const v2History = (addr: string, o: { before?: number; limit?: number; side?: 'buy' | 'sell'; minUsd?: number } = {}) =>
-  get<{ trades: V2HistTrade[]; hasMore: boolean }>(`token/${addr.toLowerCase()}/history?${new URLSearchParams({ limit: String(o.limit ?? 100), ...(o.before ? { before: String(o.before) } : {}), ...(o.side ? { side: o.side } : {}), ...(o.minUsd ? { min: String(o.minUsd) } : {}) })}`, 12000)
+export interface V2HistTrade { side: 'buy' | 'sell'; usd: number; amount: number; price: number; tx: string; time: number; block: number; logIndex: number; venue?: string; trader?: string | null }
+export const v2History = (addr: string, o: { before?: number; limit?: number; side?: 'buy' | 'sell'; minUsd?: number; maker?: string } = {}) =>
+  get<{ trades: V2HistTrade[]; hasMore: boolean }>(`token/${addr.toLowerCase()}/history?${new URLSearchParams({ limit: String(o.limit ?? 100), ...(o.before ? { before: String(o.before) } : {}), ...(o.side ? { side: o.side } : {}), ...(o.minUsd ? { min: String(o.minUsd) } : {}), ...(o.maker ? { maker: o.maker } : {}) })}`, 12000)
     .then((j) => { if (!j || !Array.isArray(j.trades)) throw new Error('v2 history: bad shape'); return j; });
 export interface V2WalletSwap { token: string; side: 'buy' | 'sell'; usd: number; amount: number; price: number; tx: string; ts: number; block: number; logIndex: number; venue: string }
 export const v2WalletSwaps = (wallet: string, token?: string) =>
   get<{ wallet: string; at: number; swaps: V2WalletSwap[]; building?: boolean }>(`wallet/${wallet.toLowerCase()}/swaps${token ? `?token=${token.toLowerCase()}` : ''}`, 25000)
     .then((j) => { if (!j || (!Array.isArray(j.swaps) && !j.building)) throw new Error('v2 wallet swaps: bad shape'); return j; });
+// Money flow / top traders / holder profitability (server/swap-store.ts) + one wallet's trades of a token
+export interface V2FlowWin { window: string; buys: number; sells: number; buyUsd: number; sellUsd: number; net: number; biggestBuy: number; biggestSell: number;
+  buyers: number; sellers: number; topBuyer: { wallet: string; net: number } | null; topSeller: { wallet: string; net: number } | null; makersKnown: number | null }
+export const v2Flow = (addr: string) => get<{ windows: V2FlowWin[] }>(`token/${addr.toLowerCase()}/flow`, 15000).then((j) => { if (!Array.isArray(j?.windows)) throw new Error('v2 flow: bad shape'); return j; });
+export interface V2Trader { wallet: string; bought: number; sold: number; qtyBought: number; qtySold: number; buys: number; sells: number; first: number; last: number;
+  avgBuy: number | null; held: number; realized: number; unrealized: number; pnl: number; roi: number | null }
+export const v2Traders = (addr: string, sort: 'pnl' | 'volume' | 'loss' = 'pnl') =>
+  get<{ price: number | null; coverage: number | null; traders: number; rows: V2Trader[] }>(`token/${addr.toLowerCase()}/traders?sort=${sort}&limit=100`, 25000)
+    .then((j) => { if (!Array.isArray(j?.rows)) throw new Error('v2 traders: bad shape'); return j; });
+export interface V2Profit { price: number | null; coverage: number | null; holders: number; inProfit?: number; pctHolders?: number; pctSupply?: number | null; medianEntry?: number; avgEntry?: number;
+  dist?: { label: string; holders: number; pct: number }[] }
+export const v2Profit = (addr: string) => get<V2Profit>(`token/${addr.toLowerCase()}/profitability`, 25000).then((j) => { if (!j || typeof j.holders !== 'number') throw new Error('v2 profit: bad shape'); return j; });
+export const v2MakerTrades = (addr: string, maker: string) =>
+  get<{ trades: (V2HistTrade & { trader: string | null })[]; hasMore: boolean }>(`token/${addr.toLowerCase()}/history?maker=${maker.toLowerCase()}&limit=500`, 15000)
+    .then((j) => { if (!Array.isArray(j?.trades)) throw new Error('v2 maker: bad shape'); return j.trades; });

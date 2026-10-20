@@ -8,6 +8,7 @@
 //   v4init — V4 Initialize events (poolId → currencies), so a V4 swap can be priced and attributed
 //   makers — tx → the wallet that sent it (tx.from). Swap events only name the ROUTER; the trader is the tx sender. Filled
 //            for new swaps by the indexer (batched tx lookups) and for history by scripts/makers-backfill.ts (block reads)
+//   tstats — screener numbers per token (24h volume, 1h/24h change, 7d sparkline), rebuilt by the indexer (swap-stats.ts)
 //   meta   — cursors (back = lowest block indexed, live = highest) + counters
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
@@ -39,6 +40,8 @@ export function openSwapDb(readonly = false): DatabaseSync {
     CREATE INDEX IF NOT EXISTS makers_maker ON makers(maker);
     CREATE TABLE IF NOT EXISTS c1m (pid INTEGER NOT NULL, t INTEGER NOT NULL, o REAL, h REAL, l REAL, c REAL, v REAL, n INTEGER,
       PRIMARY KEY (pid, t)) WITHOUT ROWID;
+    CREATE INDEX IF NOT EXISTS c1m_t ON c1m(t);
+    CREATE TABLE IF NOT EXISTS tstats (token TEXT PRIMARY KEY, j TEXT NOT NULL);
   `);
   return db;
 }

@@ -12,6 +12,12 @@ function conn(): DatabaseSync | null {
   triedAt = Date.now();
   try { if (!fs.existsSync(SWAPS_DB)) return null; db = openSwapDb(true); return db; } catch { db = null; return null; }
 }
+// `makers` arrives with a newer indexer — an older DB doesn't have it yet: wallet columns are then null / empty, never an error
+let makersAt = 0, makersOk = false;
+function hasMakers(d: DatabaseSync): boolean {
+  if (Date.now() - makersAt > 60_000) { makersAt = Date.now(); makersOk = !!d.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='makers'").get(); }
+  return makersOk;
+}
 
 // Timeframes the chart offers (seconds per candle). 1W = weekly candles aligned to Monday 00:00 UTC.
 // 1M = calendar months (UTC), so its "seconds" value is only a nominal size; bucketOf / step handle it exactly.
@@ -118,13 +124,15 @@ export function trades(token: string, limit = 100, before?: number, side?: 'buy'
   const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(',');
   const args: (number | string | Buffer)[] = [];
   let q: string;
+  if (maker && !hasMakers(d)) return { trades: [], hasMore: false };
+  const MJ = hasMakers(d) ? 'LEFT JOIN makers m ON m.tx = s.tx' : '', MC = hasMakers(d) ? 'm.maker' : 'NULL AS maker';
   if (maker) {
     // one wallet: start from its own txs (index on makers.maker), not from the token's whole history
     q = `SELECT s.blk, s.li, s.pid, s.ts, s.side, s.price, s.usd, s.amt, s.tx, m.maker FROM makers m JOIN swaps s ON s.tx = m.tx
       WHERE m.maker = ? AND s.pid IN (${ph}) AND s.ts < ?${side ? ' AND s.side = ?' : ''}${minUsd > 0 ? ' AND s.usd >= ?' : ''} ORDER BY s.ts DESC, s.blk DESC, s.li DESC LIMIT ?`;
     args.push(addrToBlob(maker));
   } else {
-    q = `SELECT s.blk, s.li, s.pid, s.ts, s.side, s.price, s.usd, s.amt, s.tx, m.maker FROM swaps s LEFT JOIN makers m ON m.tx = s.tx
+    q = `SELECT s.blk, s.li, s.pid, s.ts, s.side, s.price, s.usd, s.amt, s.tx, ${MC} FROM swaps s ${MJ}
       WHERE s.pid IN (${ph}) AND s.ts < ?${side ? ' AND s.side = ?' : ''}${minUsd > 0 ? ' AND s.usd >= ?' : ''} ORDER BY s.ts DESC, s.blk DESC, s.li DESC LIMIT ?`;
   }
   args.push(...pids, before ?? 4e9);
@@ -157,7 +165,7 @@ export function flow(token: string) {
       const from = now - (sec as number);
       const sides = d.prepare(`SELECT side, COUNT(*) n, COALESCE(SUM(usd),0) usd, COALESCE(MAX(usd),0) big FROM swaps WHERE pid IN (${ph}) AND ts >= ? GROUP BY side`).all(...pids, from) as { side: number; n: number; usd: number; big: number }[];
       const b = sides.find((x) => x.side > 0), s2 = sides.find((x) => x.side < 0);
-      const w = d.prepare(`SELECT m.maker w, SUM(CASE WHEN s.side > 0 THEN s.usd ELSE -s.usd END) net, SUM(s.side > 0) nb, SUM(s.side < 0) ns, COUNT(*) n
+      const w = !hasMakers(d) ? [] : d.prepare(`SELECT m.maker w, SUM(CASE WHEN s.side > 0 THEN s.usd ELSE -s.usd END) net, SUM(s.side > 0) nb, SUM(s.side < 0) ns, COUNT(*) n
         FROM swaps s JOIN makers m ON m.tx = s.tx WHERE s.pid IN (${ph}) AND s.ts >= ? GROUP BY m.maker`).all(...pids, from) as { w: Uint8Array; net: number; nb: number; ns: number; n: number }[];
       let top: typeof w[number] | null = null, bot: typeof w[number] | null = null, known = 0;
       for (const x of w) { known += x.n; if (!top || x.net > top.net) top = x; if (!bot || x.net < bot.net) bot = x; }
@@ -181,7 +189,7 @@ function tradersOf(token: string): { list: Trader[]; price: number | null; cover
   const pools = poolsOf(token); if (!pools.length) return { list: [], price: null, coverage: null };
   return cached('traders:' + token, 5 * 60_000, () => {
     const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(',');
-    const rows = d.prepare(`SELECT m.maker w, s.side, SUM(s.usd) usd, SUM(s.amt) amt, COUNT(*) n, MIN(s.ts) first, MAX(s.ts) last
+    const rows = !hasMakers(d) ? [] : d.prepare(`SELECT m.maker w, s.side, SUM(s.usd) usd, SUM(s.amt) amt, COUNT(*) n, MIN(s.ts) first, MAX(s.ts) last
       FROM swaps s JOIN makers m ON m.tx = s.tx WHERE s.pid IN (${ph}) GROUP BY m.maker, s.side`).all(...pids) as { w: Uint8Array; side: number; usd: number; amt: number; n: number; first: number; last: number }[];
     const all = (d.prepare(`SELECT COUNT(*) n FROM swaps WHERE pid IN (${ph})`).get(...pids) as { n: number }).n;
     const price = lastPrice(d, pids);
@@ -259,4 +267,21 @@ export function storeStats() {
     const n = d.prepare('SELECT COUNT(*) n FROM pools WHERE ok=1').get() as { n: number };
     return { ok: true, pools: n.n, ...coverage() };
   } catch (e) { return { ok: false, error: (e as Error).message }; }
+}
+
+// ── Screener numbers from the store: computed by the indexer (server/swap-stats.ts → table tstats, every ~2 min, so the
+// 2-second scan never blocks this API) and read here in one quick query.
+export interface StoreTokenStats { volume24h: number; txns24: number; change1h: number | null; change24h: number | null; spark: number[]; price: number | null }
+let tsCache: { at: number; built: number; map: Map<string, StoreTokenStats> } | null = null;
+export function tokenStatsNow(): Map<string, StoreTokenStats> | null {
+  const d = conn(); if (!d) return null;
+  if (tsCache && Date.now() - tsCache.at < 60_000) return Date.now() - tsCache.built < 10 * 60_000 ? tsCache.map : null;
+  try {
+    const built = Number(metaGet(d, 'tstats_at') || 0);
+    if (!tsCache || tsCache.built !== built) {
+      const rows = d.prepare('SELECT token, j FROM tstats').all() as { token: string; j: string }[];
+      tsCache = { at: Date.now(), built, map: new Map(rows.map((r) => [r.token, JSON.parse(r.j)])) };
+    } else tsCache.at = Date.now();
+  } catch { return null; } // table not there yet (older indexer)
+  return Date.now() - tsCache.built < 10 * 60_000 ? tsCache.map : null;
 }
