@@ -120,7 +120,7 @@ export const v2MakerTrades = (addr: string, maker: string) =>
     .then((j) => { if (!Array.isArray(j?.trades)) throw new Error('v2 maker: bad shape'); return j.trades; });
 // What the chain is doing (server/activity.ts): block tape, USDC issued/burned/moved, active + new wallets, per-protocol activity
 export interface V2ActWin { from: number; liveFrom?: number; txs: number; active: number; newWallets: number; minted: number; burned: number; net: number; moved: number; protocols: Record<string, number> }
-export interface V2Activity { at: number; since: number; liveSince?: number; now: number; protocols: { id: string; name: string; cat: string; color: string }[];
+export interface V2Activity { at: number; since: number; liveSince?: number; now: number; protocols: { id: string; name: string; desc?: string; cat: string; color: string }[];
   h1: V2ActWin; today: V2ActWin; h24: V2ActWin;
   series: { start: number; step: number; txs: number[]; active: number[]; newWallets: number[]; net: number[]; moved: number[]; protocols: Record<string, number[]> };
   tape: { n: number; ts: number; txs: number; p: Record<string, number> }[] }

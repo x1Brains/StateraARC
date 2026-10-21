@@ -9,20 +9,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const PROTOCOLS: { id: string; name: string; cat: string; color: string }[] = [
-  { id: 'uni-v4', name: 'Uniswap V4', cat: 'DEX', color: '#ff4fb8' },
-  { id: 'dex-v3', name: 'Uniswap V3 · Aerodrome · Archery', cat: 'DEX', color: '#ff8fd1' },
-  { id: 'dex-v2', name: 'V2 DEXes', cat: 'DEX', color: '#c77dff' },
-  { id: 'uniswapx', name: 'UniswapX (filled orders)', cat: 'DEX', color: '#f7a8ff' },
-  { id: 'stablefx', name: 'StableFX (Circle FX)', cat: 'FX', color: '#4fd1c5' },
-  { id: 'morpho', name: 'Morpho', cat: 'Lending', color: '#6aa9ff' },
-  { id: 'aave', name: 'Aave V4', cat: 'Lending', color: '#9b8cff' },
-  { id: 'cctp', name: 'Circle CCTP', cat: 'Bridge', color: '#3ec46f' },
-  { id: 'gateway', name: 'Circle Gateway', cat: 'Bridge', color: '#8be08f' },
-  { id: 'across', name: 'Across', cat: 'Bridge', color: '#6ee7b7' },
-  { id: 'launchpad', name: 'Launchpads (Argus …)', cat: 'Launch', color: '#ffb547' },
-  { id: 'aa', name: 'Smart wallets (ERC-4337)', cat: 'Wallets', color: '#ffd27a' },
-  { id: 'oracle', name: 'Chainlink price feeds', cat: 'Oracle', color: '#7aa7ff' },
+// Short names that fit a card on any screen (owner 10-21: "Launchpads (Argu…" cut off "looks crazy"); `desc` is the hover text.
+export const PROTOCOLS: { id: string; name: string; desc: string; cat: string; color: string }[] = [
+  { id: 'uni-v4', name: 'Uniswap V4', desc: 'Uniswap V4 pools (the PoolManager)', cat: 'DEX', color: '#ff4fb8' },
+  { id: 'dex-v3', name: 'Uniswap V3', desc: 'Uniswap V3 + its forks Aerodrome and Archery (concentrated-liquidity pools)', cat: 'DEX', color: '#ff8fd1' },
+  { id: 'dex-v2', name: 'V2 DEXes', desc: 'Uniswap V2-style pools (UniV2, DyorSwap, WarpV2, Arctide)', cat: 'DEX', color: '#c77dff' },
+  { id: 'uniswapx', name: 'UniswapX', desc: 'UniswapX orders filled by market makers', cat: 'DEX', color: '#f7a8ff' },
+  { id: 'stablefx', name: 'StableFX', desc: "Circle's StableFX — USDC / EURC exchange", cat: 'FX', color: '#4fd1c5' },
+  { id: 'morpho', name: 'Morpho', desc: 'Morpho Blue lending markets', cat: 'Lending', color: '#6aa9ff' },
+  { id: 'aave', name: 'Aave V4', desc: 'Aave V4 lending', cat: 'Lending', color: '#9b8cff' },
+  { id: 'cctp', name: 'Circle CCTP', desc: "Circle's official USDC bridge to other chains", cat: 'Bridge', color: '#3ec46f' },
+  { id: 'gateway', name: 'Circle Gateway', desc: "Circle Gateway — USDC across chains", cat: 'Bridge', color: '#8be08f' },
+  { id: 'across', name: 'Across', desc: 'Across bridge', cat: 'Bridge', color: '#6ee7b7' },
+  { id: 'launchpad', name: 'Launchpads', desc: 'Token launchpads — Argus, Memepad and other launch factories', cat: 'Launch', color: '#ffb547' },
+  { id: 'aa', name: 'Smart wallets', desc: 'ERC-4337 smart-account wallets (EntryPoint v0.6 / v0.7 / v0.8)', cat: 'Wallets', color: '#ffd27a' },
+  { id: 'oracle', name: 'Chainlink', desc: 'Chainlink price-feed updates', cat: 'Oracle', color: '#7aa7ff' },
 ];
 const T_V4_SWAP = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f';
 const T_V3_SWAP = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';

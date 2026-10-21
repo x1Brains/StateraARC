@@ -97,7 +97,7 @@ export function NetworkActivity() {
         {protos.map((p) => {
           const n = x.protocols[p.id] || 0;
           return (
-            <div className={`na-proto${n ? '' : ' dim'}`} key={p.id}>
+            <div className={`na-proto${n ? '' : ' dim'}`} key={p.id} title={p.desc || p.name}>
               <div className="na-proto-h"><i style={{ background: p.color }} /><b>{p.name}</b><em>{p.cat}</em></div>
               <div className="na-proto-v">{n0(n)}<small> tx</small></div>
               <Bars v={a.series.protocols[p.id] || []} from={from} h={26} />
