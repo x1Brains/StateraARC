@@ -24,7 +24,7 @@ export const PROTOCOLS: { id: string; name: string; desc: string; cat: string; c
   // ⛔ 10-21 owner ("43 transactions from the launchpad — completely off"): these are LAUNCHES (a launchpad factory's own events —
   // one new token = one tx), not launchpad trading. Trading launchpad tokens happens in their V4/V3 pools; it is summed
   // separately (statera-api: `launchpads` on /v2/activity, from the swap store per token).
-  { id: 'launchpad', name: 'Token launches', desc: 'New tokens created on a launchpad (Argus, Memepad and other launch factories) — one launch = one transaction', cat: 'Launch', color: '#ffb547' },
+  { id: 'launchpad', name: 'Launches', desc: 'New tokens created on a launchpad (Argus, Memepad and other launch factories) — one launch = one transaction', cat: 'Launch', color: '#ffb547' },
   { id: 'aa', name: 'Smart wallets', desc: 'ERC-4337 smart-account wallets (EntryPoint v0.6 / v0.7 / v0.8)', cat: 'Wallets', color: '#ffd27a' },
   { id: 'oracle', name: 'Chainlink', desc: 'Chainlink price-feed updates', cat: 'Oracle', color: '#7aa7ff' },
 ];
