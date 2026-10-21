@@ -17,7 +17,8 @@ Environment=NODE_ENV=production
 Environment=SWAPS_DB=/root/statera-swaps/swaps.db
 # Head follower only (the history was backfilled elsewhere): blockdaemon first (has recent logs), tenderly as the spare —
 # ~1 call / 2 s. ⛔ No backfill from this box (tenderly 429s it; arc.io + blockdaemon are the money bots' RPCs).
-Environment=SWAPS_RPCS=https://rpc.blockdaemon.mainnet.arc.io,https://arc.gateway.tenderly.co
+# ⛔ 10-21: tenderly 429s this IP constantly (live follower + supply reads stalled) — blockdaemon + drpc (small recent ranges only)
+Environment=SWAPS_RPCS=https://rpc.blockdaemon.mainnet.arc.io,https://arc.drpc.org
 
 [Install]
 WantedBy=multi-user.target
