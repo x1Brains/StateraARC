@@ -123,5 +123,7 @@ export interface V2ActWin { from: number; liveFrom?: number; txs: number; active
 export interface V2Activity { at: number; since: number; liveSince?: number; now: number; protocols: { id: string; name: string; desc?: string; cat: string; color: string }[];
   h1: V2ActWin; today: V2ActWin; h24: V2ActWin;
   series: { start: number; step: number; txs: number[]; active: number[]; newWallets: number[]; net: number[]; moved: number[]; protocols: Record<string, number[]> };
-  tape: { n: number; ts: number; txs: number; p: Record<string, number> }[] }
+  tape: { n: number; ts: number; txs: number; p: Record<string, number> }[];
+  launchpads?: { trades: number; volume: number; traded: number; pads: { pad: string; tokens: number; traded: number; trades: number; volume: number }[];
+    top: { address: string; symbol: string; pad: string; trades: number; volume: number }[] } }
 export const v2Activity = () => get<V2Activity>('activity', 8000).then((j) => { if (!j || !Array.isArray(j.tape)) throw new Error('v2 activity: bad shape'); return j; });

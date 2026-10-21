@@ -109,6 +109,16 @@ export function NetworkActivity() {
           );
         })}
       </div>
+      {a.launchpads && a.launchpads.trades > 0 && (
+        <div className="na-lp">
+          <div className="na-lp-h"><b>Launchpad trading</b><em>last 24 hours</em></div>
+          <div className="na-lp-v"><span>{n0(a.launchpads.trades)}<small> trades</small></span><span>{usd(a.launchpads.volume)}<small> volume</small></span><span>{n0(a.launchpads.traded)}<small> tokens traded</small></span></div>
+          <div className="na-lp-pads">{a.launchpads.pads.filter((p) => p.trades > 0).map((p) => (
+            <div key={p.pad}><b>{p.pad}</b><span>{n0(p.trades)} trades · {usd(p.volume)} · {n0(p.traded)} of {n0(p.tokens)} tokens</span></div>))}</div>
+          <div className="na-lp-top">Top by volume: {a.launchpads.top.map((t) => <a key={t.address} href={`/token/${t.address}`}>${t.symbol} <small>{usd(t.volume)}</small></a>)}</div>
+          <div className="na-lp-note">Every buy and sell of a token a launchpad created, in its pools — counted from our own swap index. "Token launches" above is new tokens created.</div>
+        </div>
+      )}
     </div>
   </>);
 }

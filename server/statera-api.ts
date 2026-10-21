@@ -203,7 +203,10 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     const v = view;
     if (path === '/home') { send(req, res, 200, v.homeJson, v.homeGz); return; }
     if (path === '/where') { const w = whereSummary(); send(req, res, w ? 200 : 503, JSON.stringify(w ?? { error: 'warming up' }), undefined, w ? 60 : 0); return; }
-    if (path === '/activity') { const a = activitySummary(); send(req, res, a ? 200 : 503, JSON.stringify(a ?? { error: 'warming up' }), undefined, a ? 5 : 0); return; }
+    if (path === '/activity') {
+      const a = activitySummary() as Record<string, unknown> | null;
+      send(req, res, a ? 200 : 503, JSON.stringify(a ? { ...a, launchpads: launchpadTrading(v.tokens) } : { error: 'warming up' }), undefined, a ? 5 : 0); return;
+    }
     if (path === '/lending') { const l = lendingSummary(); send(req, res, l ? 200 : 503, JSON.stringify(l ?? { error: 'warming up' }), undefined, l ? 30 : 0); return; }
     if (path === '/chain') {
       const c = chainSummary();
@@ -454,6 +457,26 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveCh
 setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(); } catch { /* keep serving the last good list */ } }, 5000);
 
 // 10-20: the swap store's screener numbers (see rebuild(); built by the indexer into table tstats) — the board picks them up every 2 min
+// Launchpad TRADING, 24 h (the Network page's activity card): every listed token a launchpad created — its trades + USD volume in
+// its pools over the last 24 h (the swap store's numbers, already on each board row: txns24 / volume24h), split by launchpad.
+let lpCache: { at: number; v: unknown } | null = null;
+function launchpadTrading(rows: Token[]) {
+  if (lpCache && Date.now() - lpCache.at < 30_000) return lpCache.v;
+  const by = new Map<string, { pad: string; tokens: number; traded: number; trades: number; volume: number }>();
+  for (const t of rows) {
+    if (!t.launchpad) continue;
+    const g = by.get(t.launchpad) || { pad: t.launchpad, tokens: 0, traded: 0, trades: 0, volume: 0 };
+    g.tokens++; const n = t.txns24 ?? 0, vol = t.volume24h ?? 0;
+    if (n > 0) { g.traded++; g.trades += n; g.volume += vol; }
+    by.set(t.launchpad, g);
+  }
+  const pads = [...by.values()].sort((a, b) => b.trades - a.trades);
+  const top = rows.filter((t) => t.launchpad && (t.txns24 ?? 0) > 0).sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0)).slice(0, 5)
+    .map((t) => ({ address: t.address, symbol: t.symbol, pad: t.launchpad, trades: t.txns24, volume: t.volume24h }));
+  const v = { trades: pads.reduce((s, p) => s + p.trades, 0), volume: pads.reduce((s, p) => s + p.volume, 0), traded: pads.reduce((s, p) => s + p.traded, 0), pads, top };
+  lpCache = { at: Date.now(), v };
+  return v;
+}
 let swapStatsBusy = false;
 const tickSwapStats = async () => {
   if (swapStatsBusy) return; swapStatsBusy = true;

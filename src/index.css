@@ -2480,3 +2480,10 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 #network .na-proto-v { font-size: 15px; margin: 2px 0 0; }
 #network .na-proto .na-bars, #network .na-proto .na-bars-empty { height: 20px; }
 .na-bar.na-bar-empty { height: 1px !important; background: rgba(255,255,255,.06); }
+#network .na-lp { margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(255,181,71,.25); border-radius: 10px; background: rgba(255,181,71,.03); }
+.na-lp-h { display: flex; align-items: baseline; gap: 8px; } .na-lp-h b { font: 700 12.5px var(--disp); letter-spacing: .5px; color: var(--white); text-transform: uppercase; } .na-lp-h em { font-style: normal; font-size: 11px; color: var(--gray-2); }
+.na-lp-v { display: flex; flex-wrap: wrap; gap: 4px 22px; margin: 6px 0; font: 700 17px var(--mono); color: var(--white); } .na-lp-v small { font: 500 11px var(--body); color: var(--gray); }
+.na-lp-pads { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 4px 16px; font-size: 12px; }
+.na-lp-pads div { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line-soft); padding-top: 4px; } .na-lp-pads b { color: #ffb547; font-weight: 600; } .na-lp-pads span { color: var(--gray); font-family: var(--mono); font-size: 11.5px; }
+.na-lp-top { margin-top: 6px; font-size: 11.5px; color: var(--gray-2); display: flex; flex-wrap: wrap; gap: 4px 12px; } .na-lp-top a { color: var(--red-hi); text-decoration: none; } .na-lp-top small { color: var(--gray); }
+.na-lp-note { margin-top: 6px; font-size: 10.5px; color: var(--gray-2); }
