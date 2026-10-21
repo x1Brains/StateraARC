@@ -457,6 +457,8 @@ const PAD_NAMES = {
   '0x0dcad158e98bc24455f9e94f46709d8a5f6d1255': 'Warp',
   // Arctide's launch factory (ArctideLaunchFactory per Arctide's DefiLlama listing) — bonding-curve coins graduate to Arctide pools
   '0xf7a20a20e18fa7d4b6c68ee58da16799382abce8': 'Arctide',
+  // its own name() on chain reads "ubi.fun Revenue Streams" (10-21) — it created UBI, UBIDOG, UBICAT …
+  '0x93e5a7565008db9688ba5211fa552d8b108b9c75': 'ubi.fun',
 };
 // Contracts that deploy for anyone and are NOT launchpads: the standard deterministic (CREATE2) deployer — 29 tokens a dev
 // deployed through it read "Launchpad" (pre-existing, found in the 10-06 audit).

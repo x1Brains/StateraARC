@@ -459,19 +459,22 @@ setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(
 // 10-20: the swap store's screener numbers (see rebuild(); built by the indexer into table tstats) — the board picks them up every 2 min
 // Launchpad TRADING, 24 h (the Network page's activity card): every listed token a launchpad created — its trades + USD volume in
 // its pools over the last 24 h (the swap store's numbers, already on each board row: txns24 / volume24h), split by launchpad.
+// ⛔ owner 10-21: "there's not one launchpad that's called Launchpad" — only launchpads identified by name from evidence (the
+// snapshot's PAD_NAMES: Argus pad, Warp, faze.fun, Arctide, ubi.fun) are listed; the generic "Launchpad" tag (an unnamed
+// factory that made ≥ 3 tokens) is left out of this card.
 let lpCache: { at: number; v: unknown } | null = null;
 function launchpadTrading(rows: Token[]) {
   if (lpCache && Date.now() - lpCache.at < 30_000) return lpCache.v;
   const by = new Map<string, { pad: string; tokens: number; traded: number; trades: number; volume: number }>();
   for (const t of rows) {
-    if (!t.launchpad) continue;
+    if (!t.launchpad || t.launchpad === 'Launchpad') continue;
     const g = by.get(t.launchpad) || { pad: t.launchpad, tokens: 0, traded: 0, trades: 0, volume: 0 };
     g.tokens++; const n = t.txns24 ?? 0, vol = t.volume24h ?? 0;
     if (n > 0) { g.traded++; g.trades += n; g.volume += vol; }
     by.set(t.launchpad, g);
   }
   const pads = [...by.values()].sort((a, b) => b.trades - a.trades);
-  const top = rows.filter((t) => t.launchpad && (t.txns24 ?? 0) > 0).sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0)).slice(0, 5)
+  const top = rows.filter((t) => t.launchpad && t.launchpad !== 'Launchpad' && (t.txns24 ?? 0) > 0).sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0)).slice(0, 5)
     .map((t) => ({ address: t.address, symbol: t.symbol, pad: t.launchpad, trades: t.txns24, volume: t.volume24h }));
   const v = { trades: pads.reduce((s, p) => s + p.trades, 0), volume: pads.reduce((s, p) => s + p.volume, 0), traded: pads.reduce((s, p) => s + p.traded, 0), pads, top };
   lpCache = { at: Date.now(), v };

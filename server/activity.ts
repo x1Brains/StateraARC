@@ -24,7 +24,7 @@ export const PROTOCOLS: { id: string; name: string; desc: string; cat: string; c
   // ⛔ 10-21 owner ("43 transactions from the launchpad — completely off"): these are LAUNCHES (a launchpad factory's own events —
   // one new token = one tx), not launchpad trading. Trading launchpad tokens happens in their V4/V3 pools; it is summed
   // separately (statera-api: `launchpads` on /v2/activity, from the swap store per token).
-  { id: 'launchpad', name: 'Launches', desc: 'New tokens created on a launchpad (Argus, Memepad and other launch factories) — one launch = one transaction', cat: 'Launch', color: '#ffb547' },
+  { id: 'launchpad', name: 'Argus launches', desc: 'New tokens created on the Argus launchpad — one launch = one transaction', cat: 'Launch', color: '#ffb547' },
   { id: 'aa', name: 'Smart wallets', desc: 'ERC-4337 smart-account wallets (EntryPoint v0.6 / v0.7 / v0.8)', cat: 'Wallets', color: '#ffd27a' },
   { id: 'oracle', name: 'Chainlink', desc: 'Chainlink price-feed updates', cat: 'Oracle', color: '#7aa7ff' },
 ];
@@ -46,9 +46,8 @@ const BY_EMITTER: Record<string, string> = {
   '0x77777777dcc4d5a8b6e418fd04d8997ef11000ee': 'gateway', '0x2222222d7164433c4c09b0b0d809a9b52c04c205': 'gateway',
   '0x9b4a302a548c7e313c2b74c461db7b84d3074a84': 'across',
   '0xb021be536808f551b31789422fd28a6c9c6e97da': 'launchpad', '0x0f1c7cb26d6cd36bd4189e41947658b39437587a': 'launchpad',
-  '0xd969062076f75fbc4fd0195561501dc13ef87c72': 'launchpad',
-  '0x95d262c8ab207a54c08569887177fa301e7f9687': 'launchpad', '0x34a0b64a88bbd4bf6acba8a0ff8f27c8add67e9c': 'launchpad',
-  '0x1594f838177784f4fcba8f4082d3ca53aeb2672b': 'launchpad', '0x8271e06e5887fe5ba05234f5315c19f3ec90e8ad': 'launchpad',
+  '0xd969062076f75fbc4fd0195561501dc13ef87c72': 'launchpad', // ⛔ ONLY the Argus factories (proven) — the old unnamed "Memepad /
+  // LP factory / Launcher / Curve factory" addresses had no proof of what they are and are not counted (owner 10-21)
   '0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789': 'aa', '0x0000000071727de22e5e9d8baf0edac6f37da032': 'aa', '0x4337084d9e255ff0702461cf8895ce9e3b5ff108': 'aa',
 };
 function classify(l: any): string | null {

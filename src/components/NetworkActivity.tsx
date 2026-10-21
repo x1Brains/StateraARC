@@ -59,7 +59,7 @@ export function NetworkActivity() {
   const sinceL = (t: number) => `since ${new Date(t * 1000).toUTCString().slice(17, 22)} UTC`;
   const wl = w === 'h1' ? 'last hour' : w === 'today' ? 'today (UTC)' : 'last 24 hours';
   const maxTx = Math.max(1, ...a.tape.map((b) => b.txs));
-  const protos = [...a.protocols].sort((p, q) => (x.protocols[q.id] || 0) - (x.protocols[p.id] || 0));
+  const protos = [...a.protocols].filter((p) => p.cat !== 'Launch').sort((p, q) => (x.protocols[q.id] || 0) - (x.protocols[p.id] || 0));
   const head = a.tape[a.tape.length - 1];
   return (<>
     <div className="nx-card na-card">
@@ -111,12 +111,12 @@ export function NetworkActivity() {
       </div>
       {a.launchpads && a.launchpads.trades > 0 && (
         <div className="na-lp">
-          <div className="na-lp-h"><b>Launchpad trading</b><em>last 24 hours</em></div>
+          <div className="na-lp-h"><b>Launchpads</b><em>last 24 hours</em></div>
           <div className="na-lp-v"><span>{n0(a.launchpads.trades)}<small> trades</small></span><span>{usd(a.launchpads.volume)}<small> volume</small></span><span>{n0(a.launchpads.traded)}<small> tokens traded</small></span></div>
           <div className="na-lp-pads">{a.launchpads.pads.filter((p) => p.trades > 0).map((p) => (
-            <div key={p.pad}><b>{p.pad}</b><span>{n0(p.trades)} trades · {usd(p.volume)} · {n0(p.traded)} of {n0(p.tokens)} tokens</span></div>))}</div>
-          <div className="na-lp-top">Top by volume: {a.launchpads.top.map((t) => <a key={t.address} href={`/token/${t.address}`}>${t.symbol} <small>{usd(t.volume)}</small></a>)}</div>
-          <div className="na-lp-note">Every buy and sell of a token a launchpad created, in its pools — counted from our own swap index. "Token launches" above is new tokens created.</div>
+            <div key={p.pad}><b>{p.pad === 'Argus pad' ? 'Argus' : p.pad}</b><span>{n0(p.trades)} trades · {usd(p.volume)} · {n0(p.traded)} tokens traded{p.pad === 'Argus pad' && a.h24.protocols.launchpad ? ` · ${n0(a.h24.protocols.launchpad)} new launches` : ''}</span></div>))}</div>
+          <div className="na-lp-top">Top by volume: {a.launchpads.top.map((t) => <a key={t.address} href={`/token/${t.address}`}>${t.symbol} <small>{t.pad === 'Argus pad' ? 'Argus' : t.pad} · {usd(t.volume)}</small></a>)}</div>
+          <div className="na-lp-note">Buys and sells of tokens each launchpad created, counted from our own swap index; launches from the launchpad's own contract. Only launchpads identified by name on chain are listed.</div>
         </div>
       )}
     </div>
