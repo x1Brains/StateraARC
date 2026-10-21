@@ -34,6 +34,7 @@ import { cacheStats, tokenDetail, tokenTrades, prewarm, detailStats, tokenCandle
 import { pollChain, chainSummary, chainStats, backfillStep, flowsBackfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
 import * as Swaps from './swap-store.ts';
+import { swapCall, poolStats } from './swap-worker.ts';
 import { refreshWhere, whereSummary, whereStats } from './where.ts';
 
 const PORT = Number(process.env.PORT || 8790);
@@ -194,7 +195,7 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, mem: (() => { const m = process.memoryUsage(); return { rssMb: Math.round(m.rss / 1048576), heapMb: Math.round(m.heapUsed / 1048576), extMb: Math.round((m.external + m.arrayBuffers) / 1048576) }; })(), caches: cacheStats(), ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, wallets: { ...walletStats, relay: relayStats, lastError: walletLastError }, chain: chainStats, lending: lendingStats, where: whereStats, swaps: Swaps.storeStats() }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, mem: (() => { const m = process.memoryUsage(); return { rssMb: Math.round(m.rss / 1048576), heapMb: Math.round(m.heapUsed / 1048576), extMb: Math.round((m.external + m.arrayBuffers) / 1048576) }; })(), caches: cacheStats(), ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, wallets: { ...walletStats, relay: relayStats, lastError: walletLastError }, chain: chainStats, lending: lendingStats, where: whereStats, swaps: { ...Swaps.storeStats(), workers: poolStats } }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
@@ -260,20 +261,20 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     const bm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/bars$/);
     if (bm) {
       const before = u.searchParams.get('before') ? intIn(u.searchParams.get('before'), 0, 0, 4e9) : undefined;
-      const r = Swaps.candles(bm[1].toLowerCase(), u.searchParams.get('res') || '5m', intIn(u.searchParams.get('limit'), 1000, 10, 2000), before);
+      const r = await swapCall('candles', bm[1].toLowerCase(), u.searchParams.get('res') || '5m', intIn(u.searchParams.get('limit'), 1000, 10, 2000), before).catch(() => null);
       send(req, res, r ? 200 : 503, JSON.stringify(r ?? { error: 'swap store unavailable' }), undefined, r ? (before ? 120 : 5) : 0); return;
     }
     const hsm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/history$/);
     if (hsm) {
       const sd = u.searchParams.get('side'), before = u.searchParams.get('before') ? intIn(u.searchParams.get('before'), 0, 0, 4e9) : undefined;
       const mk = (u.searchParams.get('maker') || '').toLowerCase();
-      const r = Swaps.trades(hsm[1].toLowerCase(), intIn(u.searchParams.get('limit'), 100, 1, 500), before, sd === 'buy' || sd === 'sell' ? sd : undefined, Math.max(0, Number(u.searchParams.get('min')) || 0), /^0x[0-9a-f]{40}$/.test(mk) ? mk : undefined);
+      const r = await swapCall('trades', hsm[1].toLowerCase(), intIn(u.searchParams.get('limit'), 100, 1, 500), before, sd === 'buy' || sd === 'sell' ? sd : undefined, Math.max(0, Number(u.searchParams.get('min')) || 0), /^0x[0-9a-f]{40}$/.test(mk) ? mk : undefined).catch(() => null);
       send(req, res, r ? 200 : 503, JSON.stringify(r ?? { error: 'swap store unavailable' }), undefined, r ? (before ? 60 : 5) : 0); return;
     }
     const am = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/(flow|traders|profitability)$/);
     if (am) {
       const a = am[1].toLowerCase(), so = u.searchParams.get('sort');
-      const r = am[2] === 'flow' ? Swaps.flow(a) : am[2] === 'traders' ? Swaps.topTraders(a, so === 'volume' || so === 'loss' ? so : 'pnl', intIn(u.searchParams.get('limit'), 50, 1, 200)) : Swaps.profitability(a);
+      const r = await (am[2] === 'flow' ? swapCall('flow', a) : am[2] === 'traders' ? swapCall('topTraders', a, so === 'volume' || so === 'loss' ? so : 'pnl', intIn(u.searchParams.get('limit'), 50, 1, 200)) : swapCall('profitability', a)).catch(() => null);
       send(req, res, r ? 200 : 503, JSON.stringify(r ?? { error: 'swap store unavailable' }), undefined, r ? 30 : 0); return;
     }
     const sm = path.match(/^\/wallet\/(0x[0-9a-fA-F]{40})\/swaps$/);
@@ -282,7 +283,7 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
       const saved = walletSaved(wallet);
       const w = await Promise.race([walletTransfers(wallet).then((x) => x ?? saved), new Promise<typeof saved>((r) => setTimeout(() => r(saved), saved ? 2_500 : 20_000))]);
       if (!w) { send(req, res, 200, JSON.stringify({ wallet, building: true, swaps: [] }), undefined, 0); return; }
-      const r = Swaps.swapsInTxs([...new Set(w.x.map((x) => x.h))], /^0x[0-9a-f]{40}$/.test(tok) ? tok : undefined);
+      const r = await swapCall('swapsInTxs', [...new Set(w.x.map((x) => x.h))], /^0x[0-9a-f]{40}$/.test(tok) ? tok : undefined).catch(() => null);
       send(req, res, r ? 200 : 503, JSON.stringify(r ? { wallet, at: w.at, swaps: r } : { error: 'swap store unavailable' }), undefined, 0); return;
     }
     const m = path.match(/^\/token\/(0x[0-9a-fA-F]{40})$/);

@@ -495,7 +495,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
 
       {!pageLoaded && (
         <div className="tload" role="status" aria-live="polite">
-          <img className="tload-s" src="/statera-s-192.webp" alt="" />
+          <img className="tload-s" src="/statera-mark-256.webp" alt="" />
           <div className="tload-t">Loading {seed?.symbol ? `$${seed.symbol}` : 'token'}<span className="tload-dots"><i>.</i><i>.</i><i>.</i></span></div>
           <div className="tload-sub">reading it live from Arc</div>
         </div>

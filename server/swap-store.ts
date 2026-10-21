@@ -81,8 +81,9 @@ export function candles(token: string, resKey: string, limit = 1000, before?: nu
   const q = `SELECT pid, t, o, h, l, c, v, n FROM c1m WHERE pid IN (${pids.map(() => '?').join(',')}) AND t >= ? AND t < ? ORDER BY t`;
   const rows = d.prepare(q).all(...pids, start, end) as { pid: number; t: number; o: number; h: number; l: number; c: number; v: number; n: number }[];
   // the close just before the window, so the first candle opens where the previous one closed
-  const prevQ = `SELECT c FROM c1m WHERE pid IN (${pids.map(() => '?').join(',')}) AND t < ? ORDER BY t DESC LIMIT 1`;
-  const prevRow = d.prepare(prevQ).get(...pids, start) as { c: number } | undefined;
+  const pq = d.prepare('SELECT t, c FROM c1m WHERE pid = ? AND t < ? ORDER BY t DESC LIMIT 1');
+  let prevRow: { t: number; c: number } | undefined;
+  for (const pid of pids) { const r = pq.get(pid, start) as { t: number; c: number } | undefined; if (r && (!prevRow || r.t > prevRow.t)) prevRow = r; }
   type Acc = { o: number; h: number; l: number; c: number; v: number; n: number };
   const buckets = new Map<number, { per: Map<number, Acc>; v: number; n: number }>();
   for (const r of rows) {
@@ -122,30 +123,33 @@ export function trades(token: string, limit = 100, before?: number, side?: 'buy'
   const pools = poolsOf(token); if (!pools.length) return { trades: [], hasMore: false };
   const venue = new Map(pools.map((p) => [p.pid, p.venue]));
   const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(',');
-  const args: (number | string | Buffer)[] = [];
-  let q: string;
   if (maker && !hasMakers(d)) return { trades: [], hasMore: false };
   const MJ = hasMakers(d) ? 'LEFT JOIN makers m ON m.tx = s.tx' : '', MC = hasMakers(d) ? 'm.maker' : 'NULL AS maker';
+  // ⛔ 10-21: "WHERE pid IN (...) ORDER BY ts DESC, blk DESC, li DESC LIMIT n" made SQLite read and SORT every trade of the
+  // token (cirBTC 677k rows: 15 s; even one-pool ARCOON 5 s — the extra sort keys defeat the index). The live feed asked every
+  // 4 s and froze the whole API (10-21 outage). Now each pool's newest rows come straight off its (pid, ts) index (ORDER BY ts
+  // only, LIMIT n+1 each) and are merged here; one wallet starts from its own txs (makers index).
+  const f = `${side ? ' AND s.side = ?' : ''}${minUsd > 0 ? ' AND s.usd >= ?' : ''}`;
+  const extra: number[] = []; if (side) extra.push(side === 'buy' ? 1 : -1); if (minUsd > 0) extra.push(minUsd);
+  let rows: Row[] = [];
   if (maker) {
-    // one wallet: start from its own txs (index on makers.maker), not from the token's whole history
-    q = `SELECT s.blk, s.li, s.pid, s.ts, s.side, s.price, s.usd, s.amt, s.tx, m.maker FROM makers m JOIN swaps s ON s.tx = m.tx
-      WHERE m.maker = ? AND s.pid IN (${ph}) AND s.ts < ?${side ? ' AND s.side = ?' : ''}${minUsd > 0 ? ' AND s.usd >= ?' : ''} ORDER BY s.ts DESC, s.blk DESC, s.li DESC LIMIT ?`;
-    args.push(addrToBlob(maker));
+    rows = d.prepare(`SELECT s.blk, s.li, s.pid, s.ts, s.side, s.price, s.usd, s.amt, s.tx, m.maker FROM makers m JOIN swaps s ON s.tx = m.tx
+      WHERE m.maker = ? AND s.pid IN (${ph}) AND s.ts < ?${f} LIMIT 5000`).all(addrToBlob(maker), ...pids, before ?? 4e9, ...extra) as Row[];
   } else {
-    q = `SELECT s.blk, s.li, s.pid, s.ts, s.side, s.price, s.usd, s.amt, s.tx, ${MC} FROM swaps s ${MJ}
-      WHERE s.pid IN (${ph}) AND s.ts < ?${side ? ' AND s.side = ?' : ''}${minUsd > 0 ? ' AND s.usd >= ?' : ''} ORDER BY s.ts DESC, s.blk DESC, s.li DESC LIMIT ?`;
+    const one = d.prepare(`SELECT s.blk, s.li, s.pid, s.ts, s.side, s.price, s.usd, s.amt, s.tx, ${MC} FROM swaps s ${MJ}
+      WHERE s.pid = ? AND s.ts < ?${f} ORDER BY s.ts DESC LIMIT ?`);
+    for (const pid of pids) rows.push(...(one.all(pid, before ?? 4e9, ...extra, limit + 1) as Row[]));
   }
-  args.push(...pids, before ?? 4e9);
-  if (side) args.push(side === 'buy' ? 1 : -1);
-  if (minUsd > 0) args.push(minUsd);
-  args.push(limit + 1);
-  const rows = d.prepare(q).all(...args) as Row[];
+  rows.sort((a, b) => b.ts - a.ts || b.blk - a.blk || b.li - a.li);
   return { hasMore: rows.length > limit, trades: rows.slice(0, limit).map(rowOut(venue)) };
 }
 
+// the newest close across the pools — each pool's last row off its (pid, t) key, not a sort of all their rows
 const lastPrice = (d: DatabaseSync, pids: number[]) => {
-  const r = d.prepare(`SELECT c FROM c1m WHERE pid IN (${pids.map(() => '?').join(',')}) ORDER BY t DESC LIMIT 1`).get(...pids) as { c: number } | undefined;
-  return r ? r.c : null;
+  const q = d.prepare('SELECT t, c FROM c1m WHERE pid = ? ORDER BY t DESC LIMIT 1');
+  let best: { t: number; c: number } | null = null;
+  for (const pid of pids) { const r = q.get(pid) as { t: number; c: number } | undefined; if (r && (!best || r.t > best.t)) best = r; }
+  return best ? best.c : null;
 };
 const aggCache = new Map<string, { at: number; v: unknown }>();
 function cached<T>(k: string, ms: number, f: () => T): T {

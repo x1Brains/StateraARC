@@ -2104,7 +2104,7 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .tdx-pending { opacity: 0; transform: translateY(6px); pointer-events: none; }
 .tdx-in { opacity: 1; transform: none; }
 .tload { position: absolute; left: 0; right: 0; top: 70px; min-height: 62vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 5; animation: tload-in .35s ease both; }
-.tload-s { width: 96px; height: 96px; animation: tload-breathe 2.2s ease-in-out infinite; filter: drop-shadow(0 0 18px rgba(255,122,30,.35)); }
+.tload-s { width: 108px; height: 108px; object-fit: contain; animation: tload-breathe 2.2s ease-in-out infinite; filter: drop-shadow(0 0 18px rgba(255,122,30,.35)); }
 .tload-t { font: 600 13px var(--disp); letter-spacing: 3px; text-transform: uppercase; color: var(--white); }
 .tload-sub { font-size: 12px; color: var(--gray); letter-spacing: .5px; }
 .tload-dots i { font-style: normal; animation: tload-dot 1.2s infinite; opacity: .2; }

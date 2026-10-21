@@ -338,7 +338,7 @@ export function Portfolio({ tokens, wallet, onConnect, onOpenToken, mainnet = fa
       {busy && (
         // the Statera S breathes until the whole bag is in (same scene as a token page), then everything paints at once
         <div className="tload pf-load" role="status" aria-live="polite">
-          <img className="tload-s" src="/statera-s-192.webp" alt="" />
+          <img className="tload-s" src="/statera-mark-256.webp" alt="" />
           <div className="tload-t">Loading portfolio<span className="tload-dots"><i>.</i><i>.</i><i>.</i></span></div>
           <div className="tload-sub">reading every token this wallet holds, live from Arc</div>
         </div>
