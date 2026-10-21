@@ -12,7 +12,9 @@ const sgn = (v: number) => `${v >= 0 ? '+' : '−'}${usd(Math.abs(v))}`;
 // bar in the brand accent — colour carries meaning only where it means something (signed: green up / red down).
 function Bars({ v, from = 0, signed = false, h = 34 }: { v: number[]; from?: number; signed?: boolean; h?: number }) {
   const pts = v.slice(Math.max(0, from), -1); // the last minute is still filling — a half-counted bar read as a sudden drop
-  if (pts.length < 2 || pts.every((x) => x === 0)) return <div className="na-bars-empty">{pts.length < 2 ? 'collecting…' : 'no activity'}</div>;
+  // < 6 minutes counted: a couple of fat bars says nothing yet
+  if (pts.length < 6) return <div className="na-bars-empty">collecting…</div>;
+  if (pts.every((x) => x === 0)) return <div className="na-bars-empty">none in the last 3 h</div>;
   const per = Math.max(1, Math.ceil(pts.length / 30)), bars: number[] = [];
   // grouped from the NEWEST end, so every bar (the highlighted last one included) spans the same number of whole minutes
   for (let e = pts.length; e - per >= 0; e -= per) bars.unshift(pts.slice(e - per, e).reduce((a, b) => a + b, 0));
