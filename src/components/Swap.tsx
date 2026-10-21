@@ -872,7 +872,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
           {/* Compact how-it-works — small, no longer competing with the swap */}
           <details className="sp-how">
             <summary>How routing works</summary>
-            <p className="side-note">{warpMode
+            <div className="side-note">{warpMode
               ? <>Statera is a swap aggregator: every trade is quoted on all eight Arc venues at once and the best fill wins.
                 <ol className="sp-venues">
                   <li>Uniswap V2</li>
@@ -885,7 +885,7 @@ export function Swap({ tokens, wallet, onConnect, preload, mainnet = false }: { 
                   <li>Arctide</li>
                 </ol>
                 Each swap is simulated before you sign, and min received is enforced on-chain at your slippage. Only tokens listed on the Statera screener can be traded here (or ones you already hold). Native USDC (0x3600) is Arc's gas token.</>
-              : <>Quoted against every live router on {CHAIN.name} ({SWAP_CFG.routers.length} tracked) for the deepest fill. Native USDC (0x3600) is Arc's gas token. Paste any ERC-20 to import it. Min received enforced on-chain at your slippage.</>}</p>
+              : <>Quoted against every live router on {CHAIN.name} ({SWAP_CFG.routers.length} tracked) for the deepest fill. Native USDC (0x3600) is Arc's gas token. Paste any ERC-20 to import it. Min received enforced on-chain at your slippage.</>}</div>
           </details>
         </aside>
       </div>
