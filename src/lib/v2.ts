@@ -125,5 +125,5 @@ export interface V2Activity { at: number; since: number; liveSince?: number; now
   series: { start: number; step: number; txs: number[]; active: number[]; newWallets: number[]; net: number[]; moved: number[]; protocols: Record<string, number[]> };
   tape: { n: number; ts: number; txs: number; p: Record<string, number> }[];
   launchpads?: { trades: number; volume: number; traded: number; pads: { pad: string; tokens: number; traded: number; trades: number; volume: number }[];
-    top: { address: string; symbol: string; pad: string; trades: number; volume: number }[] } }
+    top: { address: string; symbol: string; pad: string; trades: number; volume: number; mcap?: number | null; liq?: number | null; change24h?: number | null }[] } }
 export const v2Activity = () => get<V2Activity>('activity', 8000).then((j) => { if (!j || !Array.isArray(j.tape)) throw new Error('v2 activity: bad shape'); return j; });

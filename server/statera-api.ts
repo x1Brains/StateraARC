@@ -493,8 +493,11 @@ function launchpadTrading(rows: Token[]) {
   }
   const pads = [...by.values()].sort((a, b) => b.trades - a.trades);
   // red-flagged tokens (redFlags 'high') never headline the card; their trades still count in the totals above
-  const top = rows.filter((t) => t.launchpad && t.launchpad !== 'Launchpad' && (t.txns24 ?? 0) > 0 && t.risk?.level !== 'high').sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0)).slice(0, 5)
-    .map((t) => ({ address: t.address, symbol: t.symbol, pad: t.launchpad, trades: t.txns24, volume: t.volume24h }));
+  // TOP BY MARKET CAP like argus.world's own list (owner 10-21) — a pump-and-dump has volume, never a real market cap with
+  // liquidity behind it; red-flagged and sub-$1K-liquidity tokens are left out
+  const top = rows.filter((t) => t.launchpad && t.launchpad !== 'Launchpad' && t.mcap != null && t.risk?.level !== 'high' && (t.liq ?? 0) >= 1000)
+    .sort((a, b) => (b.mcap ?? 0) - (a.mcap ?? 0)).slice(0, 5)
+    .map((t) => ({ address: t.address, symbol: t.symbol, pad: t.launchpad, trades: t.txns24, volume: t.volume24h, mcap: t.mcap, liq: t.liq, change24h: t.change24h }));
   const v = { trades: pads.reduce((s, p) => s + p.trades, 0), volume: pads.reduce((s, p) => s + p.volume, 0), traded: pads.reduce((s, p) => s + p.traded, 0), pads, top };
   lpCache = { at: Date.now(), v };
   return v;

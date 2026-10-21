@@ -115,7 +115,7 @@ export function NetworkActivity() {
           <div className="na-lp-v"><span>{n0(a.launchpads.trades)}<small> trades</small></span><span>{usd(a.launchpads.volume)}<small> volume</small></span><span>{n0(a.launchpads.traded)}<small> tokens traded</small></span></div>
           <div className="na-lp-pads">{a.launchpads.pads.filter((p) => p.trades > 0).map((p) => (
             <div key={p.pad}><b>{p.pad === 'Argus pad' ? 'Argus' : p.pad}</b><span>{n0(p.trades)} trades · {usd(p.volume)} · {n0(p.traded)} tokens traded{p.pad === 'Argus pad' && a.h24.protocols.launchpad ? ` · ${n0(a.h24.protocols.launchpad)} new launches` : ''}</span></div>))}</div>
-          <div className="na-lp-top">Top by volume: {a.launchpads.top.map((t) => <a key={t.address} href={`/token/${t.address}`}>${t.symbol} <small>{t.pad === 'Argus pad' ? 'Argus' : t.pad} · {usd(t.volume)}</small></a>)}</div>
+          <div className="na-lp-top">Top by market cap: {a.launchpads.top.map((t) => <a key={t.address} href={`/token/${t.address}`}>${t.symbol} <small>{usd(t.mcap ?? null)} mcap · {usd(t.liq ?? null)} liq{t.change24h != null && isFinite(t.change24h) ? <span className={t.change24h >= 0 ? 'up' : 'down'}> {t.change24h >= 0 ? '+' : ''}{t.change24h.toFixed(1)}%</span> : null}</small></a>)}</div>
           <div className="na-lp-note">Buys and sells of tokens each launchpad created, counted from our own swap index; launches from the launchpad's own contract. Only launchpads identified by name on chain are listed.</div>
         </div>
       )}
