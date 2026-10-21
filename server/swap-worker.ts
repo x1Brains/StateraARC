@@ -48,15 +48,18 @@ class Lane {
   }
 }
 export const poolStats = { calls: 0, timeouts: 0, dedup: 0 };
-const fast = new Lane('fast', 12_000), slow = new Lane('slow', 60_000);
-const SLOW = new Set(['topTraders', 'profitability']);
+// 3 lanes (10-21 load test: cirBTC's money flow — a 7-day join over the maker history — ran 12 s after a restart in the SAME lane
+// as the chart, so the chart and trade history queued behind it and were dropped with it): charts + trades + wallet swaps never
+// wait on flow or on the whole-history rankings
+const fast = new Lane('fast', 12_000), mid = new Lane('mid', 30_000), slow = new Lane('slow', 60_000);
+const SLOW = new Set(['topTraders', 'profitability']), MID = new Set(['flow']);
 const inflight = new Map<string, Promise<unknown>>();
 /** Run a swap-store function in a worker; identical concurrent calls share one run. */
 export function swapCall<T = unknown>(fn: string, ...args: unknown[]): Promise<T> {
   poolStats.calls++;
   const k = fn + JSON.stringify(args);
   const hit = inflight.get(k); if (hit) { poolStats.dedup++; return hit as Promise<T>; }
-  const p = (SLOW.has(fn) ? slow : fast).call(fn, args).finally(() => inflight.delete(k));
+  const p = (SLOW.has(fn) ? slow : MID.has(fn) ? mid : fast).call(fn, args).finally(() => inflight.delete(k));
   inflight.set(k, p);
   return p as Promise<T>;
 }

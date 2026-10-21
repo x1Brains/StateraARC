@@ -174,13 +174,16 @@ function cached<T>(k: string, ms: number, f: () => T): T {
 export function flow(token: string) {
   const d = conn(); if (!d) return null;
   const pools = poolsOf(token); if (!pools.length) return { windows: [] };
-  return cached('flow:' + token, 30_000, () => {
+  return cached('flow:' + token, 60_000, () => {
     const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(','), now = Math.floor(Date.now() / 1000);
     const windows = [['1h', 3600], ['24h', 86400], ['7d', 604800]].map(([k, sec]) => {
       const from = now - (sec as number);
       const sides = d.prepare(`SELECT side, COUNT(*) n, COALESCE(SUM(usd),0) usd, COALESCE(MAX(usd),0) big FROM swaps WHERE pid IN (${ph}) AND ts >= ? GROUP BY side`).all(...pids, from) as { side: number; n: number; usd: number; big: number }[];
       const b = sides.find((x) => x.side > 0), s2 = sides.find((x) => x.side < 0);
-      const w = !hasMakers(d) ? [] : d.prepare(`SELECT m.maker w, SUM(CASE WHEN s.side > 0 THEN s.usd ELSE -s.usd END) net, SUM(s.side > 0) nb, SUM(s.side < 0) ns, COUNT(*) n
+      // per-wallet figures for 1H / 24H only: the 7-day join reads ~100k trades' makers off disk (4.6 s cold on cirBTC, 10-21) —
+      // 7D keeps its counts + USD, its wallet fields read '—'
+      const withWallets = k !== '7d' && hasMakers(d);
+      const w = !withWallets ? [] : d.prepare(`SELECT m.maker w, SUM(CASE WHEN s.side > 0 THEN s.usd ELSE -s.usd END) net, SUM(s.side > 0) nb, SUM(s.side < 0) ns, COUNT(*) n
         FROM swaps s JOIN makers m ON m.tx = s.tx WHERE s.pid IN (${ph}) AND s.ts >= ? GROUP BY m.maker`).all(...pids, from) as { w: Uint8Array; net: number; nb: number; ns: number; n: number }[];
       let top: typeof w[number] | null = null, bot: typeof w[number] | null = null, known = 0;
       for (const x of w) { known += x.n; if (!top || x.net > top.net) top = x; if (!bot || x.net < bot.net) bot = x; }
@@ -188,7 +191,7 @@ export function flow(token: string) {
       return { window: k, buys: b?.n ?? 0, sells: s2?.n ?? 0, buyUsd: b?.usd ?? 0, sellUsd: s2?.usd ?? 0, net: (b?.usd ?? 0) - (s2?.usd ?? 0),
         biggestBuy: b?.big ?? 0, biggestSell: s2?.big ?? 0, buyers: w.filter((x) => x.nb > 0).length, sellers: w.filter((x) => x.ns > 0).length,
         topBuyer: top && top.net > 0 ? { wallet: blobToTx(top.w), net: top.net } : null, topSeller: bot && bot.net < 0 ? { wallet: blobToTx(bot.w), net: bot.net } : null,
-        makersKnown: total ? known / total : null };
+        makersKnown: withWallets && total ? known / total : null };
     });
     return { windows };
   });
