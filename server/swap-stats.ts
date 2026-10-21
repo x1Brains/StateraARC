@@ -12,8 +12,8 @@ export async function buildTokenStats(d: DatabaseSync): Promise<Map<string, Stor
   {
     const now = Math.floor(Date.now() / 1000), d1 = now - 86400, d7 = now - 7 * 86400;
     // pools that traded in the last 7 days, with their token, 7d trade count, 24h volume + count
-    const act = d.prepare(`SELECT c.pid, p.token, SUM(c.n) n7, SUM(CASE WHEN c.t >= ? THEN c.v ELSE 0 END) v24, SUM(CASE WHEN c.t >= ? THEN c.n ELSE 0 END) n24
-      FROM c1m c JOIN pools p ON p.pid = c.pid WHERE c.t >= ? AND p.ok = 1 GROUP BY c.pid`).all(d1, d1, d7) as { pid: number; token: string; n7: number; v24: number; n24: number }[];
+    const act = d.prepare(`SELECT c.pid, p.token, SUM(c.n) n7, SUM(c.v) v7, SUM(CASE WHEN c.t >= ? THEN c.v ELSE 0 END) v24, SUM(CASE WHEN c.t >= ? THEN c.n ELSE 0 END) n24
+      FROM c1m c JOIN pools p ON p.pid = c.pid WHERE c.t >= ? AND p.ok = 1 GROUP BY c.pid`).all(d1, d1, d7) as { pid: number; token: string; n7: number; v7: number; v24: number; n24: number }[];
     await yieldNow();
     const byTok = new Map<string, typeof act>();
     for (const r of act) { const l = byTok.get(r.token); if (l) l.push(r); else byTok.set(r.token, [r]); }
@@ -27,7 +27,8 @@ export async function buildTokenStats(d: DatabaseSync): Promise<Map<string, Stor
       const totN = list.reduce((s, x) => s + x.n7, 0);
       const pools = list.filter((x) => x.n7 >= 3 && x.n7 >= totN * 0.01);
       if (!pools.length) continue;
-      const main = pools.reduce((a, b) => (b.n7 > a.n7 ? b : a));
+      // the price comes from the deepest pool by USD (same as the chart) — a small side pool's off-market print can't move it
+      const main = pools.reduce((a, b) => (b.v7 > a.v7 ? b : a));
       const last = (at.get(main.pid, now) as { c: number } | undefined)?.c ?? null;
       const px = (cut: number) => ((at.get(main.pid, cut) as { c: number } | undefined)?.c ?? (firstAfter.get(main.pid, cut) as { c: number } | undefined)?.c ?? null);
       const p1 = px(now - 3600), p24 = px(d1);

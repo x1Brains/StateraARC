@@ -60,7 +60,7 @@ export function coverage() {
 }
 
 // Candles for `token` at `res`, the newest `limit` buckets ending before `before` (unix s; default = now).
-// Per bucket: OHLC from the pool with the most TRADES in it (pools are arbitraged together, and one pool's own path is
+// Per bucket: OHLC from the token's MAIN pool (see the loop below for the side-pool rule) (pools are arbitraged together, and one pool's own path is
 // a real price path — mixing the swaps of several pools would draw their tiny offsets as wicks); volume = every counted pool.
 // Each candle opens at the previous close (no gaps between candles); a bucket without trades is a flat 0-volume candle.
 // A token quiet for the whole window gets the window that ends at its last trade instead of an empty chart.
@@ -82,8 +82,10 @@ export function candles(token: string, resKey: string, limit = 1000, before?: nu
   const rows = d.prepare(q).all(...pids, start, end) as { pid: number; t: number; o: number; h: number; l: number; c: number; v: number; n: number }[];
   // the close just before the window, so the first candle opens where the previous one closed
   const pq = d.prepare('SELECT t, c FROM c1m WHERE pid = ? AND t < ? ORDER BY t DESC LIMIT 1');
-  let prevRow: { t: number; c: number } | undefined;
-  for (const pid of pids) { const r = pq.get(pid, start) as { t: number; c: number } | undefined; if (r && (!prevRow || r.t > prevRow.t)) prevRow = r; }
+  const mainPid = pools.reduce((a, b) => (b.vol > a.vol ? b : a)).pid; // pools are eligible (decoys out) — the deepest by USD
+  // the close before the window: the main pool's (a side pool's last print can be off-market), else the newest of any pool
+  let prevRow = pq.get(mainPid, start) as { t: number; c: number } | undefined;
+  if (!prevRow) for (const pid of pids) { const r = pq.get(pid, start) as { t: number; c: number } | undefined; if (r && (!prevRow || r.t > prevRow.t)) prevRow = r; }
   type Acc = { o: number; h: number; l: number; c: number; v: number; n: number };
   const buckets = new Map<number, { per: Map<number, Acc>; v: number; n: number }>();
   for (const r of rows) {
@@ -99,11 +101,20 @@ export function candles(token: string, resKey: string, limit = 1000, before?: nu
   for (let t = start; t < end; t = step(t, sec)) {
     const B = buckets.get(t);
     if (B) {
-      let best: Acc | null = null;
-      for (const a of B.per.values()) if (!best || a.n > best.n || (a.n === best.n && a.v > best.v)) best = a;
-      const open = prev ?? best!.o;
-      out.push({ time: t, open, high: Math.max(best!.h, open), low: Math.min(best!.l, open), close: best!.c, volume: B.v, trades: B.n });
-      prev = best!.c;
+      // ⛔ 10-21 owner ("this wick doesn't look real"): ARGUS printed $0.0132 vs $0.0075 — 3 trades, $12, in one of its 9 small
+      // side pools while the main pools were quiet, and "most trades in the bucket" picked it. Now: the MAIN pool (most all-time
+      // USD) whenever it traded in the bucket; otherwise the busiest side pool, but only if its close is within 12% of the
+      // previous close — a thin pool's off-market print becomes a flat candle (its volume still counts).
+      let best: Acc | null = B.per.get(mainPid) ?? null;
+      if (!best) {
+        for (const a of B.per.values()) if (!best || a.v > best.v || (a.v === best.v && a.n > best.n)) best = a;
+        if (best && prev != null && Math.abs(best.c / prev - 1) > 0.12) best = null;
+      }
+      if (best) {
+        const open = prev ?? best.o;
+        out.push({ time: t, open, high: Math.max(best.h, open), low: Math.min(best.l, open), close: best.c, volume: B.v, trades: B.n });
+        prev = best.c;
+      } else if (prev != null) out.push({ time: t, open: prev, high: prev, low: prev, close: prev, volume: B.v, trades: B.n });
     } else if (prev != null) out.push({ time: t, open: prev, high: prev, low: prev, close: prev, volume: 0, trades: 0 });
   }
   const v = { res: resKey, candles: out, hasMore: start > bucketOf(first, sec), first, lastTrade,
