@@ -52,5 +52,6 @@
       "source": "/((?!api/|assets/|coins/|.*\\.[a-zA-Z0-9]+$).*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "ignoreCommand": "git log -1 --pretty=%B | grep -q '\\[vps\\]'"
 }
