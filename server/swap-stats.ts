@@ -2,7 +2,8 @@
 // written to table `tstats` (token → JSON); statera-api reads that table (swap-store.ts tokenStatsNow) and overlays the board.
 // (Inside the API the 7-day scan blocked every request for ~2 s.)
 import type { DatabaseSync } from 'node:sqlite';
-export interface StoreTokenStats { volume24h: number; txns24: number; change1h: number | null; change24h: number | null; spark: number[]; price: number | null }
+export interface StoreTokenStats { volume24h?: number; txns24?: number; change1h?: number | null; change24h?: number | null; spark?: number[]; price?: number | null;
+  liq?: number; liqUsdc?: number; liqPools?: number }
 // owner 10-20: "the screener's 1h/24h/volume should be real".
 // Every ~2 min: per token with trades in the last 7 days — 24h USD volume + trade count across its counted pools, and from its
 // busiest pool (7d trade count) the 1h / 24h change and a 7-day sparkline (one close every 4 h). Runs in slices that yield to
@@ -44,6 +45,18 @@ export async function buildTokenStats(d: DatabaseSync): Promise<Map<string, Stor
       map.set(tok, { volume24h: pools.reduce((s, x) => s + x.v24, 0), txns24: pools.reduce((s, x) => s + x.n24, 0), change1h: ch(p1), change24h: ch(p24), spark: sp, price: last });
       if (++k % 150 === 0) await yieldNow();
     }
+    // ── liquidity from REAL pool reserves (server/swap-reserves.ts → table reserves): per token, every measured pool's USDC plus
+    // its tokens at the pool's own price, the token side counted up to 3 × the USDC (the screener's rule for V3 since 09-25:
+    // a pile of unsold tokens next to $0 of USDC is not liquidity — nobody can sell into it)
+    try {
+      const rs = d.prepare('SELECT p.token, r.usdc, r.tok, r.px FROM reserves r JOIN pools p ON p.pid = r.pid WHERE p.ok = 1').all() as { token: string; usdc: number; tok: number; px: number | null }[];
+      const liq = new Map<string, { liq: number; usdc: number; n: number }>();
+      for (const r of rs) {
+        const px = r.px ?? map.get(r.token)?.price ?? 0, side = Math.max(0, r.tok) * (isFinite(px) ? px : 0), u = Math.max(0, r.usdc);
+        const g = liq.get(r.token) || { liq: 0, usdc: 0, n: 0 }; g.liq += u + Math.min(side, u * 3); g.usdc += u; g.n++; liq.set(r.token, g);
+      }
+      for (const [tok, g] of liq) { const e = map.get(tok) || {}; map.set(tok, { ...e, liq: g.liq, liqUsdc: g.usdc, liqPools: g.n }); }
+    } catch { /* reserves table not there yet */ }
     return map;
   }
 }

@@ -276,6 +276,18 @@ export function swapsInTxs(txs: string[], token?: string) {
   return out;
 }
 
+// Real reserves of a token's pools (server/swap-reserves.ts) — the token page's pools card and its Liquidity stat
+export function poolReserves(token: string) {
+  const d = conn(); if (!d) return null;
+  try {
+    return (d.prepare(`SELECT p.key, p.kind, p.venue, r.usdc, r.tok, r.px, r.at FROM pools p JOIN reserves r ON r.pid = p.pid WHERE p.token = ? AND p.ok = 1`).all(token.toLowerCase()) as
+      { key: string; kind: string; venue: string; usdc: number; tok: number; px: number | null; at: number }[]).map((r) => {
+        const side = Math.max(0, r.tok) * (r.px && isFinite(r.px) ? r.px : 0), u = Math.max(0, r.usdc);
+        return { ...r, liq: u + Math.min(side, u * 3) };
+      });
+  } catch { return null; } // no reserves table yet
+}
+
 export function storeStats() {
   const d = conn(); if (!d) return { ok: false };
   try {
@@ -287,7 +299,7 @@ export function storeStats() {
 
 // ── Screener numbers from the store: computed by the indexer (server/swap-stats.ts → table tstats, every ~2 min, so the
 // 2-second scan never blocks this API) and read here in one quick query.
-export interface StoreTokenStats { volume24h: number; txns24: number; change1h: number | null; change24h: number | null; spark: number[]; price: number | null }
+export interface StoreTokenStats { volume24h?: number; txns24?: number; change1h?: number | null; change24h?: number | null; spark?: number[]; price?: number | null; liq?: number; liqUsdc?: number; liqPools?: number }
 let tsCache: { at: number; built: number; map: Map<string, StoreTokenStats> } | null = null;
 export function tokenStatsNow(): Map<string, StoreTokenStats> | null {
   const d = conn(); if (!d) return null;

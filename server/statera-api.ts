@@ -128,10 +128,13 @@ function rebuild() {
   const st = Swaps.tokenStatsNow();
   if (st) for (const t of tokens) {
     const x = st.get(t.address.toLowerCase()); if (!x) continue;
-    t.volume24h = x.volume24h; t.txns24 = x.txns24;
+    // liquidity = the token's pools' REAL reserves (swap-reserves.ts), never again the V4 "token side × price" estimate
+    if (x.liq != null && isFinite(x.liq)) t.liq = x.liq;
+    if (x.volume24h == null) continue; // a token measured for liquidity only (no trades in 7 days)
+    t.volume24h = x.volume24h; t.txns24 = x.txns24 ?? t.txns24;
     if (x.change1h != null && isFinite(x.change1h)) t.change1h = x.change1h;
     if (x.change24h != null && isFinite(x.change24h)) t.change24h = x.change24h;
-    if (x.spark.length >= 2) t.spark = x.spark;
+    if (x.spark && x.spark.length >= 2) t.spark = x.spark;
   }
   const ix = Board.buildIndex(tokens, PINNED);
   const home = {
@@ -248,8 +251,22 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     if (dm) {
       const a = dm[1].toLowerCase();
       tokenDetail(a, v.byAddr.get(a))
-        // lookalike = our own impersonator check (a ticker copied from a more-liquid real token), not arc-scan's flag
-        .then((d) => { const row = v.byAddr.get(a); send(req, res, 200, JSON.stringify({ ...d, lookalike: row ? Board.isDupTicker(v.ix, row) : null }), undefined, 15); })
+        // 10-21: pool liquidity from the swap store's REAL reserves (a V4 pool was valued by its token side only — a fresh launch
+        // with $0 USDC read its whole market cap as liquidity); pools the card didn't know are added
+        .then(async (d) => {
+          const pr = await swapCall<{ key: string; kind: string; venue: string; usdc: number; tok: number; px: number | null; liq: number }[] | null>('poolReserves', a).catch(() => null);
+          let pools = (d as any).ocPools as any[] | null;
+          if (pr && pr.length && Array.isArray(pools)) {
+            type PR = { key: string; kind: string; venue: string; usdc: number; tok: number; px: number | null; liq: number };
+            const byKey = new Map<string, PR>(pr.map((r: PR) => [r.key.toLowerCase(), r] as [string, PR]));
+            pools = pools.map((p) => { const r = byKey.get(String(p.pool).toLowerCase()); if (!r) return p; byKey.delete(String(p.pool).toLowerCase());
+              return { ...p, liquidityUsdc: r.liq, usdcReserve: r.usdc, tokenReserve: r.tok }; });
+            for (const r of byKey.values()) if (r.liq >= 100) pools.push({ pool: r.key, version: r.kind === 'V4' ? 'V4' : r.kind === 'V3' ? 'V3' : r.venue, feeTier: null, quote: 'USDC', liquidityUsdc: r.liq, price: r.px, tokenReserve: r.tok, usdcReserve: r.usdc });
+            pools.sort((x, y) => (y.liquidityUsdc || 0) - (x.liquidityUsdc || 0));
+          }
+          const row = v.byAddr.get(a);
+          send(req, res, 200, JSON.stringify({ ...d, ...(pools ? { ocPools: pools } : {}), lookalike: row ? Board.isDupTicker(v.ix, row) : null }), undefined, 15);
+        })
         .catch((e) => send(req, res, 502, JSON.stringify({ error: 'detail failed: ' + (e as Error).message }), undefined, 0));
       return;
     }

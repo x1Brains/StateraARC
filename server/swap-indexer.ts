@@ -15,11 +15,13 @@
 import { openSwapDb, metaGet, metaSet, txToBlob, addrToBlob, USDC, START_BLOCK } from './swap-db.ts';
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
 import { buildTokenStats } from './swap-stats.ts';
+import { initReserveTables, refreshReserves } from './swap-reserves.ts';
 
 const T_V3_SWAP = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 const T_V2_SWAP = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822';
 const T_V4_SWAP = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f';
 const T_V4_INIT = '0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438';
+const T_V4_MODIFY = '0xf208f4912782fd25c7f114ca3723a2d5dd6f3bcc3ac8db5af63baa85f711d5ec'; // ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)
 const PM_V4 = '0x8366a39cc670b4001a1121b8f6a443a643e40951';
 const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
 const V3_FACTORIES: Record<string, string> = { '0xf0db7b58379503491d857db50ac9ece64c653918': 'V3' };
@@ -101,6 +103,7 @@ const intOf = (r: string) => { if (!r || r.length < 66) return null; let v = Big
 
 // ── DB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const db = openSwapDb(false);
+initReserveTables(db); // reserves + V4 tick profiles (server/swap-reserves.ts) — before the v4init insert below is prepared
 type PoolRow = { pid: number; key: string; kind: string; token: string | null; usdc0: number; dec: number; ok: number };
 // ⛔ 10-20: these were loaded WHOLE into memory at start (every pool ever seen + 264k V4 Initialize rows, mostly decoys) —
 // ~600 MB, OOM-killed under the VPS unit's 300 MB cap. Now: read from SQLite on demand behind a bounded LRU (misses cached too).
@@ -124,7 +127,7 @@ const v4 = new DbMap<{ c0: string; c1: string }>((k) => v4Q.get(k) as { c0: stri
 let v4Seen = 0;
 const decCache = new Map<string, number | null>();
 const insPool = db.prepare('INSERT INTO pools(key,kind,venue,token,usdc0,dec,ok,why,at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(key) DO NOTHING');
-const insInit = db.prepare('INSERT OR IGNORE INTO v4init(pool,c0,c1,fee,ts,hooks,blk) VALUES(?,?,?,?,?,?,?)');
+const insInit = db.prepare('INSERT OR IGNORE INTO v4init(pool,c0,c1,fee,ts,hooks,blk,spacing) VALUES(?,?,?,?,?,?,?,?)');
 const insSwap = db.prepare('INSERT OR IGNORE INTO swaps(blk,li,pid,ts,side,price,usd,amt,tx) VALUES(?,?,?,?,?,?,?,?,?)');
 const minuteRows = db.prepare('SELECT price,usd FROM swaps WHERE pid=? AND ts>=? AND ts<? ORDER BY blk,li');
 const upC1m = db.prepare('INSERT INTO c1m(pid,t,o,h,l,c,v,n) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(pid,t) DO UPDATE SET o=excluded.o,h=excluded.h,l=excluded.l,c=excluded.c,v=excluded.v,n=excluded.n');
@@ -185,7 +188,7 @@ function storeInits(logs: any[]) {
     if ((l.topics?.[0] || '').toLowerCase() !== T_V4_INIT || (l.address || '').toLowerCase() !== PM_V4) continue;
     const id = l.topics[1].toLowerCase(), c0 = ('0x' + l.topics[2].slice(26)).toLowerCase(), c1 = ('0x' + l.topics[3].slice(26)).toLowerCase();
     const d = l.data.slice(2);
-    insInit.run(id, c0, c1, Number(word(d, 0)), Number(BigInt(l.blockTimestamp || '0x0')), '0x' + d.slice(64 * 2 + 24, 64 * 3), Number(BigInt(l.blockNumber)));
+    insInit.run(id, c0, c1, Number(word(d, 0)), Number(BigInt(l.blockTimestamp || '0x0')), '0x' + d.slice(64 * 2 + 24, 64 * 3), Number(BigInt(l.blockNumber)), Number(sword(d, 1)));
     v4.set(id, { c0, c1 }); v4Seen++;
   }
 }
@@ -216,7 +219,7 @@ function decode(l: any, p: PoolRow): { side: number; price: number; usd: number;
 }
 
 const SWAP_FILTER = { topics: [[T_V3_SWAP, T_V2_SWAP, T_V4_SWAP]] };
-const LIVE_FILTER = { topics: [[T_V3_SWAP, T_V2_SWAP, T_V4_SWAP, T_V4_INIT]] };
+const LIVE_FILTER = { topics: [[T_V3_SWAP, T_V2_SWAP, T_V4_SWAP, T_V4_INIT, T_V4_MODIFY]] };
 export const stats = { stored: 0, skipped: 0, calls: 0 };
 
 // Fetch + store one block range (logs already sorted by the node). Returns how many logs came back.
@@ -231,7 +234,9 @@ function countDay(l: any, stored: boolean) {
 }
 async function ingest(logs: any[], fromLive = false): Promise<number> {
   storeInits(logs);
-  const swapLogs = logs.filter((l) => l.topics?.[0] && l.topics[0].toLowerCase() !== T_V4_INIT);
+  // V4 positions changed → that pool's tick profile is re-read (reserves); swaps below mark their pools for a reserves refresh
+  for (const l of logs) if ((l.topics?.[0] || '').toLowerCase() === T_V4_MODIFY && (l.address || '').toLowerCase() === PM_V4) { const id = l.topics[1].toLowerCase(); profileDirty.add(id); const p = poolByKey.get(id); if (p?.ok) reserveDirty.add(p.pid); }
+  const swapLogs = logs.filter((l) => l.topics?.[0] && l.topics[0].toLowerCase() !== T_V4_INIT && l.topics[0].toLowerCase() !== T_V4_MODIFY);
   const kinds = new Map<string, 'v3' | 'v2'>(), addrs: string[] = [], ids: string[] = [];
   for (const l of swapLogs) {
     const t = l.topics[0].toLowerCase(), a = l.address.toLowerCase();
@@ -252,7 +257,7 @@ async function ingest(logs: any[], fromLive = false): Promise<number> {
       const ts = Number(BigInt(l.blockTimestamp));
       const res = insSwap.run(Number(BigInt(l.blockNumber)), Number(BigInt(l.logIndex)), p.pid, ts, r.side, r.price, r.usd, r.amt, txToBlob(l.transactionHash));
       if (res.changes) { stats.stored++; touched.add(p.pid + ':' + Math.floor(ts / 60) * 60); if (fromLive) makerQueue.set(l.transactionHash.toLowerCase(), 0); }
-      if (fromLive && res.changes) countDay(l, true);
+      if (fromLive && res.changes) { countDay(l, true); reserveDirty.add(p.pid); }
     }
     for (const k of touched) {
       const [pid, t] = k.split(':').map(Number);
@@ -363,6 +368,30 @@ async function resolveMakers() {
 }
 async function makersLoop() { for (;;) { if (makerQueue.size) await resolveMakers().catch(() => {}); await sleep(15_000); } }
 
+// ── real pool reserves (liquidity): pools that traded / changed positions since the last pass, plus a backlog of the rest ──
+const reserveDirty = new Set<number>(), profileDirty = new Set<string>();
+const reserveDeps = { mc: multicall, log, logsAt: async (filter: Record<string, unknown>, b: number) => { const r = await rpc(HEAD_RPCS, 'eth_getLogs', [{ ...filter, fromBlock: hex(b), toBlock: hex(b) }]).catch(() => null); return Array.isArray(r) ? r : []; } };
+const backlogQ = db.prepare(`SELECT p.pid FROM pools p LEFT JOIN reserves r ON r.pid = p.pid WHERE p.ok = 1 AND r.pid IS NULL
+  AND EXISTS (SELECT 1 FROM c1m c WHERE c.pid = p.pid AND c.t >= ?) LIMIT 400`);
+const triedAt = new Map<number, number>(); // a pool that could not be measured (no spacing / unreadable) waits an hour
+async function reservesLoop() {
+  for (;;) {
+    try {
+      const pids = [...reserveDirty].slice(0, 400); pids.forEach((p) => reserveDirty.delete(p));
+      const prof = new Set(profileDirty); profileDirty.clear();
+      // backlog: pools active in the last 30 days that have never been measured (first pass after deploy, then new pools)
+      const now = Date.now();
+      const back = (backlogQ.all(Math.floor(now / 1000) - 30 * 86400) as { pid: number }[]).map((r) => r.pid)
+        .filter((p) => !pids.includes(p) && now - (triedAt.get(p) || 0) > 3600_000).slice(0, 40);
+      back.forEach((p) => triedAt.set(p, now));
+      if (triedAt.size > 50_000) triedAt.clear();
+      const n = await refreshReserves(db, reserveDeps, [...pids, ...back], prof);
+      if (back.length) log('reserves: measured', n, 'pools (backlog', back.length + ')');
+    } catch (e) { log('reserves error:', (e as Error).message); }
+    await sleep(60_000);
+  }
+}
+
 // screener numbers for statera-api (table tstats), every ~2 min
 async function statsLoop() {
   for (;;) {
@@ -385,7 +414,20 @@ async function main() {
   if (metaGet(db, 'init_to') == null) metaSet(db, 'init_to', metaGet(db, 'live')!);
   await initPrepass(Number(metaGet(db, 'init_to')));
   // the pre-pass covered Initialize up to `head`; the live loop's filter includes Initialize from here on
-  if (!NO_LIVE) { live(); makersLoop(); setTimeout(statsLoop, 20_000); }
+  // after an imported reserves export (scripts/reserves-backfill.ts --import): V4 positions changed between that export and now
+  // are marked for a profile re-read (the live follower only sees ModifyLiquidity from this run on)
+  const pf = Number(metaGet(db, 'prof_from') || 0), ps = Number(metaGet(db, 'prof_scanned') || 0);
+  if (pf && ps < pf) {
+    try {
+      const to = Number(metaGet(db, 'live'));
+      for (let f = pf; f <= to; f += MAX_RANGE) {
+        const lg = await getLogs({ address: PM_V4, topics: [T_V4_MODIFY] }, f, Math.min(to, f + MAX_RANGE - 1));
+        for (const l of lg) { const id = l.topics[1].toLowerCase(); profileDirty.add(id); const p = poolByKey.get(id); if (p?.ok) reserveDirty.add(p.pid); }
+      }
+      metaSet(db, 'prof_scanned', pf); log('profiles: catch-up marked', profileDirty.size, 'V4 pools since block', pf);
+    } catch (e) { log('profiles catch-up failed:', (e as Error).message); }
+  }
+  if (!NO_LIVE) { live(); makersLoop(); setTimeout(statsLoop, 20_000); setTimeout(reservesLoop, 30_000); }
   await backfill();
   setInterval(() => metaSet(db, 'unknown_factories', JSON.stringify([...unknownFactories])), 600_000).unref();
 }
