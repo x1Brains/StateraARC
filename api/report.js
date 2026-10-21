@@ -71,8 +71,10 @@ const takeaways = (c, l, w) => {
   return out;
 };
 
-function tall(c, l, w, st, logos) {
-  const W = 1200, H = 1420, P = 56, IW = W - 2 * P; let s = '', y;
+function tall(c, l, w, st, logos, act) {
+  // 10-21: + ARC ACTIVITY · 24H (the Network page's new section) → 1420 + 316
+  const AH = act ? 316 : 0;
+  const W = 1200, H = 1420 + AH, P = 56, IW = W - 2 * P; let s = '', y;
   // ── header (+ the SNAPSHOT stamp: date, time to the second, block)
   s += T(P, 70, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"');
   s += T(P, 128, 'Arc Network Report', 54) + stampPill(W - P, 40, st, c ? `at block ${num(c.head)}` : '');
@@ -133,8 +135,26 @@ function tall(c, l, w, st, logos) {
       s += bar(lx0 + 22, yy + 12, hw - 44, 10, [[u, u >= 0.9 ? C.red : C.gold]]); });
     if (!mOk) s += T(lx0 + 22, y + 280, 'Morpho: still counting its markets', 14, C.dim);
   }
+  // ── what the chain is doing, 24 h (server/activity.ts): USDC issued / moved, transactions, wallets, top protocols
+  if (act) {
+    y = 1090; const x = act.h24 || act.h1, live = x.liveFrom && x.liveFrom > (act.now - 86400) + 120;
+    s += panel(P, y, IW, AH - 16) + T(P + 24, y + 42, 'ARC ACTIVITY · 24H', 20, C.white, 'letter-spacing="2"')
+      + T(W - P - 24, y + 42, 'counted from every block', 15, C.gray, 'text-anchor="end"');
+    const kw = (IW - 48 - 4 * 10) / 5, since = live ? `since ${new Date(x.liveFrom * 1000).toUTCString().slice(17, 22)} UTC` : 'last 24 hours';
+    [[`${x.net >= 0 ? '+' : '-'}${usd(Math.abs(x.net))}`, 'USDC NET ISSUED', `${usd(x.minted)} minted`, x.net >= 0 ? C.green : C.red],
+     [usd(x.moved), 'USDC MOVED', 'all USDC transfers', C.white], [num(x.txs), 'TRANSACTIONS', since, C.white],
+     [num(x.active), 'ACTIVE WALLETS', since, C.white], [num(x.newWallets), 'NEW WALLETS', live ? since : 'first-ever transaction', C.white]]
+      .forEach(([v, k, dsc, col], i) => { const xx = P + 24 + i * (kw + 10);
+        s += `<rect x="${xx}" y="${y + 60}" width="${kw}" height="92" rx="12" fill="${C.tile}" stroke="${C.line}"/>` + T(xx + 14, y + 98, esc(v), 26, col) + T(xx + 14, y + 122, k, 12, C.gold, 'letter-spacing="2"') + T(xx + 14, y + 141, esc(dsc), 13, C.dim); });
+    const names = Object.fromEntries((act.protocols || []).map((p) => [p.id, p.name]));
+    const top = Object.entries(x.protocols || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 8), mx = top.length ? top[0][1] : 1, cw2 = (IW - 48 - 20) / 2;
+    top.forEach(([id, n], i) => { const xx = P + 24 + (i % 2) * (cw2 + 20), yy = y + 186 + Math.floor(i / 2) * 28;
+      const nm = names[id] || id, lab = nm.length > 24 ? nm.slice(0, 23).trimEnd() + '…' : nm;
+      s += T(xx, yy, esc(lab), 15, C.white) + bar(xx + 250, yy - 10, cw2 - 330, 8, [[n / mx, C.fire]]) + T(xx + cw2, yy, `${num(n)} tx`, 15, C.gray, 'text-anchor="end"'); });
+    if (!top.length) s += T(P + 24, y + 200, 'Protocol activity is still being counted', 16, C.dim);
+  }
   // ── validators (logo grid)
-  y = 1090; s += panel(P, y, IW, 214) + T(P + 24, y + 42, 'WHO RUNS THE CHAIN', 20, C.white, 'letter-spacing="2"');
+  y = 1090 + AH; s += panel(P, y, IW, 214) + T(P + 24, y + 42, 'WHO RUNS THE CHAIN', 20, C.white, 'letter-spacing="2"');
   s += T(W - P - 24, y + 42, c ? `${c.validatorCount} block producers on chain · equal turns` : '', 15, C.gray, 'text-anchor="end"');
   const cw = (IW - 48 - 5 * 10) / 6;
   VAL_LIST.forEach((v, i) => { const x = P + 24 + (i % 6) * (cw + 10), yy = y + 64 + Math.floor(i / 6) * 66;
@@ -225,9 +245,10 @@ function candleChart(x, y, w, h, cs, lineCol = C.fire) {
   return out;
 }
 
-function tokenTall(t, d, cs, tf, logo, st, addr, acc) {
+function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}) {
   // 10-07: Biggest trades made it taller (1500 → 1720); drawn 1376 wide so it stays 4:5 and is scaled to 1200×1500 on render
-  const W = 1376, H = 1720, P = 56, IW = W - 2 * P; let s = '', y;
+  // 10-21 (owner: "the snapshots … have the new sections in there"): + Money flow 24h and Top traders / price since launch → 1996
+  const W = 1376, H = 1996, P = 56, IW = W - 2 * P; let s = '', y;
   const day = d?.dayStats || null, sym = esc(t?.symbol || 'TOKEN');
   // ── header: kicker + stamp, logo, name, price
   s += T(P, 70, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"') + T(P + 290, 70, 'TOKEN SNAPSHOT', 18, C.gray, 'letter-spacing="3"');
@@ -307,6 +328,37 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc) {
         + T(x0 + 350, yy, esc(x.trader ? short(x.trader) : ''), 15, C.gray) + T(x0 + hw - 22, yy, x.time ? hhmm(x.time) : '', 15, C.gray, 'text-anchor="end"'); });
     if (!list.length) s += T(x0 + 22, y + 92, `No ${k} in the last 24 hours`, 16, C.dim);
   });
+  // ── money flow 24h + top traders (or the price since launch while wallets are still being matched) — 10-21
+  y = 1598; const mh2 = 250, fw = (ex.flow?.windows || []).find((q) => q.window === '24h');
+  s += panel(P, y, hw, mh2) + T(P + 22, y + 42, 'MONEY FLOW · 24H', 20, C.white, 'letter-spacing="2"');
+  if (fw && (fw.buys || fw.sells)) {
+    const tot = fw.buyUsd + fw.sellUsd || 1, up = fw.net >= 0;
+    s += T(P + 22, y + 94, `${up ? '+' : '-'}${usd(Math.abs(fw.net))}`, 36, up ? C.green : C.red) + T(P + 22, y + 118, `net ${up ? 'inflow' : 'outflow'}`, 15, C.gray);
+    s += T(P + hw - 22, y + 94, usd(fw.buyUsd), 22, C.green, 'text-anchor="end"') + T(P + hw - 22, y + 118, `bought · sold ${usd(fw.sellUsd)}`, 15, C.gray, 'text-anchor="end"');
+    s += bar(P + 22, y + 134, hw - 44, 12, [[fw.buyUsd / tot, C.green], [fw.sellUsd / tot, C.red]]);
+    [['BUYS', num(fw.buys)], ['SELLS', num(fw.sells)], ['BIGGEST BUY', usd(fw.biggestBuy)], ['BIGGEST SELL', usd(fw.biggestSell)]].forEach(([k, v], i) => {
+      const x = P + 22 + i * ((hw - 44) / 4); s += T(x, y + 190, k, 12, C.gold, 'letter-spacing="2"') + T(x, y + 222, esc(v), 22); });
+  } else s += T(P + 22, y + 100, 'No trades in the last 24 hours', 18, C.dim);
+  s += panel(rx0, y, hw, mh2);
+  const tt = ex.traders, ttOk = tt && tt.coverage != null && tt.coverage >= 0.5 && (tt.rows || []).length;
+  if (ttOk) {
+    s += T(rx0 + 22, y + 42, 'TOP TRADERS · BY PROFIT', 20, C.white, 'letter-spacing="2"') + T(rx0 + hw - 22, y + 42, `${num(tt.traders)} wallets`, 14, C.dim, 'text-anchor="end"');
+    tt.rows.slice(0, 5).forEach((r, i) => { const yy = y + 84 + i * 34, up = r.pnl >= 0;
+      s += T(rx0 + 22, yy, `${i + 1}`, 15, C.dim) + T(rx0 + 48, yy, esc(short(r.wallet)), 16) + T(rx0 + 240, yy, `bought ${usd(r.bought)}`, 15, C.gray)
+        + T(rx0 + hw - 22, yy, `${up ? '+' : '-'}${usd(Math.abs(r.pnl))}`, 18, up ? C.green : C.red, 'text-anchor="end"'); });
+  } else {
+    // price since the token's first trade (daily closes from the swap store) — always available, so the panel is never empty
+    const ds = (ex.daily?.candles || []).filter((k) => k && k.close > 0);
+    s += T(rx0 + 22, y + 42, 'PRICE SINCE LAUNCH', 20, C.white, 'letter-spacing="2"');
+    if (ds.length >= 2) {
+      const f0 = ds[0].close, fl = ds[ds.length - 1].close, ch = ((fl - f0) / f0) * 100, hiK = ds.reduce((a, k) => (k.high > a.high ? k : a)), lo = Math.min(...ds.map((k) => k.low));
+      s += T(rx0 + hw - 22, y + 42, `${ch >= 0 ? '+' : ''}${ch.toFixed(ch >= 100 || ch <= -100 ? 0 : 1)}% since ${new Date(ds[0].time * 1000).toUTCString().slice(5, 11)}`, 16, ch >= 0 ? C.green : C.red, 'text-anchor="end"');
+      const gx = rx0 + 22, gy = y + 66, gw = hw - 44, gh = 120, mx = Math.max(...ds.map((k) => k.close)), mn = Math.min(...ds.map((k) => k.close)), rg = mx - mn || mx || 1;
+      const pts = ds.map((k, i) => `${(gx + (i / (ds.length - 1)) * gw).toFixed(1)},${(gy + gh - ((k.close - mn) / rg) * gh).toFixed(1)}`);
+      s += `<polyline points="${pts.join(' ')}" fill="none" stroke="${acc ? acc.line : C.fire}" stroke-width="2.5"/>`;
+      s += T(rx0 + 22, y + 220, `ATH ${priceInner(hiK.high, 15)} (${new Date(hiK.time * 1000).toUTCString().slice(5, 11)})`, 15, C.gray) + T(rx0 + hw - 22, y + 220, `Low ${priceInner(lo, 15)} · ${ds.length} days`, 15, C.gray, 'text-anchor="end"');
+    } else s += T(rx0 + 22, y + 100, 'Not enough history yet', 18, C.dim);
+  }
   // ── footer
   s += `<rect x="0" y="${H - 130}" width="${W}" height="130" fill="url(#foot)"/>`;
   s += T(P, H - 56, `stateraarc.com/token/${addr.slice(0, 8)}…${addr.slice(-4)}`, 28, C.fire) + T(W - P, H - 56, 'Live on-chain data · not financial advice', 18, C.gray, 'text-anchor="end"');
@@ -395,29 +447,33 @@ export default async function handler(req, res) {
     const tokenAddr = (u.searchParams.get('token') || '').toLowerCase();
     if (tokenAddr) {
       if (!/^0x[0-9a-f]{40}$/.test(tokenAddr)) throw new Error('bad token address');
-      const [row, d, c15, c5, logo] = await Promise.all([within(v2(`token/${tokenAddr}`), 5000), within(v2(`token/${tokenAddr}/detail`), 9000),
-        within(v2(`token/${tokenAddr}/candles?sec=900&look=259200`), 6000), within(v2(`token/${tokenAddr}/candles?sec=300&look=86400`), 6000), within(tokenLogo(tokenAddr), 3000, ''), ensureWasm()]);
+      const [row, d, c15, c5, logo, , b15, flow, traders, daily] = await Promise.all([within(v2(`token/${tokenAddr}`), 5000), within(v2(`token/${tokenAddr}/detail`), 9000),
+        within(v2(`token/${tokenAddr}/candles?sec=900&look=259200`), 6000), within(v2(`token/${tokenAddr}/candles?sec=300&look=86400`), 6000), within(tokenLogo(tokenAddr), 3000, ''), ensureWasm(),
+        // the swap store (10-21): real 15m candles, money flow, top traders, daily closes since launch — each optional
+        within(v2(`token/${tokenAddr}/bars?res=15m&limit=288`), 6000), within(v2(`token/${tokenAddr}/flow`), 6000),
+        within(v2(`token/${tokenAddr}/traders?limit=5`), 7000), within(v2(`token/${tokenAddr}/bars?res=1d&limit=400`), 6000)]);
       // token names/symbols are the creator's own text — shown as they are, emojis included (owner 09-29: the no-emoji
       // rule is for OUR wording, not token data)
       const t = row?.token ?? null;
       if (!t) throw new Error('token not found');
       // 15-minute candles over 3 days; a token younger than ~6 h gets 5-minute candles over 24 h instead
-      const long = c15?.candles || [], shortC = c5?.candles || [];
+      const long = (b15?.candles || []).length >= 24 ? b15.candles : c15?.candles || [], shortC = c5?.candles || [];
       const [cs, tf] = long.length >= 24 ? [long.slice(-160), '15m candles · last 3 days'] : [shortC.slice(-160), '5m candles · last 24 hours'];
       const now = new Date(), st = stampOf(now);
       // the card's colour comes from the token's logo; a grey/black/white or missing logo gets a quiet neutral
       const acc = accentOf(logoAccent(logo)) || { line: '#9aa3b2', glow: '#5b6475' };
-      const png = new Resvg(tokenTall(t, d, cs, tf, logo, st, tokenAddr, acc), { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 1200 } }).render().asPng();
+      const png = new Resvg(tokenTall(t, d, cs, tf, logo, st, tokenAddr, acc, { flow, traders, daily }), { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 1200 } }).render().asPng();
       res.setHeader('content-type', 'image/png');
       const symSafe = String(t.symbol || 'token').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) || 'token';
       if (download) { res.setHeader('content-disposition', `attachment; filename="statera-${symSafe}-snapshot-${st.file}-UTC.png"`); res.setHeader('cache-control', 'no-store'); }
       else res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
       return res.status(200).send(Buffer.from(png));
     }
-    const [c, l, w, logos] = await Promise.all([within(v2('chain'), 4500), within(v2('lending'), 4500), within(v2('where'), 4500), isWide ? {} : within(validatorLogos(origin), 3000, {}), ensureWasm()]);
+    const [c, l, w, logos, , act] = await Promise.all([within(v2('chain'), 4500), within(v2('lending'), 4500), within(v2('where'), 4500), isWide ? {} : within(validatorLogos(origin), 3000, {}), ensureWasm(),
+      isWide ? null : within(v2('activity'), 4500)]);
     if (!c) throw new Error('no chain data');
     const now = new Date(), when = now.toISOString().replace('T', ' ').slice(0, 16) + ' UTC', st = stampOf(now);
-    const png = new Resvg(isWide ? wide(c, l, w, when) : tall(c, l, w, st, logos || {}), {
+    const png = new Resvg(isWide ? wide(c, l, w, when) : tall(c, l, w, st, logos || {}, act && act.h24 ? act : null), {
       font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false },
       fitTo: { mode: 'width', value: 1200 },
     }).render().asPng();
