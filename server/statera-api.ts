@@ -14,6 +14,7 @@
 //   /v2/tokens?addrs=a,b,…            rows for a set of addresses (portfolio pricing)
 //   /v2/swap-tokens                   the swap picker list
 //   /v2/chain                         Arc network: block time, TPS, fees, validators (block producers), CCTP flows, supplies
+//   /v2/activity                      what the chain is doing: block tape, USDC issued/burned/moved, active + new wallets, per-protocol activity
 //   /v2/lending                       Morpho Blue markets + Aave V4 Hub assets (supplied / borrowed), read on chain
 //   /v2/where                         where USDC / EURC / cirBTC supply sits: lending, DEX pools, Gateway, contracts, wallets
 //   /v2/list                          the whole live list (v1-compatible shape: { generatedAt, tokens })
@@ -34,6 +35,7 @@ import { cacheStats, tokenDetail, tokenTrades, prewarm, detailStats, tokenCandle
 import { pollChain, chainSummary, chainStats, backfillStep, flowsBackfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
 import * as Swaps from './swap-store.ts';
+import { activitySummary, activityStats, saveActivity, loadActivity } from './activity.ts';
 import { swapCall, poolStats } from './swap-worker.ts';
 import { refreshWhere, whereSummary, whereStats } from './where.ts';
 
@@ -195,12 +197,13 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     const u = new URL(req.url || '/', 'http://x');
     const path = u.pathname.replace(/^\/v2/, '') || '/';
     if (path === '/health') {
-      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, mem: (() => { const m = process.memoryUsage(); return { rssMb: Math.round(m.rss / 1048576), heapMb: Math.round(m.heapUsed / 1048576), extMb: Math.round((m.external + m.arrayBuffers) / 1048576) }; })(), caches: cacheStats(), ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, wallets: { ...walletStats, relay: relayStats, lastError: walletLastError }, chain: chainStats, lending: lendingStats, where: whereStats, swaps: { ...Swaps.storeStats(), workers: poolStats } }), undefined, 0); return;
+      send(req, res, view ? 200 : 503, JSON.stringify({ ok: !!view, tokens: tokens.length, asOf, generatedAt, snapshotAgeS: snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : null, mem: (() => { const m = process.memoryUsage(); return { rssMb: Math.round(m.rss / 1048576), heapMb: Math.round(m.heapUsed / 1048576), extMb: Math.round((m.external + m.arrayBuffers) / 1048576) }; })(), caches: cacheStats(), ...stats, detail: { ...detailStats, ...warmStats }, holderIndex: indexStats, holderBatch: batchStats, wallets: { ...walletStats, relay: relayStats, lastError: walletLastError }, chain: chainStats, lending: lendingStats, where: whereStats, activity: activityStats, swaps: { ...Swaps.storeStats(), workers: poolStats } }), undefined, 0); return;
     }
     if (!view) { send(req, res, 503, JSON.stringify({ error: 'warming up' }), undefined, 0); return; }
     const v = view;
     if (path === '/home') { send(req, res, 200, v.homeJson, v.homeGz); return; }
     if (path === '/where') { const w = whereSummary(); send(req, res, w ? 200 : 503, JSON.stringify(w ?? { error: 'warming up' }), undefined, w ? 60 : 0); return; }
+    if (path === '/activity') { const a = activitySummary(); send(req, res, a ? 200 : 503, JSON.stringify(a ?? { error: 'warming up' }), undefined, a ? 5 : 0); return; }
     if (path === '/lending') { const l = lendingSummary(); send(req, res, l ? 200 : 503, JSON.stringify(l ?? { error: 'warming up' }), undefined, l ? 30 : 0); return; }
     if (path === '/chain') {
       const c = chainSummary();
@@ -405,6 +408,7 @@ setInterval(() => { if (!visitsDirty) return; visitsDirty = false; try { fs.writ
 // The Network page's chain follower: every block, one poll at a time, every 15 s.
 let chaining = false;
 const tickChain = async () => { if (chaining) return; chaining = true; try { await pollChain(rpc, rpcBatch); } catch (e) { chainStats.errors++; console.error('[chain]', (e as Error).message); } finally { chaining = false; } };
+loadActivity(); setInterval(saveActivity, 60_000);
 loadChain(); tickChain(); setInterval(tickChain, 15_000);
 // History in the background, paced under the public RPC burst limit; state saved every minute (survives deploys).
 const backfill = async () => { try { if (await backfillStep(rpcBatch)) { setTimeout(backfill, 2500); return; } } catch { chainStats.errors++; setTimeout(backfill, 10_000); return; } setTimeout(backfill, 30_000); };

@@ -6,6 +6,7 @@
 // institution runs which producer address — the page shows addresses, never guessed names.
 import fs from 'node:fs';
 import path from 'node:path';
+import { onBlocks, onLogs, activityStats } from './activity.ts';
 type Rpc = (method: string, params: unknown[]) => Promise<any>;
 
 const WINDOW_S = 6 * 3600;                 // rolling window kept in memory (6 h of blocks ≈ 43k small rows)
@@ -45,10 +46,13 @@ export const chainStats = { polls: 0, blocksRead: 0, errors: 0, backfilled: fals
 const hex = (n: number) => '0x' + n.toString(16);
 const word = (data: string, i: number) => BigInt('0x' + (data.slice(2 + i * 64, 2 + (i + 1) * 64) || '0'));
 
-async function readBlocks(rpcBatch: (calls: [string, unknown[]][]) => Promise<any[]>, from: number, to: number) {
+// `live` (10-21): the head follower reads FULL blocks (tx senders + nonces feed server/activity.ts — active / new wallets); the
+// history backfill keeps reading light headers.
+async function readBlocks(rpcBatch: (calls: [string, unknown[]][]) => Promise<any[]>, from: number, to: number, live = false) {
   const calls: [string, unknown[]][] = [];
-  for (let n = from; n <= to; n++) calls.push(['eth_getBlockByNumber', [hex(n), false]]);
+  for (let n = from; n <= to; n++) calls.push(['eth_getBlockByNumber', [hex(n), live]]);
   const res = await rpcBatch(calls);
+  if (live) { try { onBlocks(res); } catch { /* activity is best-effort; the chain stats below must not depend on it */ } }
   for (const b of res) {
     if (!b || !b.number) continue;
     const n = parseInt(b.number, 16);
@@ -142,8 +146,15 @@ export async function pollChain(rpc: Rpc, rpcBatch: (calls: [string, unknown[]][
   // 20 blocks per batch; advance only past what was actually read, so a rate-limited batch is retried next poll
   // instead of aborting the whole poll with the window frozen (09-28 on the VPS: covered stuck at 2 min).
   let got = lastBlock;
-  try { for (let n = lastBlock + 1; n <= h; n += 20) { const to = Math.min(h, n + 19); await readBlocks(rpcBatch, n, to); got = to; } }
+  const from0 = lastBlock + 1;
+  try { for (let n = lastBlock + 1; n <= h; n += 20) { const to = Math.min(h, n + 19); await readBlocks(rpcBatch, n, to, true); got = to; } }
   catch { chainStats.errors++; }
+  // every log of the blocks just read (one unfiltered call, ~30 blocks ≈ a few hundred logs; RPCs cap answers at 2,000) →
+  // protocol activity + USDC mint/burn (server/activity.ts). A failed read only leaves a gap in those cards.
+  if (got >= from0 && got - from0 < 400) {
+    try { const logs = await rpc('eth_getLogs', [{ fromBlock: hex(from0), toBlock: hex(got) }]); if (Array.isArray(logs)) onLogs(logs); else activityStats.logErrors++; }
+    catch { activityStats.logErrors++; }
+  }
   // CCTP: the whole last hour in one call on start (≤ 9,000 blocks), then only what is new.
   if (!lastLogBlock || h - lastLogBlock > 8000) {
     const from = h - Math.round(BACKFILL_S / 0.5);

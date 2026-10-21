@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { usd, shareStamp } from '../lib/arc';
+import { NetworkActivity } from './NetworkActivity';
 import { v2Chain, v2Lending, v2Where, type V2Chain, type V2Lending, type V2Where } from '../lib/v2';
 import { IconArrowRight, IconExternal } from './icons';
 
@@ -108,6 +109,9 @@ export function Network() {
           <button type="button" className="nx-big nx-big-btn" onClick={() => openVals(true)} aria-label="Show the validators"><div className="v">{vals.length || '—'}</div><div className="t">Validators <span className="nx-big-go">see all <IconArrowRight className="arw" /></span></div><div className="d">The approved institutions that confirm every block, taking turns{even ? ' — each does an equal share' : ''}.</div></button>
         </div>
         <div className="nx-note nx-tps-note">Why other chains show huge "TPS" numbers: those are usually <b>top speeds from stress tests</b> — the most a chain can handle in a lab. The number above is <b>live usage</b>, counted from every block on Arc. Most chains' everyday traffic is far below their advertised maximum.</div>
+
+        {/* 1b · What the chain is doing — block tape, USDC issued/moved, wallets, protocols (10-21, server/activity.ts) */}
+        <NetworkActivity />
 
         {/* 2 · Money on Arc */}
         <div className="nx-card">
