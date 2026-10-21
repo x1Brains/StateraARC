@@ -28,6 +28,8 @@ function Bars({ v, from = 0, signed = false, h = 34 }: { v: number[]; from?: num
         const len = Math.max(x === 0 ? 0 : 1, (Math.abs(x) / max) * (signed ? mid - 1 : h - 1));
         const last = i === bars.length - 1;
         const fill = signed ? (x >= 0 ? (last ? '#5ad18a' : 'rgba(90,209,138,.45)') : (last ? '#ff5a5a' : 'rgba(255,90,90,.45)')) : last ? '#ff7a1a' : 'rgba(255,255,255,.22)';
+        // an empty period draws a faint baseline tick — a zero, not a hole that reads as missing data
+        if (x === 0) return <rect key={i} x={i * (bw + gap)} y={mid - 1} width={bw} height="1" fill="rgba(255,255,255,.12)" />;
         return <rect key={i} x={i * (bw + gap)} y={signed && x < 0 ? mid : mid - len} width={bw} height={len} rx=".6" fill={fill} />;
       })}
     </svg>
@@ -64,6 +66,8 @@ export function NetworkActivity() {
       <div className="nx-head"><h3>Live blocks</h3><span className="nx-when">{head ? `block ${head.n.toLocaleString()} · ${new Date(head.ts * 1000).toUTCString().slice(17, 25)} UTC` : ''}</span></div>
       <p className="nx-sub">One bar per block, newest right · height = transactions · colour = what they did.</p>
       <div className="na-tape" role="img" aria-label="Recent blocks">
+        {/* always 180 slots — right after a restart there are only a few blocks, and they must not stretch into fat bars */}
+        {Array.from({ length: Math.max(0, 180 - a.tape.length) }, (_, i) => <div className="na-bar na-bar-empty" key={'e' + i} />)}
         {a.tape.map((b) => {
           const parts = Object.entries(b.p).sort((p, q) => q[1] - p[1]);
           const tagged = parts.reduce((s, [, n]) => s + n, 0), scale = b.txs > 0 ? Math.max(b.txs, tagged) : 1;

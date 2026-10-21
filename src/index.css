@@ -2479,3 +2479,4 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 #network .na-proto { padding: 8px 10px; }
 #network .na-proto-v { font-size: 15px; margin: 2px 0 0; }
 #network .na-proto .na-bars, #network .na-proto .na-bars-empty { height: 20px; }
+.na-bar.na-bar-empty { height: 1px !important; background: rgba(255,255,255,.06); }

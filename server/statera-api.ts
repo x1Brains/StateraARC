@@ -408,7 +408,7 @@ setInterval(() => { if (!visitsDirty) return; visitsDirty = false; try { fs.writ
 // The Network page's chain follower: every block, one poll at a time, every 15 s.
 let chaining = false;
 const tickChain = async () => { if (chaining) return; chaining = true; try { await pollChain(rpc, rpcBatch); } catch (e) { chainStats.errors++; console.error('[chain]', (e as Error).message); } finally { chaining = false; } };
-loadActivity(); setInterval(saveActivity, 60_000);
+loadActivity(); setInterval(saveActivity, 15_000);
 // the Network page's 24 h of protocol + USDC activity before the live counter started — one step (≤ 3 calls) every 1.5 s
 let actBf = false;
 setInterval(async () => {
@@ -450,7 +450,7 @@ const tickWhere = async () => { if (whereBusy || !view) return; whereBusy = true
   catch (e) { whereStats.errors++; console.error('[where]', (e as Error).message); } finally { whereBusy = false; } };
 setTimeout(tickWhere, 45_000); setInterval(tickWhere, 10 * 60_000);
 // one shutdown handler — the chain state and the token-page caches both saved before exit
-for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveChain(); saveCaches(); process.exit(0); });
+for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => { saveChain(); saveCaches(); saveActivity(); process.exit(0); });
 setInterval(() => { try { if (fs.statSync(SNAP).mtimeMs !== snapMtime) tickLoad(); } catch { /* keep serving the last good list */ } }, 5000);
 
 // 10-20: the swap store's screener numbers (see rebuild(); built by the indexer into table tstats) — the board picks them up every 2 min

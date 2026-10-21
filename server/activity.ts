@@ -74,7 +74,9 @@ export function onBlocks(blocks: any[]) {
   for (const b of blocks) {
     if (!b?.number || !Array.isArray(b.transactions)) continue;
     const n = parseInt(b.number, 16), ts = parseInt(b.timestamp, 16);
-    if (blockIndex.has(n)) continue;
+    // ⛔ 10-21: after a restart chain.ts can re-read blocks this module already counted (its own state is saved on a
+    // different clock) — a block at or below the last one counted is skipped, so nothing is counted twice
+    if (blockIndex.has(n) || n <= lastCounted) continue;
     const bk = bucketOf(ts);
     for (const tx of b.transactions) {
       if (!tx || typeof tx !== 'object') continue;
@@ -84,7 +86,7 @@ export function onBlocks(blocks: any[]) {
     }
     if (!liveFrom || n < liveFrom) { liveFrom = n; liveSinceTs = ts; }
     const tb: TapeBlock = { n, ts, txs: b.transactions.length, p: {} };
-    tape.push(tb); blockIndex.set(n, tb);
+    tape.push(tb); blockIndex.set(n, tb); newlyCounted.add(n); if (n > lastCounted) lastCounted = n;
     if (!since) since = ts;
     activityStats.blocks++;
   }
@@ -94,10 +96,13 @@ export function onBlocks(blocks: any[]) {
 /** Every log of the same blocks (unfiltered getLogs): protocols per tx, USDC mint / burn / moved. */
 export function onLogs(logs: any[]) {
   activityStats.logPolls++;
-  ingestLogs(logs);
+  // only the logs of blocks counted in THIS run's onBlocks (a re-read block's logs were counted before the restart)
+  ingestLogs(logs.filter((l) => newlyCounted.has(parseInt(l.blockNumber, 16))));
+  newlyCounted.clear();
   trimActivity();
 }
-let liveFrom = 0, liveSinceTs = 0; // first block the live follower fed — the 24 h backfill stops just below it
+let liveFrom = 0, liveSinceTs = 0, lastCounted = 0;
+const newlyCounted = new Set<number>(); // first block the live follower fed — the 24 h backfill stops just below it
 function ingestLogs(logs: any[]) {
   const seen = new Set<string>();
   for (const l of logs) {
@@ -201,14 +206,15 @@ export function activitySummary() {
 const FILE = process.env.ACTIVITY_STATE || '/root/statera-api-state/activity.json';
 export function saveActivity() {
   try {
-    const body = JSON.stringify({ v: 1, since, bf, bfFromTs, liveFrom, liveSinceTs, buckets: [...buckets.values()].map((b) => ({ ...b, act: [...b.act] })) });
+    const body = JSON.stringify({ v: 1, since, bf, bfFromTs, liveFrom, liveSinceTs, lastCounted, tape, buckets: [...buckets.values()].map((b) => ({ ...b, act: [...b.act] })) });
     fs.mkdirSync(path.dirname(FILE), { recursive: true }); fs.writeFileSync(FILE + '.tmp', body); fs.renameSync(FILE + '.tmp', FILE);
   } catch { /* next time */ }
 }
 export function loadActivity() {
   try {
     const j = JSON.parse(fs.readFileSync(FILE, 'utf8')); if (j?.v !== 1) return;
-    since = j.since || 0; if (j.bf) bf = j.bf; bfFromTs = j.bfFromTs || 0; liveFrom = j.liveFrom || 0; liveSinceTs = j.liveSinceTs || 0;
+    since = j.since || 0; if (j.bf) bf = j.bf; bfFromTs = j.bfFromTs || 0; liveFrom = j.liveFrom || 0; liveSinceTs = j.liveSinceTs || 0; lastCounted = j.lastCounted || 0;
+    for (const b of j.tape || []) { tape.push(b); blockIndex.set(b.n, b); } // the block strip survives a restart (it read 16 fat bars after each deploy)
     for (const b of j.buckets || []) buckets.set(b.t, { ...b, act: new Set(b.act || []) });
     trimActivity();
   } catch { /* fresh start */ }
