@@ -239,7 +239,7 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .dash-tabs > button.on { background: var(--line-soft); color: var(--white); }
 .dash-tabs .dash-all { margin-left: auto; color: var(--red-hi); display: inline-flex; align-items: center; gap: 4px; }
 .dash-table { padding: 5px 6px 8px; }
-.dash-row { display: grid; grid-template-columns: 28px minmax(0, 1.7fr) 96px 100px 62px 74px; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; cursor: pointer; transition: background .1s; }
+.dash-row { display: grid; grid-template-columns: 28px minmax(0, 1.7fr) 96px 92px 96px 62px 74px; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px; cursor: pointer; transition: background .1s; }
 .dash-row:not(.dash-h):hover { background: var(--line-soft); }
 .dash-h { cursor: default; padding: 8px 12px; font-family: var(--disp); font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--gray-3); }
 .dash-rank { font-family: var(--mono); font-size: 12px; color: var(--gray-3); }
@@ -252,8 +252,8 @@ html { scrollbar-width: thin; scrollbar-color: #2b2b31 transparent; }
 .dash-px { color: var(--white); }
 @media (max-width: 640px) {
   .dash-stats { gap: 12px; font-size: 11px; }
-  .dash-row { grid-template-columns: 22px minmax(0, 1.5fr) 84px 58px; }
-  .dash-liq, .dash-hld { display: none; } /* drop Liquidity + Holders on phone; keep Price + 24h */
+  .dash-row { grid-template-columns: 22px minmax(0, 1.5fr) 78px 70px 54px; }
+  .dash-liq, .dash-hld { display: none; } /* drop Liquidity + Holders on phone; keep Price + MCap + 24h */
 }
 
 /* ============ home landing (legacy preview cards) ============ */

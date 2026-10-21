@@ -719,7 +719,7 @@ function Dashboard({ tab, setTab, data, stats, onOpen, onAll, loading }: {
       <div className="dash-table">
         <div className="dash-row dash-h">
           <span className="dash-rank">#</span><span className="dash-tok">Token</span>
-          <span className="num">Price</span><span className="num dash-liq">Liquidity</span><span className="num">24h</span><span className="num dash-hld">Holders</span>
+          <span className="num">Price</span><span className="num dash-mc">MCap</span><span className="num dash-liq">Liquidity</span><span className="num">24h</span><span className="num dash-hld">Holders</span>
         </div>
         {loading && !items.length && <div className="hcard-empty">Loading…</div>}
         {!loading && !items.length && <div className="hcard-empty">Nothing here yet.</div>}
@@ -731,6 +731,7 @@ function Dashboard({ tab, setTab, data, stats, onOpen, onAll, loading }: {
               <span className="dash-id"><span className="dash-name">{t.name}</span><span className="dash-sym">{t.symbol}{t.launchpad ? ` · ${t.launchpad}` : ''}</span></span>
             </span>
             <span className="num dash-px">{tprice(t.price)}</span>
+            <span className="num dash-mc">{t.mcap != null ? usd(t.mcap) : '—'}</span>
             <span className="num dash-liq">{t.liq != null ? usd(t.liq) : '—'}</span>
             <span className={`num chg ${chgCls(t.change24h)}`}>{chgFmt(t.change24h)}</span>
             <span className="num dash-hld">{fmt(t.holders)}</span>
