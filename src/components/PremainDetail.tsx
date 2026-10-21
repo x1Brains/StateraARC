@@ -90,7 +90,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   // breathing S until its first chain data lands, then fades in whole — no panels jumping in one by one. Never longer
   // than 6.5 s: whatever has arrived by then is shown.
   const [loadTimedOut, setLoadTimedOut] = useState(false);
-  useEffect(() => { setLoadTimedOut(false); const t = setTimeout(() => setLoadTimedOut(true), 6500); return () => clearTimeout(t); }, [address]);
+  useEffect(() => { setLoadTimedOut(false); const t = setTimeout(() => setLoadTimedOut(true), 2500); return () => clearTimeout(t); }, [address]);
 
   // Warp (chain 5042) price/mcap + it backs the candlestick chart below.
   useEffect(() => {
@@ -488,7 +488,9 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   const chartScale = (warp?.price != null && warp.price > 0 && seed?.price != null && seed.price > 0)
     ? seed.price / warp.price : 1;
 
-  const pageLoaded = loadTimedOut || dayStats != null || ocPool != null || (swaps != null && swaps.length > 0);
+  // 10-21 owner: "make sure everything loads instantly on all the token pages" — a token we already list (seed: price, mcap,
+  // liquidity, volume from the board) paints AT ONCE; the chain panels fill in as they land. Only an unlisted token waits (≤ 2.5 s).
+  const pageLoaded = loadTimedOut || seed != null || dayStats != null || ocPool != null || (swaps != null && swaps.length > 0);
   return (
     <div className="wrap"><section className="section tdx-host">
       <button className="back" onClick={onBack}><IconArrowLeft className="i" /> Back to board</button>
@@ -496,7 +498,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
       {!pageLoaded && (
         <div className="tload" role="status" aria-live="polite">
           <img className="tload-s" src="/statera-mark-256.webp" alt="" />
-          <div className="tload-t">Loading {seed?.symbol ? `$${seed.symbol}` : 'token'}<span className="tload-dots"><i>.</i><i>.</i><i>.</i></span></div>
+          <div className="tload-t">Loading {sym !== '?' ? `$${sym}` : 'token'}<span className="tload-dots"><i>.</i><i>.</i><i>.</i></span></div>
           <div className="tload-sub">reading it live from Arc</div>
         </div>
       )}
