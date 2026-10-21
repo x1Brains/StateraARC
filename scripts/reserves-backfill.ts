@@ -6,6 +6,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { initReserveTables, refreshReserves } from '../server/swap-reserves.ts';
 import { encAggregate3, decAggregate3 } from './lib/multicall.mjs';
+import { keccak_256 } from '@noble/hashes/sha3';
 
 const args = process.argv.slice(2), SRC = process.env.SWAPS_DB!;
 if (args[0] === '--import') {
@@ -50,6 +51,23 @@ const iniQ = src.prepare('SELECT * FROM v4init WHERE pool = ?');
 out.exec('BEGIN');
 for (const p of want) { insP.run(p.pid, p.key, p.kind, p.venue, p.token, p.usdc0, p.dec, p.ok); if (p.kind === 'V4') { const i = iniQ.get(p.key) as any; if (i) insI.run(i.pool, i.c0, i.c1, i.fee, i.ts, i.hooks, i.blk); } }
 out.exec('COMMIT');
+// tick spacing WITHOUT chain reads: poolId = keccak256(abi.encode(currency0, currency1, fee, tickSpacing, hooks)) and v4init has all
+// but the spacing — try spacings until the hash is the poolId (archive Initialize reads were rate-limited; this is exact and local)
+{
+  const w = (h: string) => h.toLowerCase().replace('0x', '').padStart(64, '0'), i24 = (n: number) => BigInt.asUintN(256, BigInt(n)).toString(16).padStart(64, '0');
+  const need = out.prepare('SELECT pool, c0, c1, fee, hooks FROM v4init WHERE spacing IS NULL').all() as { pool: string; c0: string; c1: string; fee: number; hooks: string }[];
+  const set = out.prepare('UPDATE v4init SET spacing = ? WHERE pool = ?');
+  const COMMON = [1, 10, 60, 200, 100, 50, 99, 2, 5, 20, 30, 40, 80, 120, 150, 300, 400, 500, 1000, 2000, 4000, 8000, 16000];
+  let ok = 0;
+  for (const r of need) {
+    const head = w(r.c0) + w(r.c1) + i24(r.fee), tail = w(r.hooks);
+    const hit = (s: number) => '0x' + Buffer.from(keccak_256(Buffer.from(head + i24(s) + tail, 'hex'))).toString('hex') === r.pool;
+    let sp = COMMON.find(hit) ?? null;
+    if (sp == null) for (let s = 1; s <= 32767; s++) if (hit(s)) { sp = s; break; }
+    if (sp != null) { set.run(sp, r.pool); ok++; }
+  }
+  console.log('tick spacing recovered for', ok, 'of', need.length, 'V4 pools');
+}
 const done = new Set((out.prepare('SELECT pid FROM reserves').all() as { pid: number }[]).map((r) => r.pid));
 const todo = want.map((p) => p.pid).filter((p) => !done.has(p));
 console.log('pools', want.length, 'to do', todo.length, 'head', head);
