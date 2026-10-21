@@ -204,19 +204,18 @@ function tradersOf(token: string): { list: Trader[]; price: number | null; cover
   const pools = poolsOf(token); if (!pools.length) return { list: [], price: null, coverage: null };
   return cached('traders:' + token, 5 * 60_000, () => {
     const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(',');
-    const rows = !hasMakers(d) ? [] : d.prepare(`SELECT m.maker w, s.side, SUM(s.usd) usd, SUM(s.amt) amt, COUNT(*) n, MIN(s.ts) first, MAX(s.ts) last
-      FROM swaps s JOIN makers m ON m.tx = s.tx WHERE s.pid IN (${ph}) GROUP BY m.maker, s.side`).all(...pids) as { w: Uint8Array; side: number; usd: number; amt: number; n: number; first: number; last: number }[];
-    const all = (d.prepare(`SELECT COUNT(*) n FROM swaps WHERE pid IN (${ph})`).get(...pids) as { n: number }).n;
+    // running totals per wallet (trader_pos — built once by scripts/traders-build.ts, kept current by the indexer); the old
+    // GROUP BY over swaps ⨝ makers took > 60 s on a busy token once the 12.3M-row maker history was in
+    const pos = (() => { try { return d.prepare('SELECT maker, bought, sold, qb, qs, nb, ns, first, last FROM trader_pos WHERE token = ?').all(token.toLowerCase()) as
+      { maker: Uint8Array; bought: number; sold: number; qb: number; qs: number; nb: number; ns: number; first: number; last: number }[]; } catch { return []; } })();
+    const all = (d.prepare(`SELECT COALESCE(SUM(n), 0) n FROM c1m WHERE pid IN (${ph})`).get(...pids) as { n: number }).n;
     const price = lastPrice(d, pids);
     const by = new Map<string, Trader>();
     let known = 0;
-    for (const r of rows) {
-      known += r.n;
-      const k = blobToTx(r.w);
-      const t = by.get(k) || { wallet: k, bought: 0, sold: 0, qtyBought: 0, qtySold: 0, buys: 0, sells: 0, first: r.first, last: r.last, avgBuy: null, held: 0, realized: 0, unrealized: 0, pnl: 0, roi: null };
-      if (r.side > 0) { t.bought += r.usd; t.qtyBought += r.amt; t.buys += r.n; } else { t.sold += r.usd; t.qtySold += r.amt; t.sells += r.n; }
-      t.first = Math.min(t.first, r.first); t.last = Math.max(t.last, r.last);
-      by.set(k, t);
+    for (const r of pos) {
+      known += r.nb + r.ns;
+      const k = blobToTx(r.maker);
+      by.set(k, { wallet: k, bought: r.bought, sold: r.sold, qtyBought: r.qb, qtySold: r.qs, buys: r.nb, sells: r.ns, first: r.first, last: r.last, avgBuy: null, held: 0, realized: 0, unrealized: 0, pnl: 0, roi: null });
     }
     for (const t of by.values()) {
       t.avgBuy = t.qtyBought > 0 ? t.bought / t.qtyBought : null;

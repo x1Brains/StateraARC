@@ -343,6 +343,16 @@ async function live() {
 const MAKER_RPCS = (process.env.SWAPS_MAKER_RPCS || 'https://rpc.blockdaemon.mainnet.arc.io').split(',');
 const makerQueue = new Map<string, number>(); // tx → failed attempts
 const insMaker = db.prepare('INSERT OR IGNORE INTO makers(tx, maker) VALUES(?, ?)');
+// a tx's swaps, added once to the wallet's running totals (trader_pos) the moment its maker is first recorded
+const txSwaps = db.prepare('SELECT p.token, s.side, s.usd, s.amt, s.ts FROM swaps s JOIN pools p ON p.pid = s.pid WHERE s.tx = ? AND p.ok = 1');
+const addPos = db.prepare(`INSERT INTO trader_pos(token, maker, bought, sold, qb, qs, nb, ns, first, last) VALUES(?,?,?,?,?,?,?,?,?,?)
+  ON CONFLICT(token, maker) DO UPDATE SET bought = bought + excluded.bought, sold = sold + excluded.sold, qb = qb + excluded.qb, qs = qs + excluded.qs,
+  nb = nb + excluded.nb, ns = ns + excluded.ns, first = MIN(first, excluded.first), last = MAX(last, excluded.last)`);
+function addToPositions(tx: Buffer, maker: Buffer) {
+  for (const r of txSwaps.all(tx) as { token: string; side: number; usd: number; amt: number; ts: number }[]) {
+    const b = r.side > 0; addPos.run(r.token, maker, b ? r.usd : 0, b ? 0 : r.usd, b ? r.amt : 0, b ? 0 : r.amt, b ? 1 : 0, b ? 0 : 1, r.ts, r.ts);
+  }
+}
 export const makerStats = { resolved: 0, dropped: 0 };
 async function resolveMakers() {
   const want = [...makerQueue.keys()].slice(0, 500);
@@ -357,7 +367,7 @@ async function resolveMakers() {
       try {
         for (const x of j) {
           const h = part[x.id], from = x?.result?.from;
-          if (h && from) { insMaker.run(txToBlob(h), addrToBlob(from)); makerQueue.delete(h); makerStats.resolved++; }
+          if (h && from) { const tb = txToBlob(h), mb = addrToBlob(from); if (insMaker.run(tb, mb).changes) addToPositions(tb, mb); makerQueue.delete(h); makerStats.resolved++; }
           else if (h) { const n = (makerQueue.get(h) || 0) + 1; if (n >= 6) { makerQueue.delete(h); makerStats.dropped++; } else makerQueue.set(h, n); }
         }
         db.exec('COMMIT');

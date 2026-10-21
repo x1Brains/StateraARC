@@ -42,6 +42,10 @@ export function openSwapDb(readonly = false): DatabaseSync {
       PRIMARY KEY (pid, t)) WITHOUT ROWID;
     CREATE INDEX IF NOT EXISTS c1m_t ON c1m(t);
     CREATE TABLE IF NOT EXISTS tstats (token TEXT PRIMARY KEY, j TEXT NOT NULL);
+    -- per token, per wallet running totals (Top traders / Holder profitability read these instead of joining 12M rows)
+    CREATE TABLE IF NOT EXISTS trader_pos (token TEXT NOT NULL, maker BLOB NOT NULL, bought REAL NOT NULL DEFAULT 0, sold REAL NOT NULL DEFAULT 0,
+      qb REAL NOT NULL DEFAULT 0, qs REAL NOT NULL DEFAULT 0, nb INTEGER NOT NULL DEFAULT 0, ns INTEGER NOT NULL DEFAULT 0, first INTEGER, last INTEGER,
+      PRIMARY KEY (token, maker)) WITHOUT ROWID;
   `);
   return db;
 }
