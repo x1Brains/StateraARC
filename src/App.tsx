@@ -608,7 +608,7 @@ export default function App() {
                   <div className="trow tok sc" key={t.address} onClick={() => setSelected(t.address)}>
                     <span className="rank">{(pageNum - 1) * perPage + i + 1}</span>
                     <TokenLogo symbol={t.symbol} seed={t.address} url={t.iconUrl} />
-                    <span className="sc-name"><div className="tname">{t.name}</div><div className="tsym">{t.symbol}{(t.source || t.launchpad) && <span className="tsrc">{t.source || t.launchpad}</span>}</div></span>
+                    <span className="sc-name"><div className="tname">{t.name}{t.risk && <span className={`risk-badge ${t.risk.level}`} title={t.risk.flags.join(' · ')}>{t.risk.level === 'high' ? 'Red flags' : 'Caution'}</span>}</div><div className="tsym">{t.symbol}{(t.source || t.launchpad) && <span className="tsrc">{t.source || t.launchpad}</span>}</div></span>
                     <span className="num" data-l="Price">{tprice(t.price)}</span>
                     <span className={`num chg ${chgCls(t.change1h)}`} data-l="1h">{chgFmt(t.change1h)}</span>
                     <span className={`num chg ${chgCls(t.change24h)}`} data-l="24h">{chgFmt(t.change24h)}</span>

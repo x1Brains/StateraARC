@@ -42,6 +42,8 @@ export interface Token {
   priceFrom?: 'chain' | 'radar' | 'warp' | null; // where the snapshot's price came from — 'chain' rows are never overwritten by an indexer
   txns24?: number | null;    // 24h transaction count
   spark?: number[] | null;   // sparkline price series (recent → last)
+  // red flags (server/statera-api.ts redFlags, 10-21): 'high' = 2+ of pump & dump / liquidity pulled / tiny holder base
+  risk?: { level: 'high' | 'warn'; flags: string[] } | null;
 }
 
 export const NATIVE_USDC_ADDR = '0x3600000000000000000000000000000000000000';

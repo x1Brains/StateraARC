@@ -514,6 +514,14 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
               <span>This token uses the Statera name but was not created by us. {stateraHasToken() ? 'The only official Statera token is listed on our $STR page.' : 'Statera has not launched a token yet — any token calling itself Statera is not ours.'} Do not buy it thinking it is Statera.</span>
             </div>
           )}
+          {/* 10-21: on-chain red flags (server/statera-api.ts redFlags) — what the data shows, stated plainly */}
+          {seed?.risk && (
+            <div className={`risk-banner ${seed.risk.level}`} role="alert">
+              <b>{seed.risk.level === 'high' ? 'Red flags — this looks like a pump and dump' : 'Caution'}</b>
+              <ul>{seed.risk.flags.map((f) => <li key={f}>{f}</li>)}</ul>
+              <span>Read from the chain by Statera. Not proof of a scam — check before you buy.</span>
+            </div>
+          )}
           <div className="tx-hero">
             {(() => { const u = warp?.image ?? seed?.iconUrl ?? null; return u ? <div className="tx-hero-tint" style={{ backgroundImage: `url("${u}")` }} /> : null; })()}
             <div className="tx-hero-id">
