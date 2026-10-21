@@ -226,7 +226,8 @@ function tradersOf(token: string): { list: Trader[]; price: number | null; cover
       t.pnl = t.realized + t.unrealized;
       t.roi = t.bought >= 1 ? (t.pnl / t.bought) * 100 : null;
     }
-    return { list: [...by.values()], price, coverage: all ? known / all : null };
+    // positions cover every pool of the token, the trade count only the counted pools → can exceed 100%: capped
+    return { list: [...by.values()], price, coverage: all ? Math.min(1, known / all) : null };
   });
 }
 export function topTraders(token: string, sort: 'pnl' | 'volume' | 'loss' = 'pnl', limit = 50) {
