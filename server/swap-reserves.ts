@@ -21,7 +21,8 @@ export type Deps = { mc: (calls: { target: string; data: string }[]) => Promise<
 type Pool = { pid: number; key: string; kind: string; token: string; usdc0: number; dec: number };
 
 export function initReserveTables(db: DatabaseSync) {
-  db.exec(`CREATE TABLE IF NOT EXISTS reserves (pid INTEGER PRIMARY KEY, usdc REAL NOT NULL, tok REAL NOT NULL, px REAL, at INTEGER NOT NULL);
+  db.exec(`CREATE TABLE IF NOT EXISTS supply (token TEXT PRIMARY KEY, total REAL NOT NULL, burned REAL NOT NULL, at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS reserves (pid INTEGER PRIMARY KEY, usdc REAL NOT NULL, tok REAL NOT NULL, px REAL, at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS v4profile (pool TEXT PRIMARY KEY, spacing INTEGER, j TEXT, at INTEGER);`);
   try { db.exec('ALTER TABLE v4init ADD COLUMN spacing INTEGER'); } catch { /* already there */ }
 }

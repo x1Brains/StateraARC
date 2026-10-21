@@ -299,7 +299,7 @@ export function storeStats() {
 
 // ── Screener numbers from the store: computed by the indexer (server/swap-stats.ts → table tstats, every ~2 min, so the
 // 2-second scan never blocks this API) and read here in one quick query.
-export interface StoreTokenStats { volume24h?: number; txns24?: number; change1h?: number | null; change24h?: number | null; spark?: number[]; price?: number | null; liq?: number; liqUsdc?: number; liqPools?: number; hi7?: number | null }
+export interface StoreTokenStats { volume24h?: number; txns24?: number; change1h?: number | null; change24h?: number | null; spark?: number[]; price?: number | null; liq?: number; liqUsdc?: number; liqPools?: number; hi7?: number | null; supply?: number; burned?: number }
 let tsCache: { at: number; built: number; map: Map<string, StoreTokenStats> } | null = null;
 export function tokenStatsNow(): Map<string, StoreTokenStats> | null {
   const d = conn(); if (!d) return null;

@@ -130,6 +130,12 @@ function rebuild() {
     const x = st.get(t.address.toLowerCase()); if (!x) continue;
     // liquidity = the token's pools' REAL reserves (swap-reserves.ts), never again the V4 "token side × price" estimate
     if (x.liq != null && isFinite(x.liq)) t.liq = x.liq;
+    // market cap = the LIVE price × (total supply − burned), both read on chain by the indexer (supply every 10 min)
+    if (x.supply != null && x.supply > 0 && t.price != null && isFinite(t.price)) {
+      const circ = Math.max(0, x.supply - (x.burned ?? 0)), mc = t.price * circ;
+      if (isFinite(mc) && mc > 0 && mc < 1e12) t.mcap = mc;
+      const fdv = t.price * x.supply; if (isFinite(fdv) && fdv > 0 && fdv < 1e12) t.fdv = fdv; // fully diluted: every token incl. burned
+    }
     t.risk = redFlags(t, x);
     if (x.volume24h == null) continue; // a token measured for liquidity only (no trades in 7 days)
     t.volume24h = x.volume24h; t.txns24 = x.txns24 ?? t.txns24;

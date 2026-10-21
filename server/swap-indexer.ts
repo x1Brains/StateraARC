@@ -392,6 +392,25 @@ async function reservesLoop() {
   }
 }
 
+// ── token supply (market cap = price × (totalSupply − burned at 0x0 / 0xdead)), every 10 min for every token that traded in 30 days
+// ⛔ 10-21 audit: market cap used the snapshot's total supply (burned tokens included: ARGUS +7.4%) and the snapshot-time price
+// next to the live price (ASTOCK / ARCLIGHT / EURC off by 5–8%)
+async function supplyLoop() {
+  const ZERO = '0'.repeat(64), DEAD = '000000000000000000000000000000000000000000000000000000000000dead';
+  for (;;) {
+    try {
+      const toks = (db.prepare(`SELECT DISTINCT p.token, p.dec FROM pools p WHERE p.ok = 1 AND EXISTS (SELECT 1 FROM c1m c WHERE c.pid = p.pid AND c.t >= ?)`).all(Math.floor(Date.now() / 1000) - 30 * 86400) as { token: string; dec: number }[]);
+      const r = await multicall(toks.flatMap((t) => [{ target: t.token, data: '0x18160ddd' }, { target: t.token, data: '0x70a08231' + ZERO }, { target: t.token, data: '0x70a08231' + DEAD }]));
+      const put = db.prepare('INSERT INTO supply(token, total, burned, at) VALUES(?,?,?,?) ON CONFLICT(token) DO UPDATE SET total=excluded.total, burned=excluded.burned, at=excluded.at');
+      const big = (h: string) => (h && h.length >= 66 ? Number(BigInt(h.slice(0, 66))) : null);
+      db.exec('BEGIN');
+      try { toks.forEach((t, i) => { const tot = big(r[i * 3]); if (tot == null) return; const d = 10 ** t.dec; put.run(t.token, tot / d, ((big(r[i * 3 + 1]) || 0) + (big(r[i * 3 + 2]) || 0)) / d, Date.now()); }); db.exec('COMMIT'); }
+      catch (e) { db.exec('ROLLBACK'); throw e; }
+    } catch (e) { log('supply error:', (e as Error).message); }
+    await sleep(600_000);
+  }
+}
+
 // screener numbers for statera-api (table tstats), every ~2 min
 async function statsLoop() {
   for (;;) {
@@ -427,7 +446,7 @@ async function main() {
       metaSet(db, 'prof_scanned', pf); log('profiles: catch-up marked', profileDirty.size, 'V4 pools since block', pf);
     } catch (e) { log('profiles catch-up failed:', (e as Error).message); }
   }
-  if (!NO_LIVE) { live(); makersLoop(); setTimeout(statsLoop, 20_000); setTimeout(reservesLoop, 30_000); }
+  if (!NO_LIVE) { live(); makersLoop(); setTimeout(statsLoop, 20_000); setTimeout(reservesLoop, 30_000); setTimeout(supplyLoop, 45_000); }
   await backfill();
   setInterval(() => metaSet(db, 'unknown_factories', JSON.stringify([...unknownFactories])), 600_000).unref();
 }

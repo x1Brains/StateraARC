@@ -3,7 +3,7 @@
 // (Inside the API the 7-day scan blocked every request for ~2 s.)
 import type { DatabaseSync } from 'node:sqlite';
 export interface StoreTokenStats { volume24h?: number; txns24?: number; change1h?: number | null; change24h?: number | null; spark?: number[]; price?: number | null;
-  liq?: number; liqUsdc?: number; liqPools?: number; hi7?: number | null }
+  liq?: number; liqUsdc?: number; liqPools?: number; hi7?: number | null; supply?: number; burned?: number }
 // owner 10-20: "the screener's 1h/24h/volume should be real".
 // Every ~2 min: per token with trades in the last 7 days — 24h USD volume + trade count across its counted pools, and from its
 // busiest pool (7d trade count) the 1h / 24h change and a 7-day sparkline (one close every 4 h). Runs in slices that yield to
@@ -60,6 +60,11 @@ export async function buildTokenStats(d: DatabaseSync): Promise<Map<string, Stor
       }
       for (const [tok, g] of liq) { const e = map.get(tok) || {}; map.set(tok, { ...e, liq: g.liq, liqUsdc: g.usdc, liqPools: g.n }); }
     } catch { /* reserves table not there yet */ }
+    try {
+      for (const r of d.prepare('SELECT token, total, burned FROM supply').all() as { token: string; total: number; burned: number }[]) {
+        const e = map.get(r.token); if (e) map.set(r.token, { ...e, supply: r.total, burned: r.burned });
+      }
+    } catch { /* supply table not there yet */ }
     return map;
   }
 }
