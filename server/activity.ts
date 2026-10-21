@@ -81,6 +81,7 @@ export function onBlocks(blocks: any[]) {
       if (tx.from) bk.act.add(String(tx.from).toLowerCase());
       if (tx.nonce === '0x0') bk.nw++;
     }
+    if (!liveFrom || n < liveFrom) { liveFrom = n; liveSinceTs = ts; }
     const tb: TapeBlock = { n, ts, txs: b.transactions.length, p: {} };
     tape.push(tb); blockIndex.set(n, tb);
     if (!since) since = ts;
@@ -92,6 +93,11 @@ export function onBlocks(blocks: any[]) {
 /** Every log of the same blocks (unfiltered getLogs): protocols per tx, USDC mint / burn / moved. */
 export function onLogs(logs: any[]) {
   activityStats.logPolls++;
+  ingestLogs(logs);
+  trimActivity();
+}
+let liveFrom = 0, liveSinceTs = 0; // first block the live follower fed — the 24 h backfill stops just below it
+function ingestLogs(logs: any[]) {
   const seen = new Set<string>();
   for (const l of logs) {
     activityStats.logs++;
@@ -109,12 +115,53 @@ export function onLogs(logs: any[]) {
     bk.p[p] = (bk.p[p] || 0) + 1;
     const tb = blockIndex.get(n); if (tb) tb.p[p] = (tb.p[p] || 0) + 1;
   }
-  trimActivity();
 }
 function trimActivity() {
   const newest = tape.length ? tape[tape.length - 1].ts : Math.floor(Date.now() / 1000);
   for (const t of buckets.keys()) if (t < newest - KEEP_S) buckets.delete(t);
 }
+
+// ── 24 h backfill (owner 10-21: "it should be last 24 hours so we have enough data") ───────────────────────────────────
+// Protocol activity + USDC mint / burn / moved for the day BEFORE the live counter started, from FILTERED logs (the known
+// contracts; DEX / fill / price-feed events by topic; native-USDC transfers) — 2,000 blocks a step, one call at a time, paced
+// by the caller (~1 call/s). Tx counts and active / new wallets need every full block, so those cards fill live only (their
+// coverage is reported separately: liveSince). A step that the node refuses as too big is split in halves.
+type Rpc = (method: string, params: unknown[]) => Promise<any>;
+const BF_STEP = 2000;
+let bf = { to: 0, target: 0, done: false };   // to = next block to read DOWNWARD from (exclusive top); target = 24 h back
+export const backfillStats = { calls: 0, errors: 0, blocks: 0 };
+async function logsSplit(rpc: Rpc, filter: Record<string, unknown>, from: number, to: number): Promise<any[]> {
+  backfillStats.calls++;
+  const r = await rpc('eth_getLogs', [{ ...filter, fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }]).catch(() => null);
+  if (Array.isArray(r)) return r;
+  if (to - from < 50) throw new Error('logs refused');
+  const mid = Math.floor((from + to) / 2);
+  return [...(await logsSplit(rpc, filter, from, mid)), ...(await logsSplit(rpc, filter, mid + 1, to))];
+}
+// the V4 PoolManager is left out of the address list (its Swap events come in through the topic query — with it the list
+// answer is huge and rpc.mainnet.arc.io refuses the range: "requested range too large")
+const EMITTERS = Object.keys(BY_EMITTER).filter((a) => a !== '0x8366a39cc670b4001a1121b8f6a443a643e40951');
+/** One backfill step (call every ~1.5 s from the API until it returns false). */
+export async function activityBackfillStep(rpc: Rpc, headTs: number, blockTime: number): Promise<boolean> {
+  if (bf.done || !liveFrom) return false;
+  if (!bf.to || bf.to > liveFrom) { bf.to = liveFrom; bf.target = Math.max(0, liveFrom - Math.ceil(86400 / Math.max(0.2, blockTime)) - 200); }
+  if (bf.to <= bf.target) { bf.done = true; return false; }
+  const from = Math.max(bf.target, bf.to - BF_STEP), to = bf.to - 1;
+  try {
+    const [a, b, c] = [
+      await logsSplit(rpc, { address: EMITTERS }, from, to),
+      await logsSplit(rpc, { topics: [[T_V4_SWAP, T_V3_SWAP, T_V2_SWAP, T_UNIX_FILL, T_ANSWER]] }, from, to),
+      await logsSplit(rpc, { address: NATIVE_LOG, topics: [T_TRANSFER] }, from, to),
+    ];
+    ingestLogs([...a, ...b, ...c]);
+    bf.to = from; backfillStats.blocks += to - from + 1;
+    const earliest = [...a, ...b, ...c].reduce((m, l) => Math.min(m, l.blockTimestamp ? parseInt(l.blockTimestamp, 16) : Infinity), Infinity);
+    if (isFinite(earliest)) bfFromTs = Math.min(bfFromTs || earliest, earliest);
+  } catch { backfillStats.errors++; }
+  void headTs;
+  return !bf.done;
+}
+let bfFromTs = 0; // oldest time the backfilled protocol / USDC counts reach
 
 // ── summary for /v2/activity ────────────────────────────────────────────────────────────────────────────────────────────
 let cache: { at: number; v: unknown } | null = null;
@@ -123,13 +170,15 @@ export function activitySummary() {
   const list = [...buckets.values()].sort((a, b) => a.t - b.t);
   if (!list.length) return null;
   const now = list[list.length - 1].t + 60;
+  const liveSince = liveSinceTs ? Math.floor(liveSinceTs / 60) * 60 : now; // when the live (full-block) counting began
   const dayStart = Math.floor(now / 86400) * 86400;
   const win = (from: number) => {
     const bs = list.filter((b) => b.t >= from);
     const act = new Set<string>(); const p: Record<string, number> = {};
     let txs = 0, nw = 0, mint = 0, burn = 0, moved = 0;
     for (const b of bs) { txs += b.txs; nw += b.nw; mint += b.mint; burn += b.burn; moved += b.moved; for (const a of b.act) act.add(a); for (const [k, v] of Object.entries(b.p)) p[k] = (p[k] || 0) + v; }
-    return { from: Math.max(from, list[0].t), txs, active: act.size, newWallets: nw, minted: mint, burned: burn, net: mint - burn, moved, protocols: p };
+    // two coverages: protocol + USDC counts reach back as far as the backfill went; tx / wallet counts only since the live start
+    return { from: Math.max(from, list[0].t), liveFrom: Math.max(from, liveSince), txs, active: act.size, newWallets: nw, minted: mint, burned: burn, net: mint - burn, moved, protocols: p };
   };
   // last 3 hours, one point per minute (missing minutes = 0), for the sparklines
   const S = 180, start = now - S * 60;
@@ -141,7 +190,7 @@ export function activitySummary() {
     series.net.push(b ? b.mint - b.burn : 0); series.moved.push(b?.moved ?? 0);
     for (const pr of PROTOCOLS) series.protocols[pr.id].push(b?.p[pr.id] ?? 0);
   }
-  const v = { at: Date.now(), since: list[0].t, now, protocols: PROTOCOLS, h1: win(now - 3600), today: win(dayStart), h24: win(now - 86400),
+  const v = { at: Date.now(), since: list[0].t, liveSince, backfill: { done: bf.done, fromTs: bfFromTs || null, ...backfillStats }, now, protocols: PROTOCOLS, h1: win(now - 3600), today: win(dayStart), h24: win(now - 86400),
     series: { start, step: 60, ...series }, tape: tape.slice(-180).map((b) => ({ n: b.n, ts: b.ts, txs: b.txs, p: b.p })) };
   cache = { at: Date.now(), v };
   return v;
@@ -151,14 +200,14 @@ export function activitySummary() {
 const FILE = process.env.ACTIVITY_STATE || '/root/statera-api-state/activity.json';
 export function saveActivity() {
   try {
-    const body = JSON.stringify({ v: 1, since, buckets: [...buckets.values()].map((b) => ({ ...b, act: [...b.act] })) });
+    const body = JSON.stringify({ v: 1, since, bf, bfFromTs, liveFrom, liveSinceTs, buckets: [...buckets.values()].map((b) => ({ ...b, act: [...b.act] })) });
     fs.mkdirSync(path.dirname(FILE), { recursive: true }); fs.writeFileSync(FILE + '.tmp', body); fs.renameSync(FILE + '.tmp', FILE);
   } catch { /* next time */ }
 }
 export function loadActivity() {
   try {
     const j = JSON.parse(fs.readFileSync(FILE, 'utf8')); if (j?.v !== 1) return;
-    since = j.since || 0;
+    since = j.since || 0; if (j.bf) bf = j.bf; bfFromTs = j.bfFromTs || 0; liveFrom = j.liveFrom || 0; liveSinceTs = j.liveSinceTs || 0;
     for (const b of j.buckets || []) buckets.set(b.t, { ...b, act: new Set(b.act || []) });
     trimActivity();
   } catch { /* fresh start */ }

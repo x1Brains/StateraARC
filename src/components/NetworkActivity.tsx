@@ -35,7 +35,7 @@ function Bars({ v, from = 0, signed = false, h = 34 }: { v: number[]; from?: num
 export function NetworkActivity() {
   const [a, setA] = useState<V2Activity | null>(null);
   const [err, setErr] = useState(false);
-  const [w, setW] = useState<'h1' | 'today' | 'h24'>('h1');
+  const [w, setW] = useState<'h1' | 'today' | 'h24'>('h24'); // owner 10-21: 24 h by default, enough data to read
   useEffect(() => {
     let alive = true;
     const load = () => v2Activity().then((x) => { if (alive) { setA(x); setErr(false); } }).catch(() => { if (alive) setErr(true); });
@@ -45,10 +45,14 @@ export function NetworkActivity() {
   const color = useMemo(() => Object.fromEntries((a?.protocols || []).map((p) => [p.id, p.color])), [a?.protocols]);
   if (!a) return err ? null : <div className="nx-card"><div className="side-note">Reading the chain…</div></div>;
   const x = a[w];
-  const from = Math.max(0, Math.round((a.since - a.series.start) / a.series.step)); // first covered minute in the series
+  const from = Math.max(0, Math.round((a.since - a.series.start) / a.series.step)); // first covered minute (protocols / USDC)
+  const fromLive = Math.max(from, Math.round(((a.liveSince ?? a.since) - a.series.start) / a.series.step)); // tx / wallet series
   const span = Math.round((a.now - Math.max(a.since, a.series.start)) / 60);
   const spanL = span >= 120 ? `last ${(span / 60).toFixed(span % 60 ? 1 : 0)} h` : `last ${span} min`;
-  const covered = x.from > (w === 'h1' ? a.now - 3600 : w === 'h24' ? a.now - 86400 : Math.floor(a.now / 86400) * 86400) + 120;
+  const winStart = w === 'h1' ? a.now - 3600 : w === 'h24' ? a.now - 86400 : Math.floor(a.now / 86400) * 86400;
+  const covered = x.from > winStart + 120;                                   // protocol + USDC counts (backfilled 24 h)
+  const liveOnly = x.liveFrom != null && x.liveFrom > winStart + 120; // tx / wallet counts
+  const sinceL = (t: number) => `since ${new Date(t * 1000).toUTCString().slice(17, 22)} UTC`;
   const wl = w === 'h1' ? 'last hour' : w === 'today' ? 'today (UTC)' : 'last 24 hours';
   const maxTx = Math.max(1, ...a.tape.map((b) => b.txs));
   const protos = [...a.protocols].sort((p, q) => (x.protocols[q.id] || 0) - (x.protocols[p.id] || 0));
@@ -56,7 +60,7 @@ export function NetworkActivity() {
   return (<>
     <div className="nx-card na-card">
       <div className="nx-head"><h3>Live blocks</h3><span className="nx-when">{head ? `block ${head.n.toLocaleString()} · ${new Date(head.ts * 1000).toUTCString().slice(17, 25)} UTC` : ''}</span></div>
-      <p className="nx-sub">Each bar is one block (newest on the right). Height = transactions in it; colour = what they did.</p>
+      <p className="nx-sub">One bar per block, newest right · height = transactions · colour = what they did.</p>
       <div className="na-tape" role="img" aria-label="Recent blocks">
         {a.tape.map((b) => {
           const parts = Object.entries(b.p).sort((p, q) => q[1] - p[1]);
@@ -73,20 +77,20 @@ export function NetworkActivity() {
 
     <div className="nx-card na-card">
       <div className="nx-head"><h3>Activity</h3>
-        <div className="nx-tabs">{([['h1', '1H'], ['today', 'Today'], ['h24', '24H']] as const).map(([k, l]) => <button key={k} type="button" className={w === k ? 'on' : ''} onClick={() => setW(k)}>{l}</button>)}</div></div>
-      <p className="nx-sub">Counted from every block on Arc, {wl}{covered ? ` — since ${new Date(x.from * 1000).toUTCString().slice(17, 22)} UTC, when this counter started` : ''}. Bars = {spanL} (up to 3 h), newest on the right.</p>
+        <div className="nx-tabs">{([['h24', '24H'], ['today', 'Today'], ['h1', '1H']] as const).map(([k, l]) => <button key={k} type="button" className={w === k ? 'on' : ''} onClick={() => setW(k)}>{l}</button>)}</div></div>
+      <p className="nx-sub">Counted from every block on Arc, {wl}{covered ? ` (${sinceL(x.from)})` : ''}. Bars: {spanL}, newest on the right.</p>
       <div className="na-kpis">
         <div className="na-kpi"><span>USDC net issued</span><b className={x.net >= 0 ? 'up' : 'down'}>{sgn(x.net)}</b><small>{usd(x.minted)} minted · {usd(x.burned)} burned</small><Bars v={a.series.net} from={from} signed /></div>
-        <div className="na-kpi"><span>USDC moved</span><b>{usd(x.moved)}</b><small>every USDC transfer, excluding mints & burns</small><Bars v={a.series.moved} from={from} /></div>
-        <div className="na-kpi"><span>Transactions</span><b>{n0(x.txs)}</b><small>in every block, {wl}</small><Bars v={a.series.txs} from={from} /></div>
-        <div className="na-kpi"><span>Active wallets</span><b>{n0(x.active)}</b><small>different wallets that sent a transaction</small><Bars v={a.series.active} from={from} /></div>
-        <div className="na-kpi"><span>New wallets</span><b>{n0(x.newWallets)}</b><small>sent their first-ever transaction</small><Bars v={a.series.newWallets} from={from} /></div>
+        <div className="na-kpi"><span>USDC moved</span><b>{usd(x.moved)}</b><small>all USDC transfers</small><Bars v={a.series.moved} from={from} /></div>
+        <div className="na-kpi"><span>Transactions</span><b>{n0(x.txs)}</b><small>{liveOnly ? sinceL(x.liveFrom!) : `in every block, ${wl}`}</small><Bars v={a.series.txs} from={fromLive} /></div>
+        <div className="na-kpi"><span>Active wallets</span><b>{n0(x.active)}</b><small>{liveOnly ? sinceL(x.liveFrom!) : 'different wallets that sent one'}</small><Bars v={a.series.active} from={fromLive} /></div>
+        <div className="na-kpi"><span>New wallets</span><b>{n0(x.newWallets)}</b><small>{liveOnly ? sinceL(x.liveFrom!) : 'sent their first-ever transaction'}</small><Bars v={a.series.newWallets} from={fromLive} /></div>
       </div>
     </div>
 
     <div className="nx-card na-card">
       <div className="nx-head"><h3>Protocols, live</h3><span className="nx-when">{wl}</span></div>
-      <p className="nx-sub">Transactions that used each app, read from the events its contracts emitted. One transaction can use several (a swap routed through a smart wallet counts for both).</p>
+      <p className="nx-sub">Transactions that used each app, from the events its contracts emitted{covered ? ` (${sinceL(x.from)})` : ''}. A swap through a smart wallet counts for both.</p>
       <div className="na-protos">
         {protos.map((p) => {
           const n = x.protocols[p.id] || 0;

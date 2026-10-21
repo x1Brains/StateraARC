@@ -35,7 +35,7 @@ import { cacheStats, tokenDetail, tokenTrades, prewarm, detailStats, tokenCandle
 import { pollChain, chainSummary, chainStats, backfillStep, flowsBackfillStep, saveChain, loadChain } from './chain.ts';
 import { refreshLending, lendingSummary, lendingStats } from './lending.ts';
 import * as Swaps from './swap-store.ts';
-import { activitySummary, activityStats, saveActivity, loadActivity } from './activity.ts';
+import { activitySummary, activityStats, saveActivity, loadActivity, activityBackfillStep } from './activity.ts';
 import { swapCall, poolStats } from './swap-worker.ts';
 import { refreshWhere, whereSummary, whereStats } from './where.ts';
 
@@ -409,6 +409,12 @@ setInterval(() => { if (!visitsDirty) return; visitsDirty = false; try { fs.writ
 let chaining = false;
 const tickChain = async () => { if (chaining) return; chaining = true; try { await pollChain(rpc, rpcBatch); } catch (e) { chainStats.errors++; console.error('[chain]', (e as Error).message); } finally { chaining = false; } };
 loadActivity(); setInterval(saveActivity, 60_000);
+// the Network page's 24 h of protocol + USDC activity before the live counter started — one step (≤ 3 calls) every 1.5 s
+let actBf = false;
+setInterval(async () => {
+  if (actBf) return; actBf = true;
+  try { await activityBackfillStep(rpc, 0, 0.505); } catch { /* next tick */ } finally { actBf = false; } // Arc's measured block time (chain.ts)
+}, 1500);
 loadChain(); tickChain(); setInterval(tickChain, 15_000);
 // History in the background, paced under the public RPC burst limit; state saved every minute (survives deploys).
 const backfill = async () => { try { if (await backfillStep(rpcBatch)) { setTimeout(backfill, 2500); return; } } catch { chainStats.errors++; setTimeout(backfill, 10_000); return; } setTimeout(backfill, 30_000); };
