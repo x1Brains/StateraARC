@@ -495,7 +495,7 @@ function launchpadTrading(rows: Token[]) {
   // red-flagged tokens (redFlags 'high') never headline the card; their trades still count in the totals above
   // TOP BY MARKET CAP like argus.world's own list (owner 10-21) — a pump-and-dump has volume, never a real market cap with
   // liquidity behind it; red-flagged and sub-$1K-liquidity tokens are left out
-  const top = rows.filter((t) => t.launchpad && t.launchpad !== 'Launchpad' && t.mcap != null && t.risk?.level !== 'high' && (t.liq ?? 0) >= 1000)
+  const top = rows.filter((t) => t.launchpad && t.launchpad !== 'Launchpad' && t.mcap != null && t.risk?.level !== 'high' && (t.liq ?? 0) >= 1000 && (t.liq ?? 0) >= t.mcap * 0.02)
     .sort((a, b) => (b.mcap ?? 0) - (a.mcap ?? 0)).slice(0, 5)
     .map((t) => ({ address: t.address, symbol: t.symbol, pad: t.launchpad, trades: t.txns24, volume: t.volume24h, mcap: t.mcap, liq: t.liq, change24h: t.change24h }));
   const v = { trades: pads.reduce((s, p) => s + p.trades, 0), volume: pads.reduce((s, p) => s + p.volume, 0), traded: pads.reduce((s, p) => s + p.traded, 0), pads, top };
@@ -507,12 +507,16 @@ function launchpadTrading(rows: Token[]) {
 //   pump & dump      — price ≤ 25% of its 7-day high (closes of the main pool, not wicks)
 //   liquidity pulled — under $1,000 of REAL USDC in its pools (swap-reserves.ts) while 24h volume is over $5,000
 //   tiny holder base — under 25 holders while it traded over $10,000 in 24 h
+//   thin market cap  — over $100K market cap on less than 1/50 of it in liquidity
 // 2+ = 'high' (kept out of the top lists, red banner on its page), 1 = 'warn'. Volume still counts in every total.
 function redFlags(t: Token, x: Swaps.StoreTokenStats): Token['risk'] {
   const f: string[] = [], px = t.price ?? x.price ?? null, vol = x.volume24h ?? t.volume24h ?? 0;
   if (px != null && x.hi7 != null && x.hi7 > 0 && px <= x.hi7 * 0.25) f.push(`Down ${Math.round((1 - px / x.hi7) * 100)}% from its 7-day high`);
   if (x.liqUsdc != null && x.liqUsdc < 1000 && vol > 5000) f.push(`Only $${Math.round(x.liqUsdc).toLocaleString('en-US')} of USDC left in its pools after $${Math.round(vol).toLocaleString('en-US')} traded today`);
   if (t.holders != null && t.holders < 25 && vol > 10000) f.push(`Only ${t.holders} holders while trading $${Math.round(vol).toLocaleString('en-US')} a day`);
+  // a market cap nobody could sell into: FAZE read $2.5M with $1,770 of liquidity (argus.world's real tokens run ~10–20×)
+  const liq = x.liq ?? t.liq ?? null;
+  if (t.mcap != null && t.mcap > 100_000 && liq != null && t.mcap > liq * 50) f.push(`$${Math.round(t.mcap).toLocaleString('en-US')} market cap on only $${Math.round(liq).toLocaleString('en-US')} of liquidity`);
   return f.length >= 2 ? { level: 'high', flags: f } : f.length === 1 ? { level: 'warn', flags: f } : null;
 }
 let swapStatsBusy = false;
