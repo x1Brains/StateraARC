@@ -567,7 +567,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
           {/* one connected stat bar (price + changes now live in the hero) */}
           <div className="tx-stats">
             <div><span>Market cap</span><b>{mc != null ? usd(mc) : '—'}</b></div>
-            <div><span>Liquidity</span><b>{tvl != null ? usd(tvl) : '—'}</b></div>
+            <div title="Both sides of every pool (USDC + tokens at the current price). The USDC figure is the real cash in the pools — the most anyone selling could take out."><span>Liquidity</span><b>{tvl != null ? usd(tvl) : '—'}</b>{seed?.liqUsdc != null && <small className="tx-liq-usdc">{usd(seed.liqUsdc)} USDC</small>}</div>
             <div><span>Volume 24h</span><b>{vol != null ? usd(vol) : '—'}</b></div>
             {/* 09-29 (GLITCH dev): arc-scan counts every dust wallet — lead with holders worth over $0.10, keep the total */}
             {holdersOver && holdersOver.over > 0

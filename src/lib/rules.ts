@@ -44,6 +44,7 @@ export interface Token {
   spark?: number[] | null;   // sparkline price series (recent → last)
   // red flags (server/statera-api.ts redFlags, 10-21): 'high' = 2+ of pump & dump / liquidity pulled / tiny holder base
   risk?: { level: 'high' | 'warn'; flags: string[] } | null;
+  liqUsdc?: number | null;   // the REAL USDC in its pools (server/swap-reserves.ts) — what a seller could actually take out
 }
 
 export const NATIVE_USDC_ADDR = '0x3600000000000000000000000000000000000000';

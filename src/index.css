@@ -2497,3 +2497,4 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .risk-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 5px; font: 700 9px var(--disp); letter-spacing: .6px; text-transform: uppercase; vertical-align: middle; border: 1px solid rgba(255,90,60,.55); color: #ff6a4a; background: rgba(255,60,40,.1); }
 .risk-badge.warn { border-color: rgba(255,194,74,.5); color: #ffc24a; background: rgba(255,194,74,.08); }
 .na-lp-top small .up { color: #5ad18a; } .na-lp-top small .down { color: #ff5a5a; }
+.tx-liq-usdc { display: block; font: 600 10.5px var(--mono); color: var(--gray); margin-top: 1px; }
