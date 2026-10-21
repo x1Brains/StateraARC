@@ -7,18 +7,27 @@ import { usd } from '../lib/arc';
 const n0 = (n: number) => Math.round(n).toLocaleString();
 const sgn = (v: number) => `${v >= 0 ? '+' : '−'}${usd(Math.abs(v))}`;
 
-function Spark({ v, color = '#ff7a1a', h = 34, fill = true }: { v: number[]; color?: string; h?: number; fill?: boolean }) {
-  const W = 180;
-  if (!v.length) return <svg className="na-spark" viewBox={`0 0 ${W} ${h}`} />;
-  const max = Math.max(...v), min = Math.min(0, ...v), rng = max - min || 1;
-  const pts = v.map((x, i) => [(i / Math.max(1, v.length - 1)) * W, h - 2 - ((x - min) / rng) * (h - 4)]);
-  const d = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
-  const zero = h - 2 - ((0 - min) / rng) * (h - 4);
+// Mini bar chart (owner 10-21: the per-minute lines were "too colorful … super flat … weird"). Only the minutes the counter has
+// actually covered are drawn (no flat run of zeros before it started), grouped into ≤ 30 bars; one muted tone with the newest
+// bar in the brand accent — colour carries meaning only where it means something (signed: green up / red down).
+function Bars({ v, from = 0, signed = false, h = 34 }: { v: number[]; from?: number; signed?: boolean; h?: number }) {
+  const pts = v.slice(Math.max(0, from), -1); // the last minute is still filling — a half-counted bar read as a sudden drop
+  if (pts.length < 2 || pts.every((x) => x === 0)) return <div className="na-bars-empty">{pts.length < 2 ? 'collecting…' : 'no activity'}</div>;
+  const per = Math.max(1, Math.ceil(pts.length / 30)), bars: number[] = [];
+  // grouped from the NEWEST end, so every bar (the highlighted last one included) spans the same number of whole minutes
+  for (let e = pts.length; e - per >= 0; e -= per) bars.unshift(pts.slice(e - per, e).reduce((a, b) => a + b, 0));
+  if (!bars.length) return <div className="na-bars-empty">collecting…</div>;
+  const max = Math.max(...bars.map(Math.abs)) || 1, W = 100, gap = bars.length > 20 ? 0.8 : 1.6, bw = (W - gap * (bars.length - 1)) / bars.length;
+  const mid = signed ? h / 2 : h;
   return (
-    <svg className="na-spark" viewBox={`0 0 ${W} ${h}`} preserveAspectRatio="none" aria-hidden>
-      {fill && <path d={`${d}L${W},${zero}L0,${zero}Z`} fill={color} opacity=".14" />}
-      {min < 0 && <line x1="0" x2={W} y1={zero} y2={zero} stroke="rgba(255,255,255,.15)" strokeDasharray="3 3" />}
-      <path d={d} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    <svg className="na-bars" viewBox={`0 0 ${W} ${h}`} preserveAspectRatio="none" aria-hidden>
+      {signed && <line x1="0" x2={W} y1={mid} y2={mid} stroke="rgba(255,255,255,.12)" strokeWidth=".5" vectorEffect="non-scaling-stroke" />}
+      {bars.map((x, i) => {
+        const len = Math.max(x === 0 ? 0 : 1, (Math.abs(x) / max) * (signed ? mid - 1 : h - 1));
+        const last = i === bars.length - 1;
+        const fill = signed ? (x >= 0 ? (last ? '#5ad18a' : 'rgba(90,209,138,.45)') : (last ? '#ff5a5a' : 'rgba(255,90,90,.45)')) : last ? '#ff7a1a' : 'rgba(255,255,255,.22)';
+        return <rect key={i} x={i * (bw + gap)} y={signed && x < 0 ? mid : mid - len} width={bw} height={len} rx=".6" fill={fill} />;
+      })}
     </svg>
   );
 }
@@ -36,6 +45,9 @@ export function NetworkActivity() {
   const color = useMemo(() => Object.fromEntries((a?.protocols || []).map((p) => [p.id, p.color])), [a?.protocols]);
   if (!a) return err ? null : <div className="nx-card"><div className="side-note">Reading the chain…</div></div>;
   const x = a[w];
+  const from = Math.max(0, Math.round((a.since - a.series.start) / a.series.step)); // first covered minute in the series
+  const span = Math.round((a.now - Math.max(a.since, a.series.start)) / 60);
+  const spanL = span >= 120 ? `last ${(span / 60).toFixed(span % 60 ? 1 : 0)} h` : `last ${span} min`;
   const covered = x.from > (w === 'h1' ? a.now - 3600 : w === 'h24' ? a.now - 86400 : Math.floor(a.now / 86400) * 86400) + 120;
   const wl = w === 'h1' ? 'last hour' : w === 'today' ? 'today (UTC)' : 'last 24 hours';
   const maxTx = Math.max(1, ...a.tape.map((b) => b.txs));
@@ -62,13 +74,13 @@ export function NetworkActivity() {
     <div className="nx-card na-card">
       <div className="nx-head"><h3>Activity</h3>
         <div className="nx-tabs">{([['h1', '1H'], ['today', 'Today'], ['h24', '24H']] as const).map(([k, l]) => <button key={k} type="button" className={w === k ? 'on' : ''} onClick={() => setW(k)}>{l}</button>)}</div></div>
-      <p className="nx-sub">Counted from every block on Arc, {wl}{covered ? ` — since ${new Date(x.from * 1000).toUTCString().slice(17, 22)} UTC, when this counter started` : ''}. Sparklines = last 3 hours, one point per minute.</p>
+      <p className="nx-sub">Counted from every block on Arc, {wl}{covered ? ` — since ${new Date(x.from * 1000).toUTCString().slice(17, 22)} UTC, when this counter started` : ''}. Bars = {spanL} (up to 3 h), newest on the right.</p>
       <div className="na-kpis">
-        <div className="na-kpi"><span>USDC net issued</span><b className={x.net >= 0 ? 'up' : 'down'}>{sgn(x.net)}</b><small>{usd(x.minted)} minted · {usd(x.burned)} burned</small><Spark v={a.series.net} color={x.net >= 0 ? '#5ad18a' : '#ff5a5a'} /></div>
-        <div className="na-kpi"><span>USDC moved</span><b>{usd(x.moved)}</b><small>every USDC transfer, excluding mints & burns</small><Spark v={a.series.moved} color="#4fd1c5" /></div>
-        <div className="na-kpi"><span>Transactions</span><b>{n0(x.txs)}</b><small>in every block, {wl}</small><Spark v={a.series.txs} /></div>
-        <div className="na-kpi"><span>Active wallets</span><b>{n0(x.active)}</b><small>different wallets that sent a transaction</small><Spark v={a.series.active} color="#6aa9ff" /></div>
-        <div className="na-kpi"><span>New wallets</span><b>{n0(x.newWallets)}</b><small>sent their first-ever transaction</small><Spark v={a.series.newWallets} color="#ffd27a" /></div>
+        <div className="na-kpi"><span>USDC net issued</span><b className={x.net >= 0 ? 'up' : 'down'}>{sgn(x.net)}</b><small>{usd(x.minted)} minted · {usd(x.burned)} burned</small><Bars v={a.series.net} from={from} signed /></div>
+        <div className="na-kpi"><span>USDC moved</span><b>{usd(x.moved)}</b><small>every USDC transfer, excluding mints & burns</small><Bars v={a.series.moved} from={from} /></div>
+        <div className="na-kpi"><span>Transactions</span><b>{n0(x.txs)}</b><small>in every block, {wl}</small><Bars v={a.series.txs} from={from} /></div>
+        <div className="na-kpi"><span>Active wallets</span><b>{n0(x.active)}</b><small>different wallets that sent a transaction</small><Bars v={a.series.active} from={from} /></div>
+        <div className="na-kpi"><span>New wallets</span><b>{n0(x.newWallets)}</b><small>sent their first-ever transaction</small><Bars v={a.series.newWallets} from={from} /></div>
       </div>
     </div>
 
@@ -82,7 +94,7 @@ export function NetworkActivity() {
             <div className={`na-proto${n ? '' : ' dim'}`} key={p.id}>
               <div className="na-proto-h"><i style={{ background: p.color }} /><b>{p.name}</b><em>{p.cat}</em></div>
               <div className="na-proto-v">{n0(n)}<small> tx</small></div>
-              <Spark v={a.series.protocols[p.id] || []} color={p.color} h={28} />
+              <Bars v={a.series.protocols[p.id] || []} from={from} h={26} />
             </div>
           );
         })}

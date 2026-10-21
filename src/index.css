@@ -2450,3 +2450,7 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .na-proto-v { font: 700 18px var(--mono); color: var(--white); margin: 4px 0 2px; } .na-proto-v small { font-size: 11px; color: var(--gray); font-weight: 500; }
 .na-proto .na-spark { height: 28px; }
 @media (max-width: 640px) { .na-tape { height: 80px; gap: 1px; } .na-kpi b { font-size: 17px; } }
+.na-bars { width: 100%; height: 34px; margin-top: 8px; display: block; }
+.na-proto .na-bars { height: 26px; }
+.na-bars-empty { height: 34px; margin-top: 8px; display: flex; align-items: flex-end; font: 10px var(--mono); color: var(--gray-2); letter-spacing: .4px; }
+.na-proto .na-bars-empty { height: 26px; }
