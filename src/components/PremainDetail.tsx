@@ -749,8 +749,6 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
 
         </div>
         <aside className="tdx-side">
-          {storeTx && <MoneyFlowCard address={address} onMaker={pickMaker} />}
-          {storeTx && <ProfitCard address={address} />}
           {/* Trade activity (24h) — buy/sell pressure, traders, txns (RadarDEX) */}
           {(buys != null || sells != null || txnsF != null) && (
             <div className="panel side-card">
@@ -835,6 +833,10 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
               <div className="ph-note">Weighted signal from live on-chain data — not a legitimacy or safety certification.</div>
             </div>
           )}
+
+          {/* after liquidity + pools (owner 10-23): the safety numbers first, then the swap-store analytics */}
+          {storeTx && <MoneyFlowCard address={address} onMaker={pickMaker} />}
+          {storeTx && <ProfitCard address={address} />}
 
           {/* Supply — minted / burnt / circulating / FDV. */}
           {mintedSupply != null && (
