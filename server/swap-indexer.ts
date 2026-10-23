@@ -16,6 +16,7 @@ import { openSwapDb, metaGet, metaSet, txToBlob, addrToBlob, USDC, START_BLOCK }
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
 import { buildTokenStats } from './swap-stats.ts';
 import { initReserveTables, refreshReserves } from './swap-reserves.ts';
+import { attribute, addPos as addOwnerPos, xferOf, T_TRANSFER, type Pos, type Swap } from './swap-owners.ts';
 
 const T_V3_SWAP = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 const T_V2_SWAP = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822';
@@ -350,6 +351,7 @@ const addPos = db.prepare(`INSERT INTO trader_pos(token, maker, bought, sold, qb
   nb = nb + excluded.nb, ns = ns + excluded.ns, first = MIN(first, excluded.first), last = MAX(last, excluded.last)`);
 function addToPositions(tx: Buffer, maker: Buffer) {
   for (const r of txSwaps.all(tx) as { token: string; side: number; usd: number; amt: number; ts: number }[]) {
+    if (ownerTokens.has(r.token)) continue; // credited to the real buyer / seller by ownersLoop instead
     const b = r.side > 0; addPos.run(r.token, maker, b ? r.usd : 0, b ? 0 : r.usd, b ? r.amt : 0, b ? 0 : r.amt, b ? 1 : 0, b ? 0 : 1, r.ts, r.ts);
   }
 }
@@ -376,6 +378,55 @@ async function resolveMakers() {
     await sleep(300);
   }
 }
+// ── owners: credit swaps of the owner-tracked tokens (scripts/owners-backfill.ts imported them) to the wallet whose balance
+// changed (server/swap-owners.ts), and record tokens received without a swap (table acq). Follows the live cursor from
+// meta owner_cursor with one unfiltered Transfer getLogs per range (all tokens at once; only owner tokens are kept).
+db.exec(`CREATE TABLE IF NOT EXISTS acq (token TEXT NOT NULL, wallet BLOB NOT NULL, flags INTEGER NOT NULL, PRIMARY KEY (token, wallet)) WITHOUT ROWID;
+  CREATE TABLE IF NOT EXISTS owner_tokens (token TEXT PRIMARY KEY);`);
+let ownerTokens = new Set<string>();
+const loadOwnerTokens = () => { ownerTokens = new Set((db.prepare('SELECT token FROM owner_tokens').all() as { token: string }[]).map((r) => r.token)); };
+loadOwnerTokens();
+const rangeSwaps = db.prepare(`SELECT p.token, p.key, s.side, s.usd, s.amt, s.ts, s.tx, m.maker FROM swaps s JOIN pools p ON p.pid = s.pid
+  LEFT JOIN makers m ON m.tx = s.tx WHERE s.blk BETWEEN ? AND ? AND p.ok = 1`);
+const poolKeysOf = db.prepare('SELECT key FROM pools WHERE token = ?');
+const upAcq = db.prepare('INSERT INTO acq(token, wallet, flags) VALUES(?,?,?) ON CONFLICT(token, wallet) DO UPDATE SET flags = flags | excluded.flags');
+export const ownerStats = { ranges: 0, swaps: 0, lag: 0 };
+async function ownersLoop() {
+  let span = 200;
+  for (;;) {
+    try {
+      const cur = Number(metaGet(db, 'owner_cursor') || 0), live = Number(metaGet(db, 'live'));
+      if (!cur || !ownerTokens.size) { loadOwnerTokens(); await sleep(60_000); continue; } // not imported yet
+      ownerStats.lag = live - cur;
+      if (cur >= live) { await sleep(3000); continue; }
+      const lo = cur + 1, hi = Math.min(live, cur + span);
+      let logs: any[];
+      try { logs = await getLogs({ topics: [T_TRANSFER] }, lo, hi); } catch (e) { if (e instanceof TooMany && span > 1) { span = Math.max(1, Math.floor(span / 2)); continue; } throw e; }
+      const xs = new Map<string, NonNullable<ReturnType<typeof xferOf>>[]>(), sw = new Map<string, Swap[]>(), keys = new Map<string, Set<string>>();
+      for (const l of logs) { const t = (l.address || '').toLowerCase(); if (!ownerTokens.has(t)) continue; const x = xferOf(l); if (x) (xs.get(t) ?? xs.set(t, []).get(t)!).push(x); }
+      for (const r of rangeSwaps.all(lo, hi) as any[]) {
+        if (!ownerTokens.has(r.token)) continue;
+        (sw.get(r.token) ?? sw.set(r.token, []).get(r.token)!).push({ tx: '0x' + Buffer.from(r.tx).toString('hex'), side: r.side, usd: r.usd, amt: r.amt, ts: r.ts, maker: r.maker ? '0x' + Buffer.from(r.maker).toString('hex') : null });
+      }
+      db.exec('BEGIN');
+      try {
+        for (const t of new Set([...xs.keys(), ...sw.keys()])) {
+          let pk = keys.get(t); if (!pk) { pk = new Set([PM_V4, ...(poolKeysOf.all(t) as { key: string }[]).map((r) => r.key.toLowerCase())]); keys.set(t, pk); }
+          const P = new Map<string, Pos>();
+          attribute(sw.get(t) || [], xs.get(t) || [], pk, (o, s) => { addOwnerPos(P, o, s); ownerStats.swaps++; }, (w, f) => upAcq.run(t, addrToBlob(w), f));
+          for (const [o, p] of P) addPos.run(t, addrToBlob(o), p.bought, p.sold, p.qb, p.qs, p.nb, p.ns, p.first, p.last);
+        }
+        metaSet(db, 'owner_cursor', hi);
+        db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
+      ownerStats.ranges++;
+      span = logs.length > 12_000 ? Math.max(1, Math.floor(span / 2)) : logs.length < 4_000 ? Math.min(2000, Math.floor(span * 1.5) + 1) : span;
+      if (ownerStats.ranges % 600 === 0) { loadOwnerTokens(); log('owners: at', hi, 'lag', live - hi, 'blocks, swaps credited', ownerStats.swaps); }
+      await sleep(ownerStats.lag > 2000 ? 200 : 1500);
+    } catch (e) { log('owners error:', (e as Error).message); await sleep(5000); }
+  }
+}
+
 async function makersLoop() { for (;;) { if (makerQueue.size) await resolveMakers().catch(() => {}); await sleep(15_000); } }
 
 // ── real pool reserves (liquidity): pools that traded / changed positions since the last pass, plus a backlog of the rest ──
@@ -457,7 +508,7 @@ async function main() {
       metaSet(db, 'prof_scanned', pf); log('profiles: catch-up marked', profileDirty.size, 'V4 pools since block', pf);
     } catch (e) { log('profiles catch-up failed:', (e as Error).message); }
   }
-  if (!NO_LIVE) { live(); makersLoop(); setTimeout(statsLoop, 20_000); setTimeout(reservesLoop, 30_000); setTimeout(supplyLoop, 45_000); }
+  if (!NO_LIVE) { live(); makersLoop(); ownersLoop(); setTimeout(statsLoop, 20_000); setTimeout(reservesLoop, 30_000); setTimeout(supplyLoop, 45_000); }
   await backfill();
   setInterval(() => metaSet(db, 'unknown_factories', JSON.stringify([...unknownFactories])), 600_000).unref();
 }

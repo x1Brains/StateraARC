@@ -49,6 +49,21 @@ export function MoneyFlowCard({ address, onMaker }: { address: string; onMaker?:
   );
 }
 
+// what the card counts, and why the other holders aren't in it (owner 10-23: "be more clear about all of those things")
+function profitNote(d: V2Profit) {
+  const n = (x: number) => x.toLocaleString();
+  let t = `Wallets holding over $0.10, each compared with its own average buy price${d.owned ? ' (buys through routers, bots and smart wallets count for the wallet that got the tokens)' : ''}.`;
+  if (d.untracked) {
+    const w = d.why;
+    if (w) {
+      const parts = [w.airdrop && `${n(w.airdrop)} got an airdrop`, w.sent && `${n(w.sent)} were sent tokens by another wallet`, w.share && `${n(w.share)} got a cut of someone else's trade`,
+        w.mint && `${n(w.mint)} got tokens when it was created`, w.other && `${n(w.other)} other`].filter(Boolean) as string[];
+      t += ` Not counted, because they never bought: ${parts.join(', ')}.`;
+    } else t += ` ${n(d.untracked)} more holders are not counted because their buy price can't be matched to them: their tokens came through a smart wallet, bot or router${d.preLaunch ? ', were bought before Sep 16,' : ''} or arrived by transfer.`;
+  }
+  if (d.coverage != null && d.coverage < 0.97) t += ` ${Math.round(d.coverage * 100)}% of trades matched to wallets so far.`;
+  return t;
+}
 // the server's bands, in words (≤ −50% … > +100% read as noise — owner 10-23)
 const PR_BANDS = ['Down over 50%', 'Down 20 to 50%', 'Down under 20%', 'Up under 25%', 'Up 25 to 100%', 'More than 2x'];
 export function ProfitCard({ address }: { address: string }) {
@@ -70,7 +85,7 @@ export function ProfitCard({ address }: { address: string }) {
       <div className="pr-dist">{d.dist!.map((b, i) => (
         <div key={b.label} className="pr-row"><span>{PR_BANDS[i] ?? b.label}</span><div className="pr-bar"><i className={i < 3 ? 'down' : 'up'} style={{ width: `${Math.max(1, b.pct)}%` }} /></div><em>{b.holders.toLocaleString()}<small>{b.holders && b.pct < 1 ? '<1' : b.pct.toFixed(0)}%</small></em></div>
       ))}</div>
-      <div className="side-note">Wallets holding over $0.10, each compared with its own average buy price on Arc USDC pools{d.preLaunch ? ' since mainnet launch (Sep 16)' : ''}.{d.untracked ? ` ${d.untracked.toLocaleString()} more holders are not counted because their buy price can't be matched to them: their tokens came through a smart wallet, bot or router${d.preLaunch ? ', were bought before Sep 16,' : ''} or arrived by transfer.` : ''}{d.coverage != null && d.coverage < 0.97 ? ` ${Math.round(d.coverage * 100)}% of trades matched to wallets so far.` : ''}</div>
+      <div className="side-note">{profitNote(d)}</div>
     </div>
   );
 }

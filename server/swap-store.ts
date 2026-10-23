@@ -207,14 +207,15 @@ type Trader = { wallet: string; bought: number; sold: number; qtyBought: number;
 // store alone, so a wallet that moved its tokens out (a transfer, a sell on a venue we don't index, a launchpad curve) still
 // counted as holding — GLITCH showed 132,955 "buyers still holding", 132,218 of them hold ZERO; the real number was 166.
 const HOLDERS_DIR = process.env.HOLDERS_DIR || '/root/statera-api-state/holders';
-const LAUNCH_BLOCK = 21_068_653; // the store's first block (mainnet launch, Sep 16)
+// the store's first block: mainnet launch (Sep 16) until the pre-launch history was merged (scripts/merge-prelaunch.ts) — then meta 'back'
+const storeStart = () => { const d = conn(); const v = d ? Number(metaGet(d, 'back') || 0) : 0; return v || 21_068_653; };
 const preLaunch = new Map<string, boolean>(); // token → deployed before the store starts (its holder index's first block)
 function balancesOf(token: string): Map<string, number> | null {
   const d = conn(); if (!d) return null;
   try {
     const j = JSON.parse(fs.readFileSync(`${HOLDERS_DIR}/${token.toLowerCase()}.json`, 'utf8'));
     if (j?.v !== 1 || !j.at) return null;
-    preLaunch.set(token.toLowerCase(), Number(j.start) < LAUNCH_BLOCK);
+    preLaunch.set(token.toLowerCase(), Number(j.start) < storeStart());
     const dec = (d.prepare('SELECT dec FROM pools WHERE token = ? LIMIT 1').get(token.toLowerCase()) as { dec: number } | undefined)?.dec ?? 18;
     const div = 10 ** dec, m = new Map<string, number>();
     for (const [a, v] of Object.entries(j.bal as Record<string, string>)) { const n = Number(BigInt(v)) / div; if (n > 0) m.set(a, n); }
@@ -273,6 +274,13 @@ function topTradersNow(token: string, sort: 'pnl' | 'volume' | 'loss', limit: nu
 }
 // Holder profitability: wallets that still hold from their own buys — how many (and how much of what they hold) are above
 // their average entry, the median entry, and how entries spread around today's price.
+// tokens whose positions are credited to the real buyer / seller (scripts/owners-backfill.ts, then the indexer's owner loop)
+let ownedAt = 0, owned = new Set<string>();
+function ownerTracked(token: string) {
+  const d = conn(); if (!d) return false;
+  if (Date.now() - ownedAt > 5 * 60_000) { ownedAt = Date.now(); try { owned = new Set((d.prepare('SELECT token FROM owner_tokens').all() as { token: string }[]).map((r) => r.token)); } catch { owned = new Set(); } }
+  return owned.has(token.toLowerCase());
+}
 export function profitability(token: string) {
   return cached('prof:' + token.toLowerCase(), 5 * 60_000, () => profitabilityNow(token));
 }
@@ -292,8 +300,16 @@ function profitabilityNow(token: string) {
   const skip = new Set(['0x8366a39cc670b4001a1121b8f6a443a643e40951', '0x000000000000000000000000000000000000dead', '0x0000000000000000000000000000000000000000',
     ...(conn()!.prepare('SELECT key FROM pools WHERE token = ?').all(token.toLowerCase()) as { key: string }[]).map((p) => p.key.toLowerCase())]);
   const traded = new Set(r.list.filter((t) => t.qtyBought > 0).map((t) => t.wallet));
-  let untracked = 0;
-  for (const [a, b] of r.bal!) if (b * px >= 0.1 && !traded.has(a) && !skip.has(a)) untracked++;
+  // why they aren't counted (table acq, from the token's Transfers — server/swap-owners.ts): airdrop > mint > sent > trade share
+  let untracked = 0; const why = { airdrop: 0, mint: 0, sent: 0, share: 0, other: 0 };
+  const owned = ownerTracked(token);
+  const acqQ = owned ? conn()!.prepare('SELECT flags FROM acq WHERE token = ? AND wallet = ?') : null;
+  for (const [a, b] of r.bal!) {
+    if (b * px < 0.1 || traded.has(a) || skip.has(a)) continue;
+    untracked++;
+    const f = acqQ ? ((acqQ.get(token.toLowerCase(), addrToBlob(a)) as { flags: number } | undefined)?.flags ?? 0) : 0;
+    if (f & 1) why.airdrop++; else if (f & 2) why.mint++; else if (f & 4) why.sent++; else if (f & 8) why.share++; else why.other++;
+  }
   const inProfit = holders.filter((t) => px > t.avgBuy!);
   const heldAll = holders.reduce((s, t) => s + t.held, 0), heldUp = inProfit.reduce((s, t) => s + t.held, 0);
   const entries = holders.map((t) => t.avgBuy!).sort((a, b) => a - b);
@@ -305,7 +321,7 @@ function profitabilityNow(token: string) {
     const n = holders.filter((t) => { const x = px / t.avgBuy!; return x >= lo && x < hi; }).length;
     return { label, holders: n, pct: (n / holders.length) * 100 };
   });
-  return { price: px, coverage: r.coverage, holders: holders.length, untracked, since: '2026-09-16', preLaunch: preLaunch.get(token.toLowerCase()) ?? false, inProfit: inProfit.length, pctHolders: (inProfit.length / holders.length) * 100,
+  return { price: px, coverage: r.coverage, holders: holders.length, untracked, why: owned ? why : null, owned, preLaunch: preLaunch.get(token.toLowerCase()) ?? false, inProfit: inProfit.length, pctHolders: (inProfit.length / holders.length) * 100,
     pctSupply: heldAll > 0 ? (heldUp / heldAll) * 100 : null, medianEntry: median, avgEntry: holders.reduce((s, t) => s + t.avgBuy! * t.held, 0) / heldAll, dist };
 }
 
