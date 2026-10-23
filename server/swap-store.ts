@@ -218,9 +218,9 @@ function balancesOf(token: string): Map<string, number> | null {
     return m;
   } catch { return null; } // not indexed yet
 }
-function tradersOf(token: string): { list: Trader[]; price: number | null; coverage: number | null; balances: boolean } | null {
+function tradersOf(token: string): { list: Trader[]; price: number | null; coverage: number | null; balances: boolean; bal: Map<string, number> | null } | null {
   const d = conn(); if (!d) return null;
-  const pools = poolsOf(token); if (!pools.length) return { list: [], price: null, coverage: null, balances: false };
+  const pools = poolsOf(token); if (!pools.length) return { list: [], price: null, coverage: null, balances: false, bal: null };
   return cached('traders:' + token, 5 * 60_000, () => {
     const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(',');
     // running totals per wallet (trader_pos — built once by scripts/traders-build.ts, kept current by the indexer); the old
@@ -248,7 +248,7 @@ function tradersOf(token: string): { list: Trader[]; price: number | null; cover
       t.roi = t.bought >= 1 ? (t.pnl / t.bought) * 100 : null;
     }
     // positions cover every pool of the token, the trade count only the counted pools → can exceed 100%: capped
-    return { list: [...by.values()], price, coverage: all ? Math.min(1, known / all) : null, balances: !!bal };
+    return { list: [...by.values()], price, coverage: all ? Math.min(1, known / all) : null, balances: !!bal, bal };
   });
 }
 export function topTraders(token: string, sort: 'pnl' | 'volume' | 'loss' = 'pnl', limit = 50) {
@@ -267,6 +267,14 @@ export function profitability(token: string) {
   // dust (under 10 cents still held) isn't a holder — same line as the page's holders-over-$0.10 count
   const holders = r.list.filter((t) => t.held * px >= 0.1 && t.avgBuy != null && t.avgBuy > 0);
   if (!holders.length) return { price: px, coverage: r.coverage, holders: 0 };
+  // holders over $0.10 with NO pool buy in the store — bought before the store starts (mainnet launch, block 21,068,653; ARGUS
+  // was deployed at 18.8M), on a launchpad curve, or got the tokens by transfer. Shown so the card says what it leaves out
+  // (owner 10-23). Pools, the V4 PoolManager and burn addresses aren't holders.
+  const skip = new Set(['0x8366a39cc670b4001a1121b8f6a443a643e40951', '0x000000000000000000000000000000000000dead', '0x0000000000000000000000000000000000000000',
+    ...(conn()!.prepare('SELECT key FROM pools WHERE token = ?').all(token.toLowerCase()) as { key: string }[]).map((p) => p.key.toLowerCase())]);
+  const traded = new Set(r.list.filter((t) => t.qtyBought > 0).map((t) => t.wallet));
+  let untracked = 0;
+  for (const [a, b] of r.bal!) if (b * px >= 0.1 && !traded.has(a) && !skip.has(a)) untracked++;
   const inProfit = holders.filter((t) => px > t.avgBuy!);
   const heldAll = holders.reduce((s, t) => s + t.held, 0), heldUp = inProfit.reduce((s, t) => s + t.held, 0);
   const entries = holders.map((t) => t.avgBuy!).sort((a, b) => a - b);
@@ -278,7 +286,7 @@ export function profitability(token: string) {
     const n = holders.filter((t) => { const x = px / t.avgBuy!; return x >= lo && x < hi; }).length;
     return { label, holders: n, pct: (n / holders.length) * 100 };
   });
-  return { price: px, coverage: r.coverage, holders: holders.length, inProfit: inProfit.length, pctHolders: (inProfit.length / holders.length) * 100,
+  return { price: px, coverage: r.coverage, holders: holders.length, untracked, since: '2026-09-16', inProfit: inProfit.length, pctHolders: (inProfit.length / holders.length) * 100,
     pctSupply: heldAll > 0 ? (heldUp / heldAll) * 100 : null, medianEntry: median, avgEntry: holders.reduce((s, t) => s + t.avgBuy! * t.held, 0) / heldAll, dist };
 }
 

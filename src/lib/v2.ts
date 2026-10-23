@@ -113,7 +113,7 @@ export const v2Traders = (addr: string, sort: 'pnl' | 'volume' | 'loss' = 'pnl')
   get<{ price: number | null; coverage: number | null; traders: number; rows: V2Trader[] }>(`token/${addr.toLowerCase()}/traders?sort=${sort}&limit=100`, 25000)
     .then((j) => { if (!Array.isArray(j?.rows)) throw new Error('v2 traders: bad shape'); return j; });
 export interface V2Profit { price: number | null; coverage: number | null; holders: number; inProfit?: number; pctHolders?: number; pctSupply?: number | null; medianEntry?: number; avgEntry?: number;
-  dist?: { label: string; holders: number; pct: number }[] }
+  dist?: { label: string; holders: number; pct: number }[]; untracked?: number; since?: string }
 export const v2Profit = (addr: string) => get<V2Profit>(`token/${addr.toLowerCase()}/profitability`, 25000).then((j) => { if (!j || typeof j.holders !== 'number') throw new Error('v2 profit: bad shape'); return j; });
 export const v2MakerTrades = (addr: string, maker: string) =>
   get<{ trades: (V2HistTrade & { trader: string | null })[]; hasMore: boolean }>(`token/${addr.toLowerCase()}/history?maker=${maker.toLowerCase()}&limit=500`, 15000)

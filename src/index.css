@@ -2387,8 +2387,8 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .pr-big span { font-size: 12px; color: var(--gray); line-height: 1.35; }
 .pr-sub { margin: 12px 0 0; font-size: 11px; color: var(--gray); }
 .pr-dist { display: grid; gap: 4px; margin: 8px 0 6px; }
-.pr-row { display: grid; grid-template-columns: 108px 1fr 34px; align-items: center; gap: 8px; font: 11px var(--mono); color: var(--gray); }
-.pr-row em { font-style: normal; text-align: right; color: var(--chrome); }
+.pr-row { display: grid; grid-template-columns: 108px 1fr 74px; align-items: center; gap: 8px; font: 11px var(--mono); color: var(--gray); }
+.pr-row em { font-style: normal; text-align: right; color: var(--chrome); white-space: nowrap; } .pr-row em small { display: inline-block; width: 30px; margin-left: 6px; color: var(--gray); font-size: 10px; }
 .pr-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.05); overflow: hidden; }
 .pr-bar i { display: block; height: 100%; border-radius: 3px; } .pr-bar i.up { background: #5ad18a; } .pr-bar i.down { background: #ff5a5a; }
 .tt-table { display: grid; }
