@@ -23,7 +23,8 @@ export const START_BLOCK = Number(process.env.SWAPS_START || 21_068_653);
 export function openSwapDb(readonly = false): DatabaseSync {
   if (!readonly) fs.mkdirSync(path.dirname(SWAPS_DB), { recursive: true });
   const db = new DatabaseSync(SWAPS_DB, readonly ? { readOnly: true } : {});
-  if (readonly) { db.exec('PRAGMA busy_timeout=5000; PRAGMA query_only=1; PRAGMA cache_size=-32000;'); return db; }
+  // readers: 8 MB page cache each (4 connections: the API + 3 worker lanes; the OS file cache serves the rest — 10-23 OOM)
+  if (readonly) { db.exec('PRAGMA busy_timeout=5000; PRAGMA query_only=1; PRAGMA cache_size=-8000;'); return db; }
   db.exec(`
     PRAGMA busy_timeout=15000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-32000;
     CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
