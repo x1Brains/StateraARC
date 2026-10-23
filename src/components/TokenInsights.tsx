@@ -49,6 +49,8 @@ export function MoneyFlowCard({ address, onMaker }: { address: string; onMaker?:
   );
 }
 
+// the server's bands, in words (≤ −50% … > +100% read as noise — owner 10-23)
+const PR_BANDS = ['Down over 50%', 'Down 20 to 50%', 'Down under 20%', 'Up under 25%', 'Up 25 to 100%', 'More than 2x'];
 export function ProfitCard({ address }: { address: string }) {
   const [d, setD] = useState<V2Profit | null>(null);
   useEffect(() => { let alive = true; setD(null); v2Profit(address).then((r) => { if (alive) setD(r); }).catch(() => { if (alive) setD({ price: null, coverage: null, holders: 0 }); }); return () => { alive = false; }; }, [address]);
@@ -57,17 +59,18 @@ export function ProfitCard({ address }: { address: string }) {
   return (
     <div className="panel side-card pr-card">
       <h3>Holder Profitability</h3>
-      <div className="pr-big"><b className={d.pctHolders >= 50 ? 'up' : 'down'}>{d.pctHolders.toFixed(0)}%</b><span>of {d.holders.toLocaleString()} buyers still holding are in profit</span></div>
+      <div className="pr-big"><b className={d.pctHolders >= 50 ? 'up' : 'down'}>{d.pctHolders.toFixed(0)}%</b><span>of {d.holders.toLocaleString()} holders are in profit right now</span></div>
       <div className="ta-grid">
-        <div className="ta-cell"><div className="ta-v">{d.pctSupply != null ? d.pctSupply.toFixed(0) + '%' : '—'}</div><div className="ta-l">Their tokens in profit</div></div>
-        <div className="ta-cell"><div className="ta-v">{d.medianEntry != null ? tprice(d.medianEntry) : '—'}</div><div className="ta-l">Median entry</div></div>
-        <div className="ta-cell"><div className="ta-v">{d.avgEntry != null ? tprice(d.avgEntry) : '—'}</div><div className="ta-l">Avg entry (by size)</div></div>
-        <div className="ta-cell"><div className="ta-v">{d.price != null ? tprice(d.price) : '—'}</div><div className="ta-l">Now</div></div>
+        <div className="ta-cell"><div className="ta-v">{d.pctSupply != null ? d.pctSupply.toFixed(0) + '%' : '—'}</div><div className="ta-l">Of held tokens in profit</div></div>
+        <div className="ta-cell"><div className="ta-v">{d.medianEntry != null ? tprice(d.medianEntry) : '—'}</div><div className="ta-l">Typical buy price</div></div>
+        <div className="ta-cell"><div className="ta-v">{d.avgEntry != null ? tprice(d.avgEntry) : '—'}</div><div className="ta-l">Avg buy price</div></div>
+        <div className="ta-cell"><div className="ta-v">{d.price != null ? tprice(d.price) : '—'}</div><div className="ta-l">Price now</div></div>
       </div>
-      <div className="pr-dist">{d.dist!.map((b) => (
-        <div key={b.label} className="pr-row"><span>{b.label}</span><div className="pr-bar"><i className={b.label.startsWith('−') || b.label.startsWith('≤') ? 'down' : 'up'} style={{ width: `${Math.max(1, b.pct)}%` }} /></div><em>{b.pct.toFixed(0)}%</em></div>
+      <div className="pr-sub">Holders by how far they are up or down since they bought</div>
+      <div className="pr-dist">{d.dist!.map((b, i) => (
+        <div key={b.label} className="pr-row"><span>{PR_BANDS[i] ?? b.label}</span><div className="pr-bar"><i className={i < 3 ? 'down' : 'up'} style={{ width: `${Math.max(1, b.pct)}%` }} /></div><em>{b.pct.toFixed(0)}%</em></div>
       ))}</div>
-      <div className="side-note">Wallets holding over $0.10 now, each at its own average buy price, never counting more than it holds on chain{d.coverage != null && d.coverage < 0.97 ? ` · ${Math.round(d.coverage * 100)}% of trades matched to wallets so far` : ''}.</div>
+      <div className="side-note">Counts wallets holding over $0.10, each compared with its own average buy price{d.coverage != null && d.coverage < 0.97 ? ` · ${Math.round(d.coverage * 100)}% of trades matched to wallets so far` : ''}.</div>
     </div>
   );
 }
