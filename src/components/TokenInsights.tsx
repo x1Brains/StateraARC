@@ -70,7 +70,7 @@ export function ProfitCard({ address }: { address: string }) {
       <div className="pr-dist">{d.dist!.map((b, i) => (
         <div key={b.label} className="pr-row"><span>{PR_BANDS[i] ?? b.label}</span><div className="pr-bar"><i className={i < 3 ? 'down' : 'up'} style={{ width: `${Math.max(1, b.pct)}%` }} /></div><em>{b.holders.toLocaleString()}<small>{b.holders && b.pct < 1 ? '<1' : b.pct.toFixed(0)}%</small></em></div>
       ))}</div>
-      <div className="side-note">Wallets holding over $0.10, each compared with its own average buy price on Arc USDC pools since mainnet launch (Sep 16).{d.untracked ? ` ${d.untracked.toLocaleString()} more holders bought before that, on a launchpad curve, or got their tokens by transfer, so their buy price is unknown and they are not counted here.` : ''}{d.coverage != null && d.coverage < 0.97 ? ` ${Math.round(d.coverage * 100)}% of trades matched to wallets so far.` : ''}</div>
+      <div className="side-note">Wallets holding over $0.10, each compared with its own average buy price on Arc USDC pools{d.preLaunch ? ' since mainnet launch (Sep 16)' : ''}.{d.untracked ? ` ${d.untracked.toLocaleString()} more holders are not counted because their buy price can't be matched to them: their tokens came through a smart wallet, bot or router${d.preLaunch ? ', were bought before Sep 16,' : ''} or arrived by transfer.` : ''}{d.coverage != null && d.coverage < 0.97 ? ` ${Math.round(d.coverage * 100)}% of trades matched to wallets so far.` : ''}</div>
     </div>
   );
 }

@@ -207,11 +207,14 @@ type Trader = { wallet: string; bought: number; sold: number; qtyBought: number;
 // store alone, so a wallet that moved its tokens out (a transfer, a sell on a venue we don't index, a launchpad curve) still
 // counted as holding — GLITCH showed 132,955 "buyers still holding", 132,218 of them hold ZERO; the real number was 166.
 const HOLDERS_DIR = process.env.HOLDERS_DIR || '/root/statera-api-state/holders';
+const LAUNCH_BLOCK = 21_068_653; // the store's first block (mainnet launch, Sep 16)
+const preLaunch = new Map<string, boolean>(); // token → deployed before the store starts (its holder index's first block)
 function balancesOf(token: string): Map<string, number> | null {
   const d = conn(); if (!d) return null;
   try {
     const j = JSON.parse(fs.readFileSync(`${HOLDERS_DIR}/${token.toLowerCase()}.json`, 'utf8'));
     if (j?.v !== 1 || !j.at) return null;
+    preLaunch.set(token.toLowerCase(), Number(j.start) < LAUNCH_BLOCK);
     const dec = (d.prepare('SELECT dec FROM pools WHERE token = ? LIMIT 1').get(token.toLowerCase()) as { dec: number } | undefined)?.dec ?? 18;
     const div = 10 ** dec, m = new Map<string, number>();
     for (const [a, v] of Object.entries(j.bal as Record<string, string>)) { const n = Number(BigInt(v)) / div; if (n > 0) m.set(a, n); }
@@ -267,8 +270,10 @@ export function profitability(token: string) {
   // dust (under 10 cents still held) isn't a holder — same line as the page's holders-over-$0.10 count
   const holders = r.list.filter((t) => t.held * px >= 0.1 && t.avgBuy != null && t.avgBuy > 0);
   if (!holders.length) return { price: px, coverage: r.coverage, holders: 0 };
-  // holders over $0.10 with NO pool buy in the store — bought before the store starts (mainnet launch, block 21,068,653; ARGUS
-  // was deployed at 18.8M), on a launchpad curve, or got the tokens by transfer. Shown so the card says what it leaves out
+  // holders over $0.10 with NO pool buy credited to them. A buy is credited to the wallet that SENT the transaction, so a buy
+  // made through a smart wallet, a bot or a router that sends tokens on lands here (GLITCH 10-23: 169 such holders — 43 are
+  // contracts, the rest got pool buys sent by another address; GLITCH launched after Sep 16, so none are early buyers), plus
+  // tokens moved by transfer, and — only for tokens deployed before the store starts (ARGUS at 18.8M) — pre-launch buys. Shown so the card says what it leaves out
   // (owner 10-23). Pools, the V4 PoolManager and burn addresses aren't holders.
   const skip = new Set(['0x8366a39cc670b4001a1121b8f6a443a643e40951', '0x000000000000000000000000000000000000dead', '0x0000000000000000000000000000000000000000',
     ...(conn()!.prepare('SELECT key FROM pools WHERE token = ?').all(token.toLowerCase()) as { key: string }[]).map((p) => p.key.toLowerCase())]);
@@ -286,7 +291,7 @@ export function profitability(token: string) {
     const n = holders.filter((t) => { const x = px / t.avgBuy!; return x >= lo && x < hi; }).length;
     return { label, holders: n, pct: (n / holders.length) * 100 };
   });
-  return { price: px, coverage: r.coverage, holders: holders.length, untracked, since: '2026-09-16', inProfit: inProfit.length, pctHolders: (inProfit.length / holders.length) * 100,
+  return { price: px, coverage: r.coverage, holders: holders.length, untracked, since: '2026-09-16', preLaunch: preLaunch.get(token.toLowerCase()) ?? false, inProfit: inProfit.length, pctHolders: (inProfit.length / holders.length) * 100,
     pctSupply: heldAll > 0 ? (heldUp / heldAll) * 100 : null, medianEntry: median, avgEntry: holders.reduce((s, t) => s + t.avgBuy! * t.held, 0) / heldAll, dist };
 }
 
