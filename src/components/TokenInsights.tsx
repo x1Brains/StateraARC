@@ -53,7 +53,7 @@ export function ProfitCard({ address }: { address: string }) {
   const [d, setD] = useState<V2Profit | null>(null);
   useEffect(() => { let alive = true; setD(null); v2Profit(address).then((r) => { if (alive) setD(r); }).catch(() => { if (alive) setD({ price: null, coverage: null, holders: 0 }); }); return () => { alive = false; }; }, [address]);
   // only once most of the token's trades are matched to wallets (10-21: "100% of 72 buyers in profit" was the last hour's buyers)
-  if (!d || !d.holders || d.pctHolders == null || d.coverage == null || d.coverage < 0.5) return null;
+  if (!d || !d.holders || d.holders < 10 || d.pctHolders == null || d.coverage == null || d.coverage < 0.5) return null;
   return (
     <div className="panel side-card pr-card">
       <h3>Holder Profitability</h3>
