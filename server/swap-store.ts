@@ -221,10 +221,15 @@ function balancesOf(token: string): Map<string, number> | null {
     return m;
   } catch { return null; } // not indexed yet
 }
+const tradersCache = new Map<string, { at: number; v: { list: Trader[]; price: number | null; coverage: number | null; balances: boolean; bal: Map<string, number> | null } }>();
 function tradersOf(token: string): { list: Trader[]; price: number | null; coverage: number | null; balances: boolean; bal: Map<string, number> | null } | null {
   const d = conn(); if (!d) return null;
   const pools = poolsOf(token); if (!pools.length) return { list: [], price: null, coverage: null, balances: false, bal: null };
-  return cached('traders:' + token, 5 * 60_000, () => {
+  // ⛔ 10-23: these lists sat in the shared 1,500-entry cache (GLITCH alone = 133k wallets) and the API was OOM-killed 7× in an
+  // hour — now their own cache of a few tokens; topTraders / profitability cache their small RESULTS instead
+  const t = token.toLowerCase(), hit = tradersCache.get(t);
+  if (hit && Date.now() - hit.at < 5 * 60_000) return hit.v;
+  const v = (() => {
     const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(',');
     // running totals per wallet (trader_pos — built once by scripts/traders-build.ts, kept current by the indexer); the old
     // GROUP BY over swaps ⨝ makers took > 60 s on a busy token once the 12.3M-row maker history was in
@@ -252,9 +257,15 @@ function tradersOf(token: string): { list: Trader[]; price: number | null; cover
     }
     // positions cover every pool of the token, the trade count only the counted pools → can exceed 100%: capped
     return { list: [...by.values()], price, coverage: all ? Math.min(1, known / all) : null, balances: !!bal, bal };
-  });
+  })();
+  tradersCache.delete(t); tradersCache.set(t, { at: Date.now(), v });
+  while (tradersCache.size > 4) tradersCache.delete(tradersCache.keys().next().value!);
+  return v;
 }
 export function topTraders(token: string, sort: 'pnl' | 'volume' | 'loss' = 'pnl', limit = 50) {
+  return cached(`top:${token.toLowerCase()}:${sort}:${limit}`, 5 * 60_000, () => topTradersNow(token, sort, limit));
+}
+function topTradersNow(token: string, sort: 'pnl' | 'volume' | 'loss', limit: number) {
   const r = tradersOf(token); if (!r) return null;
   const list = [...r.list].filter((t) => t.avgBuy != null);
   list.sort(sort === 'volume' ? (a, b) => (b.bought + b.sold) - (a.bought + a.sold) : sort === 'loss' ? (a, b) => a.pnl - b.pnl : (a, b) => b.pnl - a.pnl);
@@ -263,6 +274,9 @@ export function topTraders(token: string, sort: 'pnl' | 'volume' | 'loss' = 'pnl
 // Holder profitability: wallets that still hold from their own buys — how many (and how much of what they hold) are above
 // their average entry, the median entry, and how entries spread around today's price.
 export function profitability(token: string) {
+  return cached('prof:' + token.toLowerCase(), 5 * 60_000, () => profitabilityNow(token));
+}
+function profitabilityNow(token: string) {
   const r = tradersOf(token); if (!r) return null;
   // without real balances the "still holding" count can't be trusted → no card (holders: 0) rather than a wrong one
   if (!r.balances || r.price == null) return { price: r.price, coverage: r.coverage, holders: 0 };
