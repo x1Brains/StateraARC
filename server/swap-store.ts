@@ -202,9 +202,25 @@ export function flow(token: string) {
 // marked to the last price. Shared by Top traders and Holder profitability. Cached 5 min (a busy token is ~1 s to build).
 type Trader = { wallet: string; bought: number; sold: number; qtyBought: number; qtySold: number; buys: number; sells: number; first: number; last: number;
   avgBuy: number | null; held: number; realized: number; unrealized: number; pnl: number; roi: number | null };
-function tradersOf(token: string): { list: Trader[]; price: number | null; coverage: number | null } | null {
+// Every wallet's REAL balance now, from our holder index (server/holder-index.ts — every Transfer since deploy, summed; the API
+// keeps it current). ⛔ 10-23 (GLITCH dev: "something wrong with holder profitability"): "held" was buys − sells from the swap
+// store alone, so a wallet that moved its tokens out (a transfer, a sell on a venue we don't index, a launchpad curve) still
+// counted as holding — GLITCH showed 132,955 "buyers still holding", 132,218 of them hold ZERO; the real number was 166.
+const HOLDERS_DIR = process.env.HOLDERS_DIR || '/root/statera-api-state/holders';
+function balancesOf(token: string): Map<string, number> | null {
   const d = conn(); if (!d) return null;
-  const pools = poolsOf(token); if (!pools.length) return { list: [], price: null, coverage: null };
+  try {
+    const j = JSON.parse(fs.readFileSync(`${HOLDERS_DIR}/${token.toLowerCase()}.json`, 'utf8'));
+    if (j?.v !== 1 || !j.at) return null;
+    const dec = (d.prepare('SELECT dec FROM pools WHERE token = ? LIMIT 1').get(token.toLowerCase()) as { dec: number } | undefined)?.dec ?? 18;
+    const div = 10 ** dec, m = new Map<string, number>();
+    for (const [a, v] of Object.entries(j.bal as Record<string, string>)) { const n = Number(BigInt(v)) / div; if (n > 0) m.set(a, n); }
+    return m;
+  } catch { return null; } // not indexed yet
+}
+function tradersOf(token: string): { list: Trader[]; price: number | null; coverage: number | null; balances: boolean } | null {
+  const d = conn(); if (!d) return null;
+  const pools = poolsOf(token); if (!pools.length) return { list: [], price: null, coverage: null, balances: false };
   return cached('traders:' + token, 5 * 60_000, () => {
     const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(',');
     // running totals per wallet (trader_pos — built once by scripts/traders-build.ts, kept current by the indexer); the old
@@ -213,6 +229,7 @@ function tradersOf(token: string): { list: Trader[]; price: number | null; cover
       { maker: Uint8Array; bought: number; sold: number; qb: number; qs: number; nb: number; ns: number; first: number; last: number }[]; } catch { return []; } })();
     const all = (d.prepare(`SELECT COALESCE(SUM(n), 0) n FROM c1m WHERE pid IN (${ph})`).get(...pids) as { n: number }).n;
     const price = lastPrice(d, pids);
+    const bal = balancesOf(token);
     const by = new Map<string, Trader>();
     let known = 0;
     for (const r of pos) {
@@ -224,13 +241,14 @@ function tradersOf(token: string): { list: Trader[]; price: number | null; cover
       t.avgBuy = t.qtyBought > 0 ? t.bought / t.qtyBought : null;
       const matched = Math.min(t.qtySold, t.qtyBought);
       t.realized = t.avgBuy != null && t.qtySold > 0 ? t.sold * (matched / t.qtySold) - t.avgBuy * matched : 0;
-      t.held = Math.max(0, t.qtyBought - t.qtySold);
+      // what it still holds of its own buys — never more than the wallet holds on chain right now
+      t.held = Math.max(0, Math.min(t.qtyBought - t.qtySold, bal ? (bal.get(t.wallet) ?? 0) : Infinity));
       t.unrealized = t.avgBuy != null && price != null ? t.held * (price - t.avgBuy) : 0;
       t.pnl = t.realized + t.unrealized;
       t.roi = t.bought >= 1 ? (t.pnl / t.bought) * 100 : null;
     }
     // positions cover every pool of the token, the trade count only the counted pools → can exceed 100%: capped
-    return { list: [...by.values()], price, coverage: all ? Math.min(1, known / all) : null };
+    return { list: [...by.values()], price, coverage: all ? Math.min(1, known / all) : null, balances: !!bal };
   });
 }
 export function topTraders(token: string, sort: 'pnl' | 'volume' | 'loss' = 'pnl', limit = 50) {
@@ -243,9 +261,12 @@ export function topTraders(token: string, sort: 'pnl' | 'volume' | 'loss' = 'pnl
 // their average entry, the median entry, and how entries spread around today's price.
 export function profitability(token: string) {
   const r = tradersOf(token); if (!r) return null;
-  const holders = r.list.filter((t) => t.held > 0 && t.avgBuy != null && t.avgBuy > 0);
-  if (!holders.length || r.price == null) return { price: r.price, coverage: r.coverage, holders: 0 };
+  // without real balances the "still holding" count can't be trusted → no card (holders: 0) rather than a wrong one
+  if (!r.balances || r.price == null) return { price: r.price, coverage: r.coverage, holders: 0 };
   const px = r.price;
+  // dust (under 10 cents still held) isn't a holder — same line as the page's holders-over-$0.10 count
+  const holders = r.list.filter((t) => t.held * px >= 0.1 && t.avgBuy != null && t.avgBuy > 0);
+  if (!holders.length) return { price: px, coverage: r.coverage, holders: 0 };
   const inProfit = holders.filter((t) => px > t.avgBuy!);
   const heldAll = holders.reduce((s, t) => s + t.held, 0), heldUp = inProfit.reduce((s, t) => s + t.held, 0);
   const entries = holders.map((t) => t.avgBuy!).sort((a, b) => a - b);

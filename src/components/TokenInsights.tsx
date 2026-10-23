@@ -67,7 +67,7 @@ export function ProfitCard({ address }: { address: string }) {
       <div className="pr-dist">{d.dist!.map((b) => (
         <div key={b.label} className="pr-row"><span>{b.label}</span><div className="pr-bar"><i className={b.label.startsWith('−') || b.label.startsWith('≤') ? 'down' : 'up'} style={{ width: `${Math.max(1, b.pct)}%` }} /></div><em>{b.pct.toFixed(0)}%</em></div>
       ))}</div>
-      <div className="side-note">From each wallet's own on-chain buys and sells (average cost){d.coverage != null && d.coverage < 0.97 ? ` · ${Math.round(d.coverage * 100)}% of trades matched to wallets so far` : ''}.</div>
+      <div className="side-note">Wallets holding over $0.10 now, each at its own average buy price, never counting more than it holds on chain{d.coverage != null && d.coverage < 0.97 ? ` · ${Math.round(d.coverage * 100)}% of trades matched to wallets so far` : ''}.</div>
     </div>
   );
 }
