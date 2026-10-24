@@ -34,7 +34,7 @@ if (mode === '--export') {
     let start: number; try { start = Number(JSON.parse(fs.readFileSync(`${HD}/${f}`, 'utf8')).start); } catch { continue; }
     const pools = poolQ.all(t) as { pid: number; key: string }[]; if (!pools.length || !start) continue;
     let n = 0;
-    for (const p of pools) for (const r of swQ.all(p.pid, upto) as any[]) { insS.run(t, r.blk, r.li, r.ts, r.side, r.usd, r.amt, r.tx, r.maker); n++; }
+    for (const p of pools) for (const r of swQ.iterate(p.pid, upto) as Iterable<any>) { insS.run(t, r.blk, r.li, r.ts, r.side, r.usd, r.amt, r.tx, r.maker); n++; }
     if (!n) continue;
     insT.run(t, start, JSON.stringify(pools.map((p) => p.key.toLowerCase()).filter((k) => k.length === 42)), n); nt++; ns += n;
     if (nt % 500 === 0) { out.exec('COMMIT'); out.exec('BEGIN'); console.log('tokens', nt, 'swaps', ns); }
@@ -106,6 +106,16 @@ async function getLogs(addrs: string[], lo: number, hi: number): Promise<any[]> 
   }
   throw new Error('getLogs failed ' + lo + '-' + hi + ': ' + last);
 }
+const skipped = new Set<string>();
+async function bySplitAddrs(addrs: string[], lo: number, hi: number): Promise<any[]> {
+  try { return await getLogs(addrs, lo, hi); }
+  catch (e) {
+    if (!(e instanceof Big)) throw e;
+    // one token, one block, still over the node's 20k-log cap: that token can't be read completely — left out of `done`, so it
+    // keeps the sender-credited positions instead of getting incomplete owner ones
+    if (addrs.length < 2) { skipped.add(addrs[0]); console.log('skip (block', lo, 'too dense)', addrs[0]); return []; }
+    const h = addrs.length >> 1; return [...await bySplitAddrs(addrs.slice(0, h), lo, hi), ...await bySplitAddrs(addrs.slice(h), lo, hi)]; }
+}
 const swQ = src.prepare('SELECT token, blk, li, ts, side, usd, amt, tx, maker FROM s WHERE blk BETWEEN ? AND ?');
 const insP = out.prepare('INSERT INTO pos VALUES (?,?,?,?,?,?,?,?,?,?)'), insA = out.prepare('INSERT INTO acq VALUES (?,?,?)'), insD = out.prepare('INSERT OR IGNORE INTO done VALUES (?)');
 const blob = (a: string) => Buffer.from(a.slice(2), 'hex');
@@ -127,7 +137,11 @@ for (const batch of batches) {
     const hi = Math.min(upto, lo + span - 1);
     let logs: any[];
     try { logs = await getLogs(addrs, lo, hi); }
-    catch (e) { if (e instanceof Big && span > 1) { span = Math.max(1, Math.floor(span / 2)); continue; } throw e; }
+    catch (e) {
+      if (!(e instanceof Big)) throw e;
+      if (span > 1) { span = Math.max(1, Math.floor(span / 2)); continue; }
+      logs = await bySplitAddrs(addrs, lo, hi); // one block still "too big": the node refuses that many addresses at once
+    }
     // whole blocks only, so every tx's transfers are together
     const xs = new Map<string, ReturnType<typeof xferOf>[]>(), sw = new Map<string, Swap[]>();
     for (const l of logs) { const t = l.address.toLowerCase(); if (!set.has(t)) continue; const x = xferOf(l); if (!x) continue; (xs.get(t) ?? xs.set(t, []).get(t)!).push(x); }
@@ -141,6 +155,7 @@ for (const batch of batches) {
   }
   out.exec('BEGIN');
   for (const t of batch) {
+    if (skipped.has(t.token)) continue;
     for (const [o, p] of pos.get(t.token)!) insP.run(t.token, blob(o), p.bought, p.sold, p.qb, p.qs, p.nb, p.ns, p.first, p.last);
     for (const [w, f] of acq.get(t.token)!) insA.run(t.token, blob(w), f);
     insD.run(t.token);
