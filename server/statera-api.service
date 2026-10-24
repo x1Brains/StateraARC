@@ -8,7 +8,9 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=/root/statera-api-repo
-ExecStart=/usr/bin/node --max-old-space-size=600 server/statera-api.ts
+# 10-24: heap cap 400 (was 600) — the heap idles ~170 MB but V8 let it grow lazily toward 600 while the 3 swap workers + SQLite use ~250 MB
+# more, so the 9 MB snapshot reload pushed the cgroup past 700M (OOM-killed ~5 min after snapshot runs, 10-23 23:07 + 10-24 03:05)
+ExecStart=/usr/bin/node --max-old-space-size=400 server/statera-api.ts
 Restart=always
 RestartSec=5
 Nice=5

@@ -21,7 +21,7 @@ class Lane {
   private name: string; private ms: number; private heapMb: number;
   constructor(name: string, ms: number, heapMb: number) { this.name = name; this.ms = ms; this.heapMb = heapMb; }
   private spawn() {
-    const w = new Worker(new URL(import.meta.url), { execArgv: ['--disable-warning=ExperimentalWarning'], resourceLimits: { maxOldGenerationSizeMb: this.heapMb } });
+    const w = new Worker(new URL(import.meta.url), { execArgv: ['--disable-warning=ExperimentalWarning'], resourceLimits: { maxOldGenerationSizeMb: this.heapMb, maxYoungGenerationSizeMb: 8 } });
     w.on('message', (m: { id: number; r: unknown; err: string | null }) => {
       const p = this.pending.get(m.id); if (!p) return;
       clearTimeout(p.timer); this.pending.delete(m.id);
@@ -52,7 +52,7 @@ export const poolStats = { calls: 0, timeouts: 0, dedup: 0 };
 // as the chart, so the chart and trade history queued behind it and were dropped with it): charts + trades + wallet swaps never
 // wait on flow or on the whole-history rankings
 // heap caps (10-23 OOM kills): a worker that outgrows its cap dies alone and respawns — the API process keeps serving
-const fast = new Lane('fast', 12_000, 64), mid = new Lane('mid', 30_000, 64), slow = new Lane('slow', 60_000, 128);
+const fast = new Lane('fast', 12_000, 56), mid = new Lane('mid', 30_000, 56), slow = new Lane('slow', 60_000, 112);
 const SLOW = new Set(['topTraders', 'profitability']), MID = new Set(['flow']);
 const inflight = new Map<string, Promise<unknown>>();
 /** Run a swap-store function in a worker; identical concurrent calls share one run. */
