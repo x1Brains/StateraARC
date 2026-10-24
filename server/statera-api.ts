@@ -498,7 +498,7 @@ function launchpadTrading(rows: Token[]) {
     if (n > 0) { g.traded++; g.trades += n; g.volume += vol; }
     by.set(t.launchpad, g);
   }
-  const pads = [...by.values()].sort((a, b) => b.trades - a.trades);
+  const pads = [...by.values()].sort((a, b) => b.volume - a.volume) // by 24h volume (owner 10-24);
   // red-flagged tokens (redFlags 'high') never headline the card; their trades still count in the totals above
   // TOP BY MARKET CAP like argus.world's own list (owner 10-21) — a pump-and-dump has volume, never a real market cap with
   // liquidity behind it; red-flagged and sub-$1K-liquidity tokens are left out

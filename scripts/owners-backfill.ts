@@ -92,14 +92,15 @@ async function getLogs(addrs: string[], lo: number, hi: number): Promise<any[]> 
     if (!useTen && hi - lo + 1 > 10_000) throw new Big();
     try {
       calls++;
+      if (calls % 100 === 0) console.log(new Date().toISOString().slice(11, 19), 'progress: block', lo, 'span', hi - lo + 1, 'calls', calls, Date.now() < tenBlockedUntil ? '(tenderly paused, arc.io)' : '(tenderly)');
       const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(40_000),
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getLogs', params: [{ address: addrs, topics: [T_TRANSFER], fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16) }] }) });
-      if (r.status === 429) { last = url + ' 429'; if (useTen) tenBlockedUntil = Date.now() + 10 * 60_000; await sleep(2000 * Math.min(i + 1, 8)); continue; }
+      if (r.status === 429) { last = url + ' 429'; if (useTen) tenBlockedUntil = Date.now() + 2 * 60_000; await sleep(2000 * Math.min(i + 1, 8)); continue; }
       const j: any = await r.json();
       if (j.result) return j.result;
       const m = String(j.error?.message || '');
       last = url + ' ' + m.slice(0, 80);
-      if (/rate/i.test(m)) { if (useTen) tenBlockedUntil = Date.now() + 10 * 60_000; await sleep(2000 * Math.min(i + 1, 8)); continue; }
+      if (/rate/i.test(m)) { if (useTen) tenBlockedUntil = Date.now() + 2 * 60_000; await sleep(2000 * Math.min(i + 1, 8)); continue; }
       if (/range|results|too many|exceed/i.test(m)) throw new Big();
     } catch (e) { if (e instanceof Big) throw e; last = url + ' ' + String((e as Error).message).slice(0, 80); }
     await sleep(1000 * Math.min(i + 1, 8));
