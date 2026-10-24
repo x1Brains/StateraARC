@@ -459,6 +459,30 @@ const PAD_NAMES = {
   '0xf7a20a20e18fa7d4b6c68ee58da16799382abce8': 'Arctide',
   // its own name() on chain reads "ubi.fun Revenue Streams" (10-21) — it created UBI, UBIDOG, UBICAT …
   '0x93e5a7565008db9688ba5211fa552d8b108b9c75': 'ubi.fun',
+  // 10-24 (owner: "there's a lot more launchpads on arc") — each proven from the pad's OWN site / API / docs, never a ticker:
+  // Tolly: tollylabs.com bundle `5042:{pad:0xcad7ee…}`; api.tollylabs.com/token/<addr> → "launchpad":"tolly" (TROLL, SWIRLY, ARCGUY)
+  '0xcad7ee36ac193bf2eddb7b3e2736c5bdb8269c8b': 'Tolly',
+  // RadarDex: radardex.pro source `factoryV2: '0x4B638c…'`, `reflFactory: '0x893658…'`; api.radardex.pro/token/<addr> →
+  // "launched":true for COOL/SHARC (V2), DUKE/BUILDOG (V1 0xdc6f9e…), ARCT/LING ("reflection":true, 0x2d933c…)
+  '0x4b638c1502a07a8e1a26112ee98f51a3f34bc93a': 'RadarDex',
+  '0xdc6f9efa59c314a2c5ec8f2b28666415d228f5ee': 'RadarDex',
+  '0x2d933ce4bde6f3d99540b5d7886b383e59b2b2f8': 'RadarDex',
+  '0x8936587f0e54956747ee798b4b9467648ba35e4b': 'RadarDex',
+  // Peach: peach.ag bundle `production-v2-arc-mainnet-v1 … factory:"0x7E462d…"`; that factory logged PP, ARCMAN and PEACH in the
+  // block each was created; the token itself is CREATE2'd by Peach's sub-deployer 0xeaf114…
+  '0xeaf114fdaeae85f1ac42455e53c0738b0e68094c': 'Peach',
+  '0x7e462d220b6b0a4c55b205b613133dc1c1cc9dc1': 'Peach',
+  // o1: docs.o1.exchange production contracts, Arc mainnet: `Token deployer | 0xFf70918E…`
+  '0xff70918ef17a2d74d683a8297813b177bafad1f4': 'o1',
+  // Lift: lift.fun/config.js `VITE_ARC_FACTORY_V4_ADDRESS: "0x1ca37B3C…"` (and LIFT itself as the platform token)
+  '0x1ca37b3c40e89aad48b5ad3352269c2293cfd3da': 'Lift',
+  // DYOR: its Arc API (service "dyor-api", chain arc) lists Architects / ARCBAT / Builders; its docs list this factory proxy
+  '0x80b42aed46d73f47119dc444bea28a9e68f32bf4': 'DYOR',
+  // long.supply: long.supply/api/pairs lists LONG with launchpad name "long.supply"; LONG was created through this factory by
+  // the wallet that deployed it
+  '0x3324d45dbda511e3333f5177c90f7c5dd30d24b5': 'long.supply',
+  // NOT Minara's 0xff99d8…: it is Uniswap's public UERC20 factory — anyone can mint through it (Minara's own API doesn't index
+  // every token it made), so a factory-wide tag would mislabel
 };
 // Contracts that deploy for anyone and are NOT launchpads: the standard deterministic (CREATE2) deployer — 29 tokens a dev
 // deployed through it read "Launchpad" (pre-existing, found in the 10-06 audit).

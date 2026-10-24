@@ -20,6 +20,15 @@ export const LP_DESC: Record<string, string> = {
   'Argus pad': 'Minted by the Argus launchpad contracts (the ARGUS team) — GLITCH and most Arc meme launches.',
   'faze.fun': 'Minted by the faze.fun launchpad.',
   'Warp': 'Launched on Warp and still on its bonding curve.',
+  'ubi.fun': 'Minted by the ubi.fun launchpad.',
+  'Arctide': 'Launched on Arctide (bonding curve, then an Arctide pool).',
+  'Tolly': 'Launched on Tolly (tollylabs.com): the whole supply goes into locked USDC liquidity at launch.',
+  'RadarDex': 'Launched on RadarDex (radardex.pro).',
+  'Peach': 'Launched on Peach (peach.ag).',
+  'o1': 'Launched on the o1 launchpad (o1.exchange).',
+  'Lift': 'Launched on Lift (lift.fun).',
+  'DYOR': 'Launched on DYOR Fun.',
+  'long.supply': 'Launched on long.supply.',
   'Launchpad': 'Minted by a token-factory contract that has launched several Arc tokens.',
 };
 
