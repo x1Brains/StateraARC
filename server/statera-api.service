@@ -10,11 +10,14 @@ After=network-online.target
 WorkingDirectory=/root/statera-api-repo
 # 10-24: heap cap 400 (was 600) — the heap idles ~170 MB but V8 let it grow lazily toward 600 while the 3 swap workers + SQLite use ~250 MB
 # more, so the 9 MB snapshot reload pushed the cgroup past 700M (OOM-killed ~5 min after snapshot runs, 10-23 23:07 + 10-24 03:05)
+# 10-26: heap cap 300. Swap workers stop after 60 s idle (server/swap-worker.ts), yet 2 big token pages at once (sandbox: 3 big
+# tokens ≈ +280 MB of worker memory) on a ~450 MB main process still crossed 700M (kills 21:21 + 21:35) → MemoryMax 900M.
+# Box had ~880 MB available at the time; the cap still keeps this service from taking more.
 ExecStart=/usr/bin/node --max-old-space-size=300 server/statera-api.ts
 Restart=always
 RestartSec=5
 Nice=5
-MemoryMax=700M
+MemoryMax=900M
 Environment=NODE_ENV=production
 
 [Install]
