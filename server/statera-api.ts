@@ -144,6 +144,25 @@ function rebuild() {
     if (x.change24h != null && isFinite(x.change24h)) t.change24h = x.change24h;
     if (x.spark && x.spark.length >= 2) t.spark = x.spark;
   }
+  // 10-26 ONE set of numbers per row (review: "the same mcap is worked out different ways"):
+  // a row the swap store does NOT measure keeps the snapshot's mcap/FDV, but at the CURRENT price (the on-chain re-price
+  // moved price only, so mcap and price disagreed) — always rescaled from the snapshot's own numbers, never compounded.
+  for (const t of tokens) {
+    const a = t.address.toLowerCase(); if (st?.has(a)) continue;
+    const l = listNums.get(a), p0 = l?.[0], k = p0 && t.price != null && p0 > 0 ? t.price / p0 : null;
+    if (!l || k == null || !isFinite(k) || k > 20 || k < 1 / 20) continue;
+    if (t.mcap != null && l[2] != null) t.mcap = l[2] * k;
+    if (t.fdv != null && l[5] != null) t.fdv = l[5] * k;
+  }
+  // …and the HARD RULES run again LAST: the store numbers above used to land after sanitizeToken, so liq > 1.5x mcap,
+  // volume > 20x liquidity (wash) or mcap > $500M could reach the page. A flag on a store row is re-decided from the store's
+  // own numbers (the snapshot's junk number is gone); every other flag stays. A/B 10-26 on the live 11,288 rows: 10 visible
+  // rows lose wash volume, 0 visible rows hidden, 0 hidden rows shown.
+  const RECOMP = new Set(['mcap', 'liq', 'vol', 'liq>mcap']);
+  tokens = tokens.map((t) => {
+    const b = (t as any).bad;
+    return sanitizeToken(b && RECOMP.has(b) && st?.has(t.address.toLowerCase()) ? { ...t, bad: undefined } : t);
+  });
   const ix = Board.buildIndex(tokens, PINNED);
   const home = {
     asOf, generatedAt, tracked: tokens.length,
@@ -168,7 +187,7 @@ async function load() {
     snapMtime = st.mtimeMs; generatedAt = raw.generatedAt ?? null;
     const a = raw.generatedAt ? Date.parse(raw.generatedAt) : NaN; asOf = Number.isFinite(a) ? a : null;
     const n = (v: any) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-    listNums = new Map(raw.tokens.map((x: any) => [String(x.address || '').toLowerCase(), [n(x.price), n(x.change24h), n(x.mcap), n(x.liq), n(x.volume24h)]]));
+    listNums = new Map(raw.tokens.map((x: any) => [String(x.address || '').toLowerCase(), [n(x.price), n(x.change24h), n(x.mcap), n(x.liq), n(x.volume24h), n(x.fdv)]]));
     let list: Token[] = raw.tokens.map(Live.snapshotRow).map(sanitizeToken);
     tokens = list; rebuild(); // serve the fresh list at once; live prices land a moment later
     const [extra, px] = await Promise.all([
@@ -319,8 +338,10 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     }
     const m = path.match(/^\/token\/(0x[0-9a-fA-F]{40})$/);
     if (m) {
-      const a = m[1].toLowerCase(), t = v.byAddr.get(a), l = listNums.get(a);
-      const list = l ? { price: l[0], change24h: l[1], mcap: l[2], liq: l[3], volume24h: l[4] } : undefined; // the share card's math (see listNums)
+      const a = m[1].toLowerCase(), t = v.byAddr.get(a);
+      // 10-26: the share card gets the row's OWN current numbers (same as the page / screener), not the 30-min-old snapshot
+      // list — rebuild() now keeps mcap/FDV at the row's price, so the card's live/price rescale stays consistent.
+      const list = t ? { price: t.price, change24h: t.change24h ?? null, mcap: t.mcap, liq: t.liq, volume24h: t.volume24h ?? null } : undefined;
       send(req, res, t ? 200 : 404, JSON.stringify(t ? { asOf, token: t, list } : { error: 'not listed' })); return;
     }
     // A wallet's CURRENT holdings from our own data: the tokens in its transfer history, balances re-read now with one

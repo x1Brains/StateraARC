@@ -267,7 +267,7 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}) {
   if (isStateraImpersonator(addr, t?.name, t?.symbol)) s += `<rect x="${P}" y="12" width="${IW}" height="30" rx="8" fill="#d63a3a"/>` + T(W / 2, 33, 'FAKE — NOT ASSOCIATED WITH STATERA', 18, '#ffffff', 'text-anchor="middle" letter-spacing="2"');
   // ── stats row
   y = 284; const sw = (IW - 4 * 12) / 5;
-  [['MARKET CAP', usd(t?.mcap)], ['LIQUIDITY', usd(t?.liq)], ['VOLUME 24H', usd(day?.volume24h ?? t?.volume24h)], (d?.holdersOver?.over > 0 ? ['HOLDERS $0.10+', `${num(d.holdersOver.over)}${d.holdersOver.capped ? '+' : ''}`] : ['HOLDERS', t?.holders != null ? num(t.holders) : '—']), ['TXNS 24H', day?.txns24 != null ? num(day.txns24) : '—']]
+  [['MARKET CAP', usd(t?.mcap)], ['LIQUIDITY', usd(t?.liq)], ['VOLUME 24H', usd(t?.liqUsdc != null ? t?.volume24h : (day?.volume24h ?? t?.volume24h))], (d?.holdersOver?.over > 0 ? ['HOLDERS $0.10+', `${num(d.holdersOver.over)}${d.holdersOver.capped ? '+' : ''}`] : ['HOLDERS', t?.holders != null ? num(t.holders) : '—']), ['TXNS 24H', day?.txns24 != null ? num(day.txns24) : '—']]
     .forEach(([k, v], i) => { const x = P + i * (sw + 12); s += panel(x, y, sw, 100) + T(x + 18, y + 38, k, 14, C.gold, 'letter-spacing="2"') + T(x + 18, y + 78, esc(v), 32); });
   // ── chart
   y = 400; const chH = 400; s += panel(P, y, IW, chH);
@@ -288,7 +288,8 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}) {
   } else s += T(P + 22, y + 100, 'No trades in the last 24 hours', 18, C.dim);
   const rx0 = P + hw + 14; s += panel(rx0, y, hw, bh) + T(rx0 + 22, y + 42, 'LIQUIDITY &amp; POOLS', 20, C.white, 'letter-spacing="2"');
   const pools = (d?.ocPools || []).filter((q) => q && q.liquidityUsdc != null && isFinite(q.liquidityUsdc)).sort((a, b) => b.liquidityUsdc - a.liquidityUsdc);
-  const totLiq = pools.length ? pools.reduce((a, q) => a + q.liquidityUsdc, 0) : t?.liq;
+  // 10-26: same liquidity as the stats row / screener when the server measured the row's real reserves (liqUsdc)
+  const totLiq = t?.liqUsdc != null && t?.liq > 0 ? t.liq : pools.length ? pools.reduce((a, q) => a + q.liquidityUsdc, 0) : t?.liq;
   s += T(rx0 + 22, y + 92, usd(totLiq), 34) + T(rx0 + hw - 22, y + 92, `${pools.length || '—'} pool${pools.length === 1 ? '' : 's'}`, 18, C.gray, 'text-anchor="end"');
   pools.slice(0, 3).forEach((q, i) => { const yy = y + 138 + i * 34, lab = `${q.version}${q.feeTier ? ` · ${q.feeTier / 10000}%` : ''} · USDC`;
     s += `<rect x="${rx0 + 22}" y="${yy - 20}" width="${hw - 44}" height="28" rx="8" fill="${C.tile}"/>` + T(rx0 + 34, yy - 1, esc(lab), 15, C.gray) + T(rx0 + hw - 34, yy - 1, usd(q.liquidityUsdc), 15, C.white, 'text-anchor="end"'); });

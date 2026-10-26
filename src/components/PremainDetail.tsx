@@ -307,10 +307,13 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   // seed.liq is the indexer's aggregate across the token's pools (matches the screener) — prefer it; fall
   // back to on-chain reserves for coins with no seed. (bothSides can be a spurious 0 from a near-empty pool.)
   const liq = firstPos(seed?.liq, bothSides, ocPool?.tvl, rd?.liquidityTotal, warp?.liquidity);
-  const mc = firstPos(seed?.mcap, warp?.mcap, px != null && supplyNum ? px * supplyNum : null);
+  // (market cap is decided below, once the on-chain supply/burn is known — 10-26)
   // 24h volume: the indexer's on-chain figure summed across ALL the token's pools, then this page's own on-chain scan
   // (primary pool only), then the indexers.
-  const vol = firstPos(chainSeed?.volume24h, dayStats?.volume24h, rd?.volume24, seed?.volume24h, warp?.volume24h);
+  // 10-26: a row the server measures (liqUsdc set) shows the screener's 24h volume — every counted pool, wash volume
+  // already dropped by the hard rules — and never falls through to a one-pool scan that would bring the wash number back.
+  const vol = seed?.liqUsdc != null ? (seed.volume24h ?? null)
+    : firstPos(chainSeed?.volume24h, dayStats?.volume24h, rd?.volume24, seed?.volume24h, warp?.volume24h);
   const burnedPct = burn?.pct ?? rd?.burnedPct ?? null; // burn %: on-chain null/dead balances first, RadarDEX backup
   const burnedSupply = burn ? (burn.burnt > 0 ? burn.burnt : null) : (rd?.burnedSupply ?? null);
   const chg = dayStats?.change24h ?? chainSeed?.change24h ?? rd?.change24h ?? seed?.change24h ?? null;
@@ -390,12 +393,20 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
   // TVL = the TRUE total locked across the token's real pools (main pair + any V4/secondary), not one pool.
   // Take whichever aggregate found more depth — the per-pool on-chain SUM or the seed/indexer figure — but
   // never add them (that would double count). This is why ARGUS reads its full ~$1.10M, not the $744K main pool.
-  const tvl = poolsTotalLiq != null && liq != null ? Math.max(poolsTotalLiq, liq) : firstPos(poolsTotalLiq, liq);
+  // 10-26: a row the server measures from REAL pool reserves (liqUsdc set) shows exactly the screener's figure; only rows
+  // without it keep the old max(pool sum, row) so a thin snapshot number can't hide a pool this page found.
+  const tvl = seed?.liqUsdc != null && seed.liq != null && seed.liq > 0 ? seed.liq
+    : poolsTotalLiq != null && liq != null ? Math.max(poolsTotalLiq, liq) : firstPos(poolsTotalLiq, liq);
   // Total supply: prefer the ON-CHAIN totalSupply() (ground truth — RadarDEX had cirBTC at 233 vs the real
   // 551, making FDV disagree with mcap). Circulating = minted − burnt.
   const mintedSupply = burn?.supply ?? rd?.totalSupply ?? supplyNum ?? null;
   const circSupply = mintedSupply != null ? Math.max(0, mintedSupply - (burnedSupply ?? 0)) : (rd?.circulating ?? null);
   const fdv = (px != null && mintedSupply) ? px * mintedSupply : (rd?.fdv ?? null);
+  // 10-26 ONE market cap: the server's definition (price × (supply − burned)) at THIS page's price, so mcap, FDV and the
+  // price above always agree (it showed the screener row's older mcap next to a live price; FDV could read below mcap).
+  // Before the on-chain supply lands: the row's mcap moved to this price; then the indexers.
+  const seedMc = seed?.mcap != null && seed.mcap > 0 && seed.price && px != null ? seed.mcap * (px / seed.price) : seed?.mcap ?? null;
+  const mc = firstPos(px != null && burn?.supply && circSupply != null ? px * circSupply : null, seedMc, warp?.mcap, px != null && supplyNum ? px * supplyNum : null);
   const valuation = mc ?? fdv ?? null;
   const depthRaw = tvl != null && valuation ? (tvl / valuation) * 100 : null; // pool depth as % of valuation
   const depthPct = depthRaw != null && isFinite(depthRaw) && depthRaw <= 1000 ? depthRaw : null; // display hard rule
