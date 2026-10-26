@@ -24,7 +24,7 @@ export function ArcLive({ onOpen }: { onOpen: () => void }) {
       <span className="alb-tag"><span className="live-dot" /> Arc, live</span>
       <span className="alb-stats">
         <span><b className="f">{usd(money)}</b><i>money on Arc</i></span>
-        <span><b>{lent ? usd(lent) : '—'}</b><i>lent</i></span>
+        <span><b>{lent ? usd(lent) : '—'}</b><i>lending deposits</i></span>
         <span><b>{c.m5 ? Math.round(c.m5.tps) : '—'}/s</b><i>transactions</i></span>
         <span><b>{c.validatorCount}</b><i>validators</i></span>
       </span>

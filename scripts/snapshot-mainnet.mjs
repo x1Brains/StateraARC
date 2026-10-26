@@ -35,7 +35,7 @@ const SWAP_V2 = '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d
 // Circle & Arc CORE — verified on-chain (docs.arc.io/arc/references/contract-addresses + arc-scan). Always
 // present + flagged as ecosystem. ⛔ Decided by ADDRESS, never a name regex (a regex tagged "Chelsea USDC"
 // and the third-party Animus suite as "core"). ARC is Circle's official 10B-supply token — no pool yet, so
-// it carries no price/liq until it launches (the sniper watches for that); listed so it's the canonical ARC.
+// it carries no price/liq until it has a pool; listed so it's the canonical ARC.
 const ECO = [
   { address: NATIVE_USDC, name: 'USD Coin', symbol: 'USDC', iconUrl: '/coins/USDC.svg', price: 1, decimals: 6 },
   { address: '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', name: 'Circle Wrapped Bitcoin', symbol: 'cirBTC', decimals: 8 },

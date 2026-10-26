@@ -67,17 +67,33 @@ function vpsLogoTries(addr) {
   // ⛔ 10-04: one try with 1.5 s let a slow moment on the funnel publish a card with NO logo, and X keeps a card's first
   // image for days (owner's \$ARGUS post, 10:17 PM). Two tries now (a fresh connection often lands where the first stalled).
   const t = { u: `${UP?.replace(/\/+$/, '')}/holdings/logo/${addr}`, h: { 'x-relay-key': KEY } };
-  return UP && KEY && addr ? [t, t] : [];
+  return UP && KEY && addr ? [{ ...t, trusted: true }, { ...t, trusted: true }] : [];
 }
 function otherLogoTries(t, addr) {
   const tries = [];
   for (const u of [t?.iconUrl ? toHttp(t.iconUrl) : null, addr ? `https://api.tollylabs.com/token-image/${addr}.png` : null]) if (u && /^https?:/i.test(u)) tries.push({ u, h: {} });
   return tries;
 }
+// 10-26: a token's iconUrl is set by whoever deployed the token, so this server only fetches it over https from a PUBLIC
+// host — never localhost / private / link-local / tailnet addresses — and re-checks every redirect hop the same way.
+const PRIVATE_HOST = /^(localhost|.*\.localhost|.*\.local|.*\.internal|.*\.ts\.net|0\.0\.0\.0|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+|\[.*\]|.*:.*)$/i;
+const publicHttps = (u) => { try { const x = new URL(u); return x.protocol === 'https:' && !x.username && !x.password && !PRIVATE_HOST.test(x.hostname); } catch { return false; } };
+async function fetchPublic(u, h, ms) {
+  let url = u;
+  for (let hop = 0; hop < 4; hop++) {
+    if (!publicHttps(url)) return null;
+    const r = await fetch(url, { headers: h, redirect: 'manual', signal: AbortSignal.timeout(ms) });
+    if (r.status < 300 || r.status >= 400) return r;
+    const next = r.headers.get('location'); if (!next) return null;
+    url = new URL(next, url).toString();
+  }
+  return null;
+}
 async function logoDataUri(tries) {
-  for (const { u, h } of tries) {
+  for (const { u, h, trusted } of tries) {
     try {
-      const r = await fetch(u, { headers: h, signal: AbortSignal.timeout(1600) });
+      const r = trusted ? await fetch(u, { headers: h, signal: AbortSignal.timeout(1600) }) : await fetchPublic(u, h, 1600);
+      if (!r) continue;
       if (!r.ok) continue;
       const ct = (r.headers.get('content-type') || '').toLowerCase();
       if (ct.includes('svg') || ct.includes('html') || ct.includes('webp') || ct.includes('json')) continue; // resvg <image> draws png/jpeg only
@@ -93,7 +109,8 @@ export default async function handler(req, res) {
   try {
     const origin = `https://${req.headers.host}`;
     const url = new URL(req.url, origin);
-    const addr = (url.searchParams.get('token') || '').toLowerCase();
+    const rawAddr = (url.searchParams.get('token') || '').toLowerCase();
+    const addr = /^0x[0-9a-f]{40}$/.test(rawAddr) ? rawAddr : ''; // 10-26: only a real address reaches the keyed logo upstream
     const square = url.searchParams.get('sq') === '1'; // 600x600 for X's compact `summary` card (short, not the tall banner)
     res.setHeader('x-og-ver', OG_VER);
 

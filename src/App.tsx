@@ -451,7 +451,7 @@ export default function App() {
                     {/* Arc itself (the Network page's numbers) + the token market — owner 09-28: "update the new network page and stats in the hero" */}
                     <div className="ht ht-link" onClick={() => go('network')} title="Circle assets on Arc — see the Network page"><b className="r">{netHero?.money ? usd(netHero.money) : '—'}</b><span>Money on Arc</span></div>
                     <div className="div" />
-                    <div className="ht ht-link" onClick={() => go('network')} title="Lent on Morpho + Aave"><b>{netHero?.lent ? usd(netHero.lent) : '—'}</b><span>Lent</span></div>
+                    <div className="ht ht-link" onClick={() => go('network')} title="Total deposited into Morpho + Aave on Arc (gross deposits, not net; most of it is borrowed out again — see the Network page)"><b>{netHero?.lent ? usd(netHero.lent) : '—'}</b><span>Lending deposits</span></div>
                     <div className="div" />
                     <div className="ht"><b>{dashStats.tvl > 0 ? usd(dashStats.tvl) : '—'}</b><span>DEX Liquidity</span></div>
                     <div className="div" />

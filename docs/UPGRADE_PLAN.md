@@ -49,7 +49,7 @@ Holders from chain/arc-scan first, RadarDEX last.
 
 **Phase 3 — the real indexer.** Ponder + Postgres (TypeScript, self-hosted, no vendor lock). Stores raw events;
 candles/24h/holders/pools are derived tables. Runs next to v1's indexer until its numbers match token by token, then
-v1's indexer and snapshot timers are retired. ⛔ The current VPS has 3 GB RAM and runs the real-money Arc grid bot —
+v1's indexer and snapshot timers are retired. ⛔ The current VPS has 3 GB RAM and runs other services —
 Postgres + Ponder should get their own small VPS (owner decision: ~€5–8/month) rather than squeeze that box.
 
 **Phase 4 — more of Arc.**

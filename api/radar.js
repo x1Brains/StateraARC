@@ -10,11 +10,10 @@
 const DIRECT = 'https://api.radardex.pro';
 const RELAY = process.env.RADAR_UPSTREAM || '';
 const RELAY_KEY = process.env.RADAR_KEY || '';
-const BROWSER = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-  Accept: 'application/json,text/plain,*/*',
-  'Accept-Language': 'en-US,en;q=0.9',
-  Referer: 'https://radardex.pro/',
+// 10-26: honest client headers (no browser User-Agent / Referer spoofing).
+const DIRECT_HEADERS = {
+  'User-Agent': 'StateraArc/1.0 (+https://www.stateraarc.com)',
+  Accept: 'application/json',
 };
 // Retry/fail-over ONLY on a Cloudflare HTML challenge or a 5xx/network error. A 4xx with a JSON body
 // (e.g. RadarDEX's {"error":"token not found"}) is a REAL answer — pass it straight through.
@@ -24,12 +23,19 @@ export default async function handler(req, res) {
   const u = new URL(req.url, 'http://x');
   const sub = (u.searchParams.get('path') || '').replace(/^\/+/, '');
   u.searchParams.delete('path');
+  // 10-26: the path is forwarded to the keyed relay — only plain segments (no '..', '.', '%', '\\' or empty segments),
+  // so a crafted ?path= can never climb out of the RadarDEX API onto other paths of the relay host.
+  const segs = sub.split('/');
+  if (!sub || sub.length > 200 || !/^[A-Za-z0-9._~-]+(\/[A-Za-z0-9._~-]+)*$/.test(sub) || segs.some((p) => p === '.' || p === '..')) {
+    res.setHeader('cache-control', 'no-store');
+    return res.status(400).json({ error: 'bad path' });
+  }
   const qs = u.searchParams.toString();
   const suffix = '/' + sub + (qs ? '?' + qs : '');
 
   const targets = [];
   if (RELAY) targets.push({ url: RELAY + suffix, headers: { 'x-relay-key': RELAY_KEY, Accept: 'application/json' } });
-  targets.push({ url: DIRECT + suffix, headers: BROWSER });
+  targets.push({ url: DIRECT + suffix, headers: DIRECT_HEADERS });
 
   for (const t of targets) {
     for (let i = 0; i < 2; i++) {
@@ -39,7 +45,6 @@ export default async function handler(req, res) {
         if (!isChallenge(text) && r.status < 500) {
           // real answer (2xx, or a 4xx like "token not found") — pass it through
           res.setHeader('content-type', 'application/json; charset=utf-8');
-          res.setHeader('access-control-allow-origin', '*');
           res.setHeader('cache-control', r.status === 200 ? 'public, s-maxage=45, stale-while-revalidate=600' : 'no-store');
           return res.status(r.status).send(text);
         }

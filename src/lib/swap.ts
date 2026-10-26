@@ -324,8 +324,9 @@ export const minOut = (out: bigint, slippagePct: number): bigint =>
 export interface TxReq { to: string; from: string; data: string; value: string }
 
 // Max uint256 — a one-time "unlimited" approval so a token is approved ONCE per spender,
-// not per trade (mirrors the SVM feel). Our pair router is immutable + ownerless + holds no
-// funds, so an unlimited allowance to it can only ever be used mid-swap, and is revocable.
+// not per trade (mirrors the SVM feel). On mainnet the spenders are the venues' own routers (Warp V2, Uniswap V2/V3,
+// Permit2 → Universal Router, Aerodrome/Archery, Arctide, the Warp curve) — third-party contracts Statera does not own.
+// The allowance is revocable at any time from the wallet.
 export const MAX_UINT256 = (1n << 256n) - 1n;
 
 // approve(spender, amount) = 0x095ea7b3

@@ -1,7 +1,7 @@
 # /etc/systemd/system/statera-swaps.service — the permanent swap store (server/swap-indexer.ts → /root/statera-swaps/swaps.db).
 # Read by statera-api (server/swap-store.ts) for the chart, trade history and wallet trades. Runs from /root/statera-swaps/app,
 # which server/deploy-swaps.sh fills from the API clone — so the v1 timers' git reset never swaps code under it.
-# Small caps: this box runs the real-money bots; the indexer is tiny (one SQLite connection, ≤20k logs in flight).
+# Small caps: this box runs other services; the indexer is tiny (one SQLite connection, ≤20k logs in flight).
 [Unit]
 Description=StateraArc swap indexer (every USDC-pool swap on Arc, kept in SQLite for charts + P&L)
 After=network-online.target
@@ -16,7 +16,7 @@ MemoryMax=300M
 Environment=NODE_ENV=production
 Environment=SWAPS_DB=/root/statera-swaps/swaps.db
 # Head follower only (the history was backfilled elsewhere): blockdaemon first (has recent logs), tenderly as the spare —
-# ~1 call / 2 s. ⛔ No backfill from this box (tenderly 429s it; arc.io + blockdaemon are the money bots' RPCs).
+# ~1 call / 2 s. ⛔ No backfill from this box (tenderly 429s it; arc.io + blockdaemon are kept for the other services).
 # ⛔ 10-21: tenderly 429s this IP constantly (live follower + supply reads stalled) — blockdaemon + drpc (small recent ranges only)
 Environment=SWAPS_RPCS=https://rpc.blockdaemon.mainnet.arc.io,https://arc.drpc.org
 

@@ -10,8 +10,8 @@
 // exact address — anyone can deploy a contract that emits a Swap event claiming to be a USDC pool.
 // ⛔ Arc has single-slot finality (no reorgs), so a block once indexed is final.
 // Archive RPC: tenderly (blockdaemon is pruned before ~26M, publicnode needs a token). ⛔ rpc.mainnet.arc.io + blockdaemon are what
-// the live Arc grid bot and bridge keepers on this box use — the backfill stays OFF them (and paces itself) so it can never get
-// this IP rate-limited for the money bots. The head follower makes ~1 call / 2 s.
+// the other services on this box use — the backfill stays OFF them (and paces itself) so it can never get
+// this IP rate-limited for them. The head follower makes ~1 call / 2 s.
 import { openSwapDb, metaGet, metaSet, txToBlob, addrToBlob, USDC, START_BLOCK } from './swap-db.ts';
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
 import { buildTokenStats } from './swap-stats.ts';

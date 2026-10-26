@@ -1,7 +1,7 @@
 // Fill `makers` (tx → sender) for the swap history, newest block first. Swap events only name the router; the trader is the
 // transaction's sender, and the public nodes have pruned their tx-by-hash index for older txs — so whole blocks are read
 // (eth_getBlockByNumber with full txs, 10 blocks per batch) and every tx that is in `swaps` gets its sender recorded.
-// Run where the RPCs aren't shared with the money bots (the owner's PC), then ship the rows with --export / --import:
+// Run where the RPCs aren't shared with the live services (a separate machine), then ship the rows with --export / --import:
 //   SWAPS_DB=… node --disable-warning=ExperimentalWarning scripts/makers-backfill.ts            (resumable; cursor mk_back)
 //   SWAPS_DB=… node … scripts/makers-backfill.ts --export makers.db --since <unix ms>          (rows added since → a small db)
 //   SWAPS_DB=/root/statera-swaps/swaps.db node … scripts/makers-backfill.ts --import makers.db  (on the VPS: merge)

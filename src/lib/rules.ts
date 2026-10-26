@@ -80,7 +80,7 @@ export const ECOSYSTEM_TOKENS: { address: string; name: string; symbol: string; 
   { address: '0x128cc466b61f542da60c70e3aa11c10e19b84edb', name: 'Wrapped Ether', symbol: 'WETH', price: null, holders: 822, decimals: 18 },   // Arc's canonical WETH (NOT 0xd02d, a different one)
   { address: '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', name: 'EURC', symbol: 'EURC', price: null, holders: 4310, decimals: 6 },           // Circle euro stablecoin (official)
   { address: '0x8a5d989bbb96929f689b0200f435f53da42bf490', name: 'US Yield Coin', symbol: 'USYC', price: null, holders: 0, decimals: 6 },     // Circle yield token
-  { address: '0xa12cd81d0f9988e3d60c4b6a0d52d368ef3c788d', name: 'Arc', symbol: 'ARC', price: null, holders: 11, decimals: 6 },              // official Circle ARC token — 10B supply, no pool yet (sniper watches for launch)
+  { address: '0xa12cd81d0f9988e3d60c4b6a0d52d368ef3c788d', name: 'Arc', symbol: 'ARC', price: null, holders: 11, decimals: 6 },              // official Circle ARC token — 10B supply, no pool yet
 ];
 // Ecosystem is decided by ADDRESS, never symbol — a fake "USDC" lookalike must NOT be tagged ECO.
 export const ECOSYSTEM_ADDRS = new Set<string>([NATIVE_USDC_ADDR.toLowerCase(), ...ECOSYSTEM_TOKENS.map((e) => e.address.toLowerCase())]);
@@ -92,10 +92,10 @@ export const ECOSYSTEM_ADDRS = new Set<string>([NATIVE_USDC_ADDR.toLowerCase(), 
 // same rules; this is the last line, so a bad build can never reach the screen. ═════════
 // Real tokens pinned BY ADDRESS: for their ticker they are always the canonical one, however many holders a copycat airdrops.
 // ── Statera impersonators (owner 09-30: "add a FAKE — not associated with us banner") ──
-// Statera has not launched a token yet ($STR is announced, not deployed), so ANY token using the Statera name is not
-// ours. When $STR ships, put its address in OFFICIAL_STATERA and it is never flagged. KNOWN_FAKES = copycats seen
-// without the exact name (0x1101… 'StateraARC' / STRT, 09-30).
-export const OFFICIAL_STATERA = new Set<string>([]);
+// The ONLY official Statera token is $STR (Arc mainnet, live 10-16). Any OTHER token using the Statera name is not ours.
+// MUST match lib/fakes.js. KNOWN_FAKES = copycats seen without the exact name (0x1101… 'StateraARC' / STRT, 09-30).
+export const STR_ADDRESS = '0xaaeea145196107f96a209a843e4f14a69dae99d0';
+export const OFFICIAL_STATERA = new Set<string>([STR_ADDRESS]);
 const KNOWN_FAKES = new Set<string>(['0x1101ece603b96f5e5db610b63be9807fbb544235']);
 export const isStateraImpersonator = (t: { address: string; name?: string | null; symbol?: string | null }): boolean => {
   const a = (t.address || '').toLowerCase();
