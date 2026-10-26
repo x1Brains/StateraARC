@@ -71,11 +71,20 @@ const takeaways = (c, l, w) => {
   return out;
 };
 
+// mini bar chart (the Network page's sparkline bars): values → bars, max-scaled; buckets of `per` summed
+const miniBars = (x, y, w, h, vals, col, per = 1) => {
+  if (!vals || !vals.length) return '';
+  const b = []; for (let i = 0; i < vals.length; i += per) b.push(vals.slice(i, i + per).reduce((a, v) => a + (Number(v) || 0), 0));
+  const mx = Math.max(...b.map((v) => Math.abs(v))) || 1, bw = w / b.length; let o = '';
+  b.forEach((v, i) => { const bh = Math.max(1, (Math.abs(v) / mx) * h); o += `<rect x="${(x + i * bw).toFixed(1)}" y="${(y + h - bh).toFixed(1)}" width="${Math.max(1, bw - 1.5).toFixed(1)}" height="${bh.toFixed(1)}" rx="1" fill="${v < 0 ? C.red : col}" opacity="0.85"/>`; });
+  return o;
+};
+
 function tall(c, l, w, st, logos, act) {
-  // 10-21: + ARC ACTIVITY · 24H (the Network page's new section) → 1420 + 316
-  const AH = act ? 316 : 0;
-  const W = 1200, H = 1420 + AH, P = 56, IW = W - 2 * P; let s = '', y;
-  // ── header (+ the SNAPSHOT stamp: date, time to the second, block)
+  // 10-26 (owner: "the network snapshot is not showing all the information we're showing on the real website"): every
+  // section of the Network page, in its order — pulse, live blocks, activity (with its bars), protocols, launchpads, money
+  // on Arc, bridge (every chain), lending, validators. Height follows the content.
+  const W = 1200, P = 56, IW = W - 2 * P, G = 16; let s = '', y;
   s += T(P, 70, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"');
   s += T(P, 128, 'Arc Network Report', 54) + stampPill(W - P, 40, st, c ? `at block ${num(c.head)}` : '');
   // ── headline takeaways (the hook)
@@ -83,9 +92,7 @@ function tall(c, l, w, st, logos, act) {
   s += `<rect x="${P}" y="${y}" width="${IW}" height="${24 + tk.length * 38}" rx="16" fill="#110c09" stroke="#3a2516"/><rect x="${P}" y="${y + 14}" width="4" height="${tk.length * 38 - 4}" rx="2" fill="${C.fire}"/>`;
   tk.forEach((t, i) => { s += T(P + 26, y + 42 + i * 38, esc(t), 22, C.white); });
   // ── pulse
-  y = 262; const pw = (IW - 3 * 14) / 4, fee = c ? (21000 * c.baseFeeGwei * 1e9) / 1e18 : null;
-  // Owner 10-07: the report says what the Network page says — TPS is LIVE USE (with how full blocks are), and the hour's
-  // total sits big next to it. A value may be raw tspans ({ raw }) so a unit can be small beside a big number.
+  y += 24 + tk.length * 38 + G; const pw = (IW - 3 * 14) / 4, fee = c ? (21000 * c.baseFeeGwei * 1e9) / 1e18 : null;
   const sm = (t) => `<tspan font-size="16" fill="${C.gray}">${t}</tspan>`;
   const txv = c?.m5 ? { raw: `${esc(num(c.m5.tps))}${sm('/sec')}${c.h1 ? `<tspan dx="12">${esc(num(c.h1.txs))}</tspan>${sm(c.coveredSeconds < 3500 ? ' so far' : '/hour')}` : ''}` } : '—';
   [[c?.h1 ? `${c.h1.blockTime.toFixed(2)}s` : '—', 'NEW BLOCK EVERY', 'payment final once in a block', C.white],
@@ -93,8 +100,62 @@ function tall(c, l, w, st, logos, act) {
    [fee != null ? (fee < 0.01 ? '$' + fee.toFixed(4) : usd(fee)) : '—', 'COST TO SEND USDC', 'one transfer, paid in USDC', C.green],
    [c ? String(c.validatorCount) : '—', 'VALIDATORS', 'approved firms, equal turns', C.white]]
     .forEach(([v, k, d, col], i) => { const x = P + i * (pw + 14); s += panel(x, y, pw, 112) + T(x + 20, y + 50, typeof v === 'object' ? v.raw : esc(v), typeof v === 'object' ? 31 : 36, col) + T(x + 20, y + 78, k, 15, C.gold, 'letter-spacing="2"') + T(x + 20, y + 100, esc(d), 16, C.gray); });
+  y += 112 + G;
+  const pmeta = Object.fromEntries((act?.protocols || []).map((p) => [p.id, p]));
+  // ── live blocks: one bar per block, height = transactions, coloured by what the block did (the page's block tape)
+  const tape = (act?.tape || []).slice(-180);
+  if (tape.length) {
+    const bh = 250; s += panel(P, y, IW, bh) + T(P + 24, y + 42, 'LIVE BLOCKS', 20, C.white, 'letter-spacing="2"')
+      + T(W - P - 24, y + 42, `blocks ${num(tape[0].n)} – ${num(tape[tape.length - 1].n)}`, 15, C.gray, 'text-anchor="end"');
+    s += T(P + 24, y + 66, 'One bar per block, newest right · height = transactions · colour = what the block did', 14, C.dim);
+    const gx = P + 24, gw = IW - 48, gy = y + 84, gh = 110, mx = Math.max(...tape.map((b) => b.txs || 0)) || 1, bw = gw / tape.length;
+    tape.forEach((b, i) => { let top = gy + gh; const tot = b.txs || 0, known = Object.entries(b.p || {}).sort((a, z) => z[1] - a[1]);
+      const unit = (gh / mx); let used = 0;
+      known.forEach(([id, n]) => { const hh = n * unit; top -= hh; used += n; s += `<rect x="${(gx + i * bw).toFixed(1)}" y="${top.toFixed(1)}" width="${Math.max(1, bw - 1).toFixed(1)}" height="${hh.toFixed(1)}" fill="${pmeta[id]?.color || C.fire}"/>`; });
+      const rest = Math.max(0, tot - used); if (rest) { const hh = Math.max(1, rest * unit); top -= hh; s += `<rect x="${(gx + i * bw).toFixed(1)}" y="${top.toFixed(1)}" width="${Math.max(1, bw - 1).toFixed(1)}" height="${hh.toFixed(1)}" fill="#3a3a44"/>`; } });
+    const leg = [...new Set(tape.flatMap((b) => Object.keys(b.p || {})))].map((id) => pmeta[id]).filter(Boolean).slice(0, 9);
+    let lx = P + 24; [...leg, { name: 'transfers & other', color: '#3a3a44' }].forEach((p) => { const t = esc(p.name); s += `<rect x="${lx}" y="${y + 214}" width="11" height="11" rx="3" fill="${p.color}"/>` + T(lx + 17, y + 224, t, 13, C.gray); lx += 30 + t.length * 6.6; });
+    y += bh + G;
+  }
+  // ── activity 24h: the five counts, each with its last-3-hours bars
+  if (act) {
+    const x = act.h24 || act.h1, live = x.liveFrom && x.liveFrom > (act.now - 86400) + 120, ser = act.series || {}, ah = 250;
+    s += panel(P, y, IW, ah) + T(P + 24, y + 42, 'ARC ACTIVITY · 24H', 20, C.white, 'letter-spacing="2"')
+      + T(W - P - 24, y + 42, 'counted from every block · bars: last 3 hours', 15, C.gray, 'text-anchor="end"');
+    const kw = (IW - 48 - 4 * 10) / 5, since = live ? `since ${new Date(x.liveFrom * 1000).toUTCString().slice(17, 22)} UTC` : 'last 24 hours';
+    [[`${x.net >= 0 ? '+' : '−'}${usd(Math.abs(x.net))}`, 'USDC NET ISSUED', `${usd(x.minted)} minted`, x.net >= 0 ? C.green : C.red, ser.net],
+     [usd(x.moved), 'USDC MOVED', 'all USDC transfers', C.white, ser.moved], [num(x.txs), 'TRANSACTIONS', since, C.white, ser.txs],
+     [num(x.active), 'ACTIVE WALLETS', 'sent a transaction', C.white, ser.active], [num(x.newWallets), 'NEW WALLETS', 'first-ever transaction', C.white, ser.newWallets]]
+      .forEach(([v, k, dsc, col, sv], i) => { const xx = P + 24 + i * (kw + 10);
+        s += `<rect x="${xx}" y="${y + 60}" width="${kw}" height="172" rx="12" fill="${C.tile}" stroke="${C.line}"/>` + T(xx + 14, y + 98, esc(v), 24, col) + T(xx + 14, y + 122, k, 12, C.gold, 'letter-spacing="2"') + T(xx + 14, y + 141, esc(dsc), 12, C.dim)
+          + miniBars(xx + 12, y + 160, kw - 24, 58, sv, '#6b6b78', 5); });
+    y += ah + G;
+    // ── protocols, live: every protocol with its 24h count and 3-hour bars
+    const list = (act.protocols || []).map((p) => ({ ...p, n: x.protocols?.[p.id] ?? 0 })).sort((a, z) => z.n - a.n);
+    const cols = 4, cw = (IW - 48 - (cols - 1) * 10) / cols, rows = Math.ceil(list.length / cols), ph = 74 + rows * 104;
+    s += panel(P, y, IW, ph) + T(P + 24, y + 42, 'PROTOCOLS, LIVE', 20, C.white, 'letter-spacing="2"') + T(W - P - 24, y + 42, 'transactions, last 24 hours', 15, C.gray, 'text-anchor="end"');
+    list.forEach((p, i) => { const xx = P + 24 + (i % cols) * (cw + 10), yy = y + 62 + Math.floor(i / cols) * 104;
+      s += `<rect x="${xx}" y="${yy}" width="${cw}" height="94" rx="12" fill="${C.tile}" stroke="${C.line}"/><rect x="${xx + 12}" y="${yy + 14}" width="10" height="10" rx="3" fill="${p.color}"/>`
+        + T(xx + 30, yy + 24, esc(p.name.length > 18 ? p.name.slice(0, 17) + '…' : p.name), 15) + T(xx + cw - 12, yy + 24, esc(String(p.cat || '').toUpperCase()), 11, C.dim, 'text-anchor="end" letter-spacing="1"')
+        + T(xx + 12, yy + 52, `${num(p.n)}<tspan font-size="13" fill="${C.gray}"> tx</tspan>`, 22) + miniBars(xx + 12, yy + 62, cw - 24, 24, ser.protocols?.[p.id], p.color, 5); });
+    y += ph + G;
+    // ── launchpads 24h: totals, every pad, top tokens by market cap
+    const lp = act.launchpads;
+    if (lp && lp.trades > 0) {
+      const pads = (lp.pads || []).filter((p) => p.trades > 0), top = (lp.top || []).slice(0, 6), pr = Math.ceil(pads.length / 2), lh = 150 + pr * 30 + (top.length ? 60 + Math.ceil(top.length / 2) * 30 : 0);
+      s += panel(P, y, IW, lh) + T(P + 24, y + 42, 'LAUNCHPADS · 24H', 20, C.white, 'letter-spacing="2"') + T(W - P - 24, y + 42, 'tokens each launchpad created, counted from our own swap index', 14, C.gray, 'text-anchor="end"');
+      s += T(P + 24, y + 94, `${num(lp.trades)}<tspan font-size="15" fill="${C.gray}"> trades</tspan><tspan dx="28">${esc(usd(lp.volume))}</tspan><tspan font-size="15" fill="${C.gray}"> volume</tspan><tspan dx="28">${num(lp.traded)}</tspan><tspan font-size="15" fill="${C.gray}"> tokens traded</tspan>`, 30);
+      const c2 = (IW - 48 - 20) / 2;
+      pads.forEach((p, i) => { const xx = P + 24 + (i % 2) * (c2 + 20), yy = y + 138 + Math.floor(i / 2) * 30;
+        s += T(xx, yy, esc(p.pad === 'Argus pad' ? 'Argus' : p.pad), 16, C.gold) + T(xx + 130, yy, `${num(p.trades)} trades · ${usd(p.volume)} · ${num(p.traded)} token${p.traded === 1 ? '' : 's'} traded`, 15, C.gray); });
+      if (top.length) { const ty = y + 138 + pr * 30 + 14; s += T(P + 24, ty, 'TOP BY MARKET CAP', 12, C.gold, 'letter-spacing="2"');
+        top.forEach((t, i) => { const xx = P + 24 + (i % 2) * (c2 + 20), yy = ty + 32 + Math.floor(i / 2) * 30, ch = t.change24h;
+          s += T(xx, yy, esc(`$${t.symbol}`), 16) + T(xx + 130, yy, `${usd(t.mcap)} mcap · ${usd(t.liq)} liq`, 15, C.gray) + (ch != null && isFinite(ch) ? T(xx + c2, yy, chg(ch), 15, chgCol(ch), 'text-anchor="end"') : ''); }); }
+      y += lh + G;
+    }
+  }
   // ── money on Arc
-  y = 390; const mh = 372; s += panel(P, y, IW, mh);
+  const mh = 372; s += panel(P, y, IW, mh);
   const tot = c?.supplyUsd ? ['USDC', 'EURC', 'cirBTC'].reduce((a, k) => a + (c.supplyUsd[k] || 0), 0) : null;
   s += T(P + 24, y + 46, 'MONEY ON ARC', 22, C.white, 'letter-spacing="2"') + T(W - P - 24, y + 50, usd(tot), 44, C.fire, 'text-anchor="end"');
   s += T(P + 24, y + 74, "Circle's assets on Arc (full supply, from each token contract) and where each one sits right now", 16, C.gray);
@@ -109,9 +170,10 @@ function tall(c, l, w, st, logos, act) {
         s += `<rect x="${lx}" y="${yy + 60}" width="11" height="11" rx="3" fill="${col}"/>` + T(lx + 17, yy + 70, esc(t), 15, C.gray); lx += 34 + t.length * 7.6; }
     }
   });
-  // ── bridge + lending
-  // 24 h of bridge flows once the server's history covers it (09-30), else the last hour — the heading says which
-  y = 778; const hw = (IW - 14) / 2, bh = 296, f = c?.cctp?.h24 || c?.cctp?.h1, fPer = c?.cctp?.h24 ? 'LAST 24 HOURS' : 'LAST HOUR';
+  y += mh + G;
+  // ── USDC bridged (every chain, both directions) | lending
+  const hw = (IW - 14) / 2, f = c?.cctp?.h24 || c?.cctp?.h1, fPer = c?.cctp?.h24 ? 'LAST 24 HOURS' : 'LAST HOUR';
+  const ins = f ? f.in.byChain.slice(0, 7) : [], outs = f ? f.out.byChain.slice(0, 7) : [], bh = 256 + Math.max(ins.length, outs.length, 3) * 22;
   s += panel(P, y, hw, bh) + T(P + 22, y + 44, `USDC BRIDGED · ${fPer}`, 20, C.white, 'letter-spacing="2"') + T(P + 22, y + 68, "Circle's official bridge (CCTP), into and out of Arc", 15, C.gray);
   if (f) {
     const net = f.in.usd - f.out.usd, sum = f.in.usd + f.out.usd || 1;
@@ -119,56 +181,41 @@ function tall(c, l, w, st, logos, act) {
     s += T(P + hw - 22, y + 118, usd(f.out.usd), 34, C.red, 'text-anchor="end"') + T(P + hw - 22, y + 140, `OUT of Arc · ${f.out.count} transfers`, 15, C.gray, 'text-anchor="end"');
     s += bar(P + 22, y + 154, hw - 44, 12, [[f.in.usd / sum, C.green], [f.out.usd / sum, C.red]]);
     s += T(P + 22, y + 196, `Net ${usd(Math.abs(net))} more bridged ${net >= 0 ? 'INTO' : 'OUT of'} Arc`, 20, net >= 0 ? C.green : C.red);
-    const ins = f.in.byChain.slice(0, 3), outs = f.out.byChain.slice(0, 3);
-    // (no arrow glyphs: the embedded font has none — they rendered as nothing)
-    ins.forEach((x, i) => { s += T(P + 22, y + 228 + i * 21, esc(`from ${x.chain} ${usd(x.usd)}`), 15, C.gray); });
-    outs.forEach((x, i) => { s += T(P + hw - 22, y + 228 + i * 21, esc(`to ${x.chain} ${usd(x.usd)}`), 15, C.gray, 'text-anchor="end"'); });
+    s += T(P + 22, y + 226, 'FROM', 12, C.gold, 'letter-spacing="2"') + T(P + hw / 2 + 10, y + 226, 'TO', 12, C.gold, 'letter-spacing="2"');
+    ins.forEach((x, i) => { const yy = y + 250 + i * 22; s += T(P + 22, yy, esc(x.chain), 15, C.white) + T(P + hw / 2 - 16, yy, usd(x.usd), 15, C.green, 'text-anchor="end"'); });
+    outs.forEach((x, i) => { const yy = y + 250 + i * 22; s += T(P + hw / 2 + 10, yy, esc(x.chain), 15, C.white) + T(P + hw - 22, yy, usd(x.usd), 15, C.red, 'text-anchor="end"'); });
   }
   const lx0 = P + hw + 14; s += panel(lx0, y, hw, bh) + T(lx0 + 22, y + 44, 'LENDING', 20, C.white, 'letter-spacing="2"') + T(lx0 + 22, y + 68, 'Deposits earn interest; borrowers post collateral', 15, C.gray);
   if (l) {
     const mOk = !!l.morpho?.complete, lent = l.aave.supplyUsd + (mOk ? l.morpho.supplyUsd : 0), bor = l.aave.borrowUsd + (mOk ? l.morpho.borrowUsd : 0);
     s += T(lx0 + 22, y + 118, usd(lent), 34) + T(lx0 + 22, y + 140, 'deposited (Aave + Morpho)', 15, C.gray);
     s += T(lx0 + hw - 22, y + 118, usd(bor), 34, C.gold, 'text-anchor="end"') + T(lx0 + hw - 22, y + 140, `borrowed out · ${lent > 0 ? Math.round((bor / lent) * 100) : 0}% of deposits`, 15, C.gray, 'text-anchor="end"');
-    const rows = [['Aave', l.aave.supplyUsd, l.aave.borrowUsd], ...(mOk ? [['Morpho', l.morpho.supplyUsd, l.morpho.borrowUsd]] : [])];
-    rows.forEach(([n, a, b], i) => { const yy = y + 184 + i * 50, u = a > 0 ? b / a : 0;
-      s += T(lx0 + 22, yy, n, 19) + T(lx0 + hw - 22, yy, `${usd(a)} · ${Math.round(u * 100)}% borrowed`, 16, C.gray, 'text-anchor="end"');
-      s += bar(lx0 + 22, yy + 12, hw - 44, 10, [[u, u >= 0.9 ? C.red : C.gold]]); });
-    if (!mOk) s += T(lx0 + 22, y + 280, 'Morpho: still counting its markets', 14, C.dim);
+    const rows = [['Aave V4', l.aave.supplyUsd, l.aave.borrowUsd], ...(mOk ? [['Morpho', l.morpho.supplyUsd, l.morpho.borrowUsd]] : [])];
+    rows.forEach(([n, a, b], i) => { const yy = y + 190 + i * 62, u = a > 0 ? b / a : 0;
+      s += T(lx0 + 22, yy, n, 19) + T(lx0 + hw - 22, yy, `${usd(a)} deposited`, 16, C.white, 'text-anchor="end"');
+      s += bar(lx0 + 22, yy + 12, hw - 44, 10, [[u, u >= 0.9 ? C.red : C.gold]]) + T(lx0 + hw - 22, yy + 42, `${usd(b)} borrowed out (${Math.round(u * 100)}%)`, 14, C.gray, 'text-anchor="end"'); });
+    if (!mOk) s += T(lx0 + 22, y + bh - 20, 'Morpho: still counting its markets', 14, C.dim);
+    const bt = w?.assets?.find((a) => a.sym === 'cirBTC');
+    if (bt && bt.supply > 0) s += T(lx0 + 22, y + bh - 20, `${pct(bt.buckets.lending, bt.supply).toFixed(0)}% of the Bitcoin on Arc sits in the lending apps — collateral`, 14, C.dim);
   }
-  // ── what the chain is doing, 24 h (server/activity.ts): USDC issued / moved, transactions, wallets, top protocols
-  if (act) {
-    y = 1090; const x = act.h24 || act.h1, live = x.liveFrom && x.liveFrom > (act.now - 86400) + 120;
-    s += panel(P, y, IW, AH - 16) + T(P + 24, y + 42, 'ARC ACTIVITY · 24H', 20, C.white, 'letter-spacing="2"')
-      + T(W - P - 24, y + 42, 'counted from every block', 15, C.gray, 'text-anchor="end"');
-    const kw = (IW - 48 - 4 * 10) / 5, since = live ? `since ${new Date(x.liveFrom * 1000).toUTCString().slice(17, 22)} UTC` : 'last 24 hours';
-    [[`${x.net >= 0 ? '+' : '-'}${usd(Math.abs(x.net))}`, 'USDC NET ISSUED', `${usd(x.minted)} minted`, x.net >= 0 ? C.green : C.red],
-     [usd(x.moved), 'USDC MOVED', 'all USDC transfers', C.white], [num(x.txs), 'TRANSACTIONS', since, C.white],
-     [num(x.active), 'ACTIVE WALLETS', since, C.white], [num(x.newWallets), 'NEW WALLETS', live ? since : 'first-ever transaction', C.white]]
-      .forEach(([v, k, dsc, col], i) => { const xx = P + 24 + i * (kw + 10);
-        s += `<rect x="${xx}" y="${y + 60}" width="${kw}" height="92" rx="12" fill="${C.tile}" stroke="${C.line}"/>` + T(xx + 14, y + 98, esc(v), 26, col) + T(xx + 14, y + 122, k, 12, C.gold, 'letter-spacing="2"') + T(xx + 14, y + 141, esc(dsc), 13, C.dim); });
-    const names = Object.fromEntries((act.protocols || []).map((p) => [p.id, p.name]));
-    const top = Object.entries(x.protocols || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 8), mx = top.length ? top[0][1] : 1, cw2 = (IW - 48 - 20) / 2;
-    top.forEach(([id, n], i) => { const xx = P + 24 + (i % 2) * (cw2 + 20), yy = y + 186 + Math.floor(i / 2) * 28;
-      const nm = names[id] || id, lab = nm.length > 24 ? nm.slice(0, 23).trimEnd() + '…' : nm;
-      s += T(xx, yy, esc(lab), 15, C.white) + bar(xx + 250, yy - 10, cw2 - 330, 8, [[n / mx, C.fire]]) + T(xx + cw2, yy, `${num(n)} tx`, 15, C.gray, 'text-anchor="end"'); });
-    if (!top.length) s += T(P + 24, y + 200, 'Protocol activity is still being counted', 16, C.dim);
-  }
+  y += bh + G;
   // ── validators (logo grid)
-  y = 1090 + AH; s += panel(P, y, IW, 214) + T(P + 24, y + 42, 'WHO RUNS THE CHAIN', 20, C.white, 'letter-spacing="2"');
+  s += panel(P, y, IW, 214) + T(P + 24, y + 42, 'WHO RUNS THE CHAIN', 20, C.white, 'letter-spacing="2"');
   s += T(W - P - 24, y + 42, c ? `${c.validatorCount} block producers on chain · equal turns` : '', 15, C.gray, 'text-anchor="end"');
-  const cw = (IW - 48 - 5 * 10) / 6;
-  VAL_LIST.forEach((v, i) => { const x = P + 24 + (i % 6) * (cw + 10), yy = y + 64 + Math.floor(i / 6) * 66;
-    s += `<rect x="${x}" y="${yy}" width="${cw}" height="54" rx="10" fill="${C.tile}" stroke="${C.line}"/>`;
+  const vw = (IW - 48 - 5 * 10) / 6;
+  VAL_LIST.forEach((v, i) => { const x = P + 24 + (i % 6) * (vw + 10), yy = y + 64 + Math.floor(i / 6) * 66;
+    s += `<rect x="${x}" y="${yy}" width="${vw}" height="54" rx="10" fill="${C.tile}" stroke="${C.line}"/>`;
     const img = v.logo && logos[v.logo];
     s += img ? `<rect x="${x + 10}" y="${yy + 11}" width="32" height="32" rx="7" fill="#ffffff"/><image x="${x + 13}" y="${yy + 14}" width="26" height="26" href="${img}" preserveAspectRatio="xMidYMid meet"/>`
       : `<rect x="${x + 10}" y="${yy + 11}" width="32" height="32" rx="7" fill="#1f1611" stroke="#4a3020"/>` + T(x + 26, yy + 33, v.name.split(' ').map((q) => q[0]).join('').slice(0, 2), 13, C.gold, 'text-anchor="middle"');
     s += T(x + 50, yy + 33, esc(v.short || v.name), 15, C.white); });
   s += T(P + 24, y + 200, 'Founding validators named by Circle. The chain records addresses only; which institution runs which is not published.', 13, C.dim);
   // ── footer
+  y += 214 + G; const H = y + 134;
   s += `<rect x="0" y="${H - 150}" width="${W}" height="150" fill="url(#foot)"/>`;
   s += T(P, H - 70, 'stateraarc.com/network', 30, C.fire) + T(W - P, H - 70, 'Live · read directly from Arc mainnet', 20, C.gray, 'text-anchor="end"');
   s += T(P, H - 38, 'Screener · Swap · Portfolio · Network', 18, C.dim) + T(W - P, H - 38, 'chain 5042', 18, C.dim, 'text-anchor="end"');
-  return svg(W, H, s, 44, NETWORK_ACCENT); // rounded corners (owner 09-28): the downloaded report is a card, not a square
+  return svg(W, H, s, 44, NETWORK_ACCENT);
 }
 
 // X link card (1200×630). ⛔ X lays its own title label over the BOTTOM-LEFT (~0–600 × 560–630): nothing important goes there.
@@ -224,13 +271,15 @@ const short = (a) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '—');
 const hhmm = (sec) => { const d = new Date(sec * 1000); return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
 const KNOWN_HOLDER = { '0x8366a39cc670b4001a1121b8f6a443a643e40951': 'Uniswap V4 pools', '0x000000000000000000000000000000000000dead': 'Burned' };
 
-function candleChart(x, y, w, h, cs, lineCol = C.fire) {
+function candleChart(x, y, w, h, cs, lineCol = C.fire, log = false) {
   if (!cs || cs.length < 2) return T(x + w / 2, y + h / 2, 'Not enough trades yet for a chart', 18, C.dim, 'text-anchor="middle"');
   const volH = Math.round(h * 0.16), ph = h - volH - 10;
   let lo = Infinity, hi = -Infinity, vmax = 0;
   for (const c of cs) { lo = Math.min(lo, c.low); hi = Math.max(hi, c.high); vmax = Math.max(vmax, c.volume || 0); }
   if (!(hi > lo)) { hi = lo * 1.01 + 1e-18; }
-  const Y = (v) => y + ph - ((v - lo) / (hi - lo)) * ph, step = w / cs.length, bw = Math.max(1.5, Math.min(12, step * 0.62));
+  // log scale (the since-launch chart): a token that went 1000x is still readable; needs positive prices
+  const useLog = log && lo > 0, f = (v) => (useLog ? Math.log(v) : v), fl = f(lo), fh = f(hi);
+  const Y = (v) => y + ph - ((f(Math.max(v, lo)) - fl) / (fh - fl || 1)) * ph, step = w / cs.length, bw = Math.max(1.5, Math.min(12, step * 0.62));
   let out = '';
   for (let i = 0; i <= 3; i++) { const gy = y + (ph * i) / 3; out += `<rect x="${x}" y="${gy}" width="${w}" height="1" fill="${C.line}"/>`; }
   cs.forEach((c, i) => {
@@ -238,18 +287,53 @@ function candleChart(x, y, w, h, cs, lineCol = C.fire) {
     out += `<rect x="${cx - 0.75}" y="${Y(c.high)}" width="1.5" height="${Math.max(1, Y(c.low) - Y(c.high))}" fill="${col}"/>`;
     const top = Y(Math.max(c.open, c.close)), bot = Y(Math.min(c.open, c.close));
     out += `<rect x="${cx - bw / 2}" y="${top}" width="${bw}" height="${Math.max(1.5, bot - top)}" rx="1" fill="${col}"/>`;
-    if (vmax > 0 && c.volume) { const vh = (c.volume / vmax) * volH; out += `<rect x="${cx - bw / 2}" y="${y + h - vh}" width="${bw}" height="${vh}" fill="${col}" opacity="0.35"/>`; }
+    if (vmax > 0 && c.volume) { const vh = Math.max(1, (c.volume / vmax) * volH); out += `<rect x="${cx - bw / 2}" y="${y + h - vh}" width="${bw}" height="${vh}" fill="${col}" opacity="0.5"/>`; }
   });
   const last = cs[cs.length - 1].close, ly = Y(last);
   out += `<rect x="${x}" y="${ly}" width="${w}" height="1" fill="${lineCol}" opacity="0.6"/>`;
   return out;
 }
 
+// Pool health — the SAME 0–100 score as the token page (src/components/PremainDetail.tsx "Pool health"): liquidity depth
+// 35 · holder distribution 20 · trading quality 20 · pool age 15 · stability 10, each from on-chain numbers. Not a safety rating.
+function poolHealth(t, d, tvl) {
+  const day = d?.dayStats || null, burn = d?.burn || null;
+  const minted = burn?.supply ?? (t?.totalSupply != null ? Number(t.totalSupply) : null);
+  const fdv = t?.fdv ?? (t?.price != null && minted ? t.price * minted : null), valuation = t?.mcap ?? fdv ?? null;
+  const dRaw = tvl != null && valuation ? (tvl / valuation) * 100 : null, depthPct = dRaw != null && isFinite(dRaw) && dRaw <= 1000 ? dRaw : null;
+  const hs = d?.holders || []; let top10 = null;
+  if (hs.length) { const top = hs.slice(0, 10).map((h) => (burn?.supply > 0 && h.amount != null && isFinite(h.amount) ? (h.amount / burn.supply) * 100 : h.percent));
+    if (!top.some((p) => p == null || !isFinite(p) || p < 0 || p > 100.5)) { const sum = top.reduce((a, p) => a + p, 0); top10 = sum <= 100.5 ? Math.min(100, sum) : null; } }
+  const ageSecs = t?.createdAt ? Math.max(0, (Date.now() - t.createdAt) / 1000) : null, ch = day?.change24h ?? t?.change24h ?? null;
+  const sig = {
+    depth: depthPct == null ? null : Math.max(0, Math.min(100, Math.round((Math.min(depthPct, 10) / 10) * 100))),
+    dist: top10 == null ? null : Math.max(0, Math.min(100, Math.round(100 - Math.max(0, top10 - 20) * (100 / 60)))),
+    quality: day?.makers24 != null && day.makersSample ? Math.round(Math.min(100, (day.makers24 / day.makersSample) * 100))
+      : day?.makers24 != null && day?.txns24 ? Math.round(Math.min(100, (day.makers24 / day.txns24) * 100)) : null,
+    age: ageSecs == null ? null : Math.round(Math.min(100, (ageSecs / (30 * 86400)) * 100)),
+    vol: ch == null ? null : Math.round(Math.max(0, 100 - Math.min(100, Math.abs(ch)))),
+  };
+  const HW = { depth: 35, dist: 20, quality: 20, age: 15, vol: 10 }, LBL = { depth: 'Liquidity depth', dist: 'Holder distribution', quality: 'Trading quality', age: 'Pool age', vol: 'Stability' };
+  const parts = Object.keys(HW).map((k) => ({ k, label: LBL[k], v: sig[k], w: HW[k] })).filter((p) => p.v != null);
+  const score = parts.length ? Math.round(parts.reduce((a, p) => a + p.v * p.w, 0) / parts.reduce((a, p) => a + p.w, 0)) : null;
+  return { score, label: score == null ? '' : score >= 70 ? 'Healthy' : score >= 40 ? 'Caution' : 'High risk', parts, depthPct, top10, ageSecs, fdv, minted };
+}
+const ageTxt = (s) => (s == null ? '—' : s >= 86400 ? `${Math.floor(s / 86400)}d` : s >= 3600 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 60)}m`);
+const cmp = (v) => (v == null || !isFinite(v) ? '—' : v >= 1e9 ? (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'K' : v >= 1 ? v.toFixed(0) : v.toPrecision(3));
+const dmy = (sec) => new Date(sec * 1000).toUTCString().slice(5, 16);
+// a row of small labelled cells (label on top in gold, value under it) — the page's ta-grid
+const cells = (x, y, w, items, vs = 24) => { const cw = w / items.length; let o = '';
+  items.forEach(([k, v, col], i) => { o += T(x + i * cw, y, k, 12, C.gold, 'letter-spacing="2"') + T(x + i * cw, y + 32, typeof v === 'object' && v ? v.raw : esc(v), vs, col || C.white); }); return o; };
+
 function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}) {
-  // 10-07: Biggest trades made it taller (1500 → 1720); drawn 1376 wide so it stays 4:5 and is scaled to 1200×1500 on render
-  // 10-21 (owner: "the snapshots … have the new sections in there"): + Money flow 24h and Top traders / price since launch → 1996
-  const W = 1376, H = 1996, P = 56, IW = W - 2 * P; let s = '', y;
+  // 10-26 (owner: "money flow, profitability, multiple liquidities, full charts, holders, pool health … the snapshot should
+  // include all of that"): every panel of the token page, in its order. Drawn 1376 wide, scaled to 1200 on render.
+  const W = 1376, P = 56, IW = W - 2 * P, hw = (IW - 14) / 2, rx0 = P + hw + 14, G = 16; let s = '', y;
   const day = d?.dayStats || null, sym = esc(t?.symbol || 'TOKEN');
+  const pools = (d?.ocPools || []).filter((q) => q && q.liquidityUsdc != null && isFinite(q.liquidityUsdc) && q.liquidityUsdc >= 1).sort((a, b) => b.liquidityUsdc - a.liquidityUsdc);
+  // same liquidity as the stats row / screener when the server measured the row's real reserves (liqUsdc)
+  const totLiq = t?.liqUsdc != null && t?.liq > 0 ? t.liq : pools.length ? pools.reduce((a, q) => a + q.liquidityUsdc, 0) : t?.liq;
+  const ph = poolHealth(t, d, totLiq);
   // ── header: kicker + stamp, logo, name, price
   s += T(P, 70, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"') + T(P + 290, 70, 'TOKEN SNAPSHOT', 18, C.gray, 'letter-spacing="3"');
   s += stampPill(W - P, 40, st, 'read directly from Arc mainnet');
@@ -261,106 +345,149 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}) {
   const tags = [t?.launchpad, t?.source === 'V4' ? 'Uniswap V4' : t?.source, t?.hooked ? 'Hooked pool' : null].filter(Boolean).slice(0, 3);
   let tx = nx; tags.forEach((g) => { const txt = esc(String(g)), tw = 18 + txt.length * 8.6; s += `<rect x="${tx}" y="${ly + 98}" width="${tw}" height="28" rx="8" fill="${C.tile}" stroke="${C.edge}"/>` + T(tx + 9, ly + 118, txt, 14, C.gray); tx += tw + 8; });
   s += T(W - P, ly + 62, priceInner(t?.price, 58), 58, C.white, 'text-anchor="end"');
-  const chips = [['1H', day?.change1h ?? t?.change1h], ['6H', day?.change6h], ['24H', day?.change24h ?? t?.change24h]].filter(([, v]) => v != null);
+  const chips = [['5M', day?.change5m], ['1H', day?.change1h ?? t?.change1h], ['6H', day?.change6h], ['24H', day?.change24h ?? t?.change24h]].filter(([, v]) => v != null);
   let cx = W - P; [...chips].reverse().forEach(([k, v]) => { const txt = `${k} ${chg(v)}`, tw = 22 + txt.length * 9.4; cx -= tw; s += `<rect x="${cx}" y="${ly + 84}" width="${tw}" height="32" rx="9" fill="${C.tile}" stroke="${chgCol(v)}" stroke-opacity="0.45"/>` + T(cx + tw / 2, ly + 106, esc(txt), 16, chgCol(v), 'text-anchor="middle"'); cx -= 8; });
-  // FAKE warning over a Statera impersonator's snapshot (09-30)
   if (isStateraImpersonator(addr, t?.name, t?.symbol)) s += `<rect x="${P}" y="12" width="${IW}" height="30" rx="8" fill="#d63a3a"/>` + T(W / 2, 33, 'FAKE — NOT ASSOCIATED WITH STATERA', 18, '#ffffff', 'text-anchor="middle" letter-spacing="2"');
-  // ── stats row
-  y = 284; const sw = (IW - 4 * 12) / 5;
-  [['MARKET CAP', usd(t?.mcap)], ['LIQUIDITY', usd(t?.liq)], ['VOLUME 24H', usd(t?.liqUsdc != null ? t?.volume24h : (day?.volume24h ?? t?.volume24h))], (d?.holdersOver?.over > 0 ? ['HOLDERS $0.10+', `${num(d.holdersOver.over)}${d.holdersOver.capped ? '+' : ''}`] : ['HOLDERS', t?.holders != null ? num(t.holders) : '—']), ['TXNS 24H', day?.txns24 != null ? num(day.txns24) : '—']]
-    .forEach(([k, v], i) => { const x = P + i * (sw + 12); s += panel(x, y, sw, 100) + T(x + 18, y + 38, k, 14, C.gold, 'letter-spacing="2"') + T(x + 18, y + 78, esc(v), 32); });
-  // ── chart
-  y = 400; const chH = 400; s += panel(P, y, IW, chH);
+  // ── stats row (the page's stat bar + FDV)
+  y = 284; const sw = (IW - 5 * 12) / 6;
+  [['MARKET CAP', usd(t?.mcap)], ['FDV', usd(ph.fdv)], ['LIQUIDITY', usd(totLiq), t?.liqUsdc != null ? `${usd(t.liqUsdc)} USDC` : ''],
+   ['VOLUME 24H', usd(t?.liqUsdc != null ? t?.volume24h : (day?.volume24h ?? t?.volume24h))],
+   d?.holdersOver?.over > 0 ? ['HOLDERS $0.10+', `${num(d.holdersOver.over)}${d.holdersOver.capped ? '+' : ''}`, d.holdersOver.total ? `of ${num(d.holdersOver.total)} wallets` : ''] : ['HOLDERS', t?.holders != null ? num(t.holders) : '—'],
+   ['TXNS 24H', day?.txns24 != null ? num(day.txns24) : '—']]
+    .forEach(([k, v, sub], i) => { const x = P + i * (sw + 12); s += panel(x, y, sw, 112) + T(x + 16, y + 36, k, 13, C.gold, 'letter-spacing="2"') + T(x + 16, y + 74, esc(v), 28) + (sub ? T(x + 16, y + 98, esc(sub), 13, C.dim) : ''); });
+  // ── chart: recent (15m · 3 days, or 5m · 24 h for a young token)
+  y += 112 + G; const chH = 400; s += panel(P, y, IW, chH);
   s += T(P + 24, y + 42, `$${sym} / USDC`, 22) + T(P + 24 + 18 + (`$${t?.symbol || ''} / USDC`).length * 12, y + 42, esc(tf), 16, C.gray);
   if (cs && cs.length >= 2) { let hi = -Infinity, lo = Infinity; cs.forEach((c) => { hi = Math.max(hi, c.high); lo = Math.min(lo, c.low); });
     s += T(W - P - 24, y + 42, `H ${priceInner(hi, 16)}   L ${priceInner(lo, 16)}`, 16, C.gray, 'text-anchor="end"'); }
   s += candleChart(P + 24, y + 64, IW - 48, chH - 88, cs, acc ? acc.line : C.fire);
-  // ── activity + liquidity
-  y = 816; const hw = (IW - 14) / 2, bh = 250;
-  s += panel(P, y, hw, bh) + T(P + 22, y + 42, 'TRADE ACTIVITY · 24H', 20, C.white, 'letter-spacing="2"');
+  // ── chart: the whole history (daily candles from the swap store, log scale)
+  const ds = (ex.daily?.candles || []).filter((k) => k && k.close > 0 && k.low > 0);
+  y += chH + G; const lh = 330; s += panel(P, y, IW, lh) + T(P + 24, y + 42, 'PRICE SINCE LAUNCH', 20, C.white, 'letter-spacing="2"');
+  if (ds.length >= 2) {
+    const f0 = ds[0].open || ds[0].close, fl = ds[ds.length - 1].close, chL = ((fl - f0) / f0) * 100, ath = ds.reduce((a, k) => (k.high > a.high ? k : a)), lowK = ds.reduce((a, k) => (k.low < a.low ? k : a));
+    s += T(P + 24 + 290, y + 42, `daily candles · ${ds.length} days · log scale`, 16, C.gray);
+    const mult = fl / f0, chTxt = mult >= 10 ? `${num(mult, mult >= 100 ? 0 : 1)}x` : `${chL >= 0 ? '+' : '−'}${Math.abs(chL).toFixed(Math.abs(chL) >= 100 ? 0 : 1)}%`;
+    s += T(W - P - 24, y + 42, `${chTxt} since ${dmy(ds[0].time)}  ·  ATH ${priceInner(ath.high, 16)} (${dmy(ath.time)})  ·  low ${priceInner(lowK.low, 16)}`, 16, C.gray, 'text-anchor="end"');
+    s += candleChart(P + 24, y + 62, IW - 48, lh - 84, ds.slice(-200), acc ? acc.line : C.fire, true);
+  } else s += T(P + 24, y + 110, 'Not enough history yet', 18, C.dim);
+  // ── trade activity | pool health
+  y += lh + G; const r1 = 300;
+  s += panel(P, y, hw, r1) + T(P + 22, y + 42, 'TRADE ACTIVITY · 24H', 20, C.white, 'letter-spacing="2"');
   if (day && (day.buys24 != null || day.sells24 != null)) {
     const b = day.buys24 || 0, se = day.sells24 || 0, tot = b + se || 1;
-    s += T(P + 22, y + 92, num(b), 34, C.green) + T(P + 22, y + 114, 'buys', 15, C.gray) + T(P + hw - 22, y + 92, num(se), 34, C.red, 'text-anchor="end"') + T(P + hw - 22, y + 114, 'sells', 15, C.gray, 'text-anchor="end"');
-    s += bar(P + 22, y + 128, hw - 44, 12, [[b / tot, C.green], [se / tot, C.red]]);
+    s += T(P + 22, y + 94, num(b), 34, C.green) + T(P + 22, y + 116, 'buys', 15, C.gray) + T(P + hw - 22, y + 94, num(se), 34, C.red, 'text-anchor="end"') + T(P + hw - 22, y + 116, 'sells', 15, C.gray, 'text-anchor="end"');
+    s += bar(P + 22, y + 130, hw - 44, 12, [[b / tot, C.green], [se / tot, C.red]]);
     const mk = day.makers24 != null ? `${num(day.makers24)}${day.makersIsFloor ? '+' : ''}` : '—';
-    [['TXNS', num(day.txns24)], ['MAKERS', mk], ['BUY SHARE', `${Math.round((b / tot) * 100)}%`]].forEach(([k, v], i) => { const x = P + 22 + i * ((hw - 44) / 3);
-      s += T(x, y + 184, k, 13, C.gold, 'letter-spacing="2"') + T(x, y + 218, esc(v), 26); });
+    s += cells(P + 22, y + 192, hw - 44, [['TXNS', num(day.txns24)], ['MAKERS', mk], ['BUY SHARE', `${Math.round((b / tot) * 100)}%`]]);
+    s += cells(P + 22, y + 254, hw - 44, [['BURNED', d?.burn?.pct != null ? `${d.burn.pct.toFixed(1)}%` : '—'], ['TOP 10 HOLD', ph.top10 != null ? `${ph.top10.toFixed(1)}%` : '—'], ['POOL AGE', ageTxt(ph.ageSecs)]]);
   } else s += T(P + 22, y + 100, 'No trades in the last 24 hours', 18, C.dim);
-  const rx0 = P + hw + 14; s += panel(rx0, y, hw, bh) + T(rx0 + 22, y + 42, 'LIQUIDITY &amp; POOLS', 20, C.white, 'letter-spacing="2"');
-  const pools = (d?.ocPools || []).filter((q) => q && q.liquidityUsdc != null && isFinite(q.liquidityUsdc)).sort((a, b) => b.liquidityUsdc - a.liquidityUsdc);
-  // 10-26: same liquidity as the stats row / screener when the server measured the row's real reserves (liqUsdc)
-  const totLiq = t?.liqUsdc != null && t?.liq > 0 ? t.liq : pools.length ? pools.reduce((a, q) => a + q.liquidityUsdc, 0) : t?.liq;
-  s += T(rx0 + 22, y + 92, usd(totLiq), 34) + T(rx0 + hw - 22, y + 92, `${pools.length || '—'} pool${pools.length === 1 ? '' : 's'}`, 18, C.gray, 'text-anchor="end"');
-  pools.slice(0, 3).forEach((q, i) => { const yy = y + 138 + i * 34, lab = `${q.version}${q.feeTier ? ` · ${q.feeTier / 10000}%` : ''} · USDC`;
-    s += `<rect x="${rx0 + 22}" y="${yy - 20}" width="${hw - 44}" height="28" rx="8" fill="${C.tile}"/>` + T(rx0 + 34, yy - 1, esc(lab), 15, C.gray) + T(rx0 + hw - 34, yy - 1, usd(q.liquidityUsdc), 15, C.white, 'text-anchor="end"'); });
-  const lk = (d?.locks || []).filter((l) => l.locked > 0)[0];
-  const foot = [d?.burn?.pct != null && d.burn.pct >= 0.01 ? `${d.burn.pct.toFixed(2)}% burned` : null,
-    lk ? `${lk.pct != null ? lk.pct.toFixed(2) + '%' : num(lk.locked)} locked (${lk.label})${lk.nextUnlock ? ` · next unlock ${new Date(lk.nextUnlock * 1000).toUTCString().slice(5, 16)}` : ''}` : null].filter(Boolean).join('  ·  ');
-  if (foot) s += T(rx0 + 22, y + bh - 16, esc(foot), 14, lk ? C.green : C.dim);
-  // ── holders + latest trades
-  y = 1082; const hh = 290;
-  s += panel(P, y, hw, hh) + T(P + 22, y + 42, 'TOP HOLDERS', 20, C.white, 'letter-spacing="2"');
+  s += panel(rx0, y, hw, r1) + T(rx0 + 22, y + 42, 'POOL HEALTH', 20, C.white, 'letter-spacing="2"');
+  if (ph.score != null) {
+    const col = ph.score >= 70 ? C.green : ph.score >= 40 ? C.gold : C.red;
+    s += T(rx0 + hw - 22, y + 44, `<tspan font-size="30">${ph.score}</tspan><tspan font-size="16" fill="${C.gray}">/100 · </tspan>${esc(ph.label)}`, 20, col, 'text-anchor="end"');
+    ph.parts.forEach((p, i) => { const yy = y + 86 + i * 38;
+      s += T(rx0 + 22, yy, esc(p.label), 16) + T(rx0 + hw - 22, yy, String(p.v), 16, C.white, 'text-anchor="end"');
+      s += bar(rx0 + 22, yy + 9, hw - 44, 7, [[p.v / 100, p.v >= 70 ? C.green : p.v >= 40 ? C.gold : C.red]]); });
+    s += T(rx0 + 22, y + r1 - 14, 'Weighted signal from live on-chain data — not a legitimacy or safety certificate', 13, C.dim);
+  } else s += T(rx0 + 22, y + 100, 'Not enough data for a score yet', 18, C.dim);
+  // ── liquidity & pools | supply + locked
+  y += r1 + G; const shown = pools.slice(0, 6), r2 = Math.max(380, 236 + shown.length * 36 + 18);
+  s += panel(P, y, hw, r2) + T(P + 22, y + 42, 'LIQUIDITY &amp; POOLS', 20, C.white, 'letter-spacing="2"');
+  s += T(P + 22, y + 92, usd(totLiq), 34) + T(P + hw - 22, y + 92, `${pools.length || '—'} pool${pools.length === 1 ? '' : 's'}`, 18, C.gray, 'text-anchor="end"');
+  s += cells(P + 22, y + 132, hw - 44, [['DEPTH / VAL', ph.depthPct != null ? `${ph.depthPct.toFixed(1)}%` : '—'], ['USDC IN POOLS', t?.liqUsdc != null ? usd(t.liqUsdc) : '—'], ['POOL AGE', ageTxt(ph.ageSecs)]], 20);
+  s += T(P + 22, y + 204, 'PAIR', 12, C.dim, 'letter-spacing="2"') + T(P + hw - 190, y + 204, 'PRICE', 12, C.dim, 'letter-spacing="2" text-anchor="end"') + T(P + hw - 22, y + 204, 'LIQUIDITY', 12, C.dim, 'letter-spacing="2" text-anchor="end"');
+  shown.forEach((q, i) => { const yy = y + 236 + i * 36, lab = `${q.version || 'Pool'}${q.feeTier ? ` · ${q.feeTier / 10000}%` : ''} · ${q.quote || 'USDC'}`;
+    s += `<rect x="${P + 22}" y="${yy - 22}" width="${hw - 44}" height="30" rx="8" fill="${C.tile}"/>` + T(P + 34, yy - 2, esc(lab), 15, C.gray)
+      + T(P + hw - 190, yy - 2, q.price != null ? priceInner(q.price, 15) : '—', 15, C.green, 'text-anchor="end"') + T(P + hw - 34, yy - 2, usd(q.liquidityUsdc), 15, C.white, 'text-anchor="end"'); });
+  if (pools.length > shown.length) s += T(P + 22, y + r2 - 14, `+${pools.length - shown.length} smaller pools`, 13, C.dim);
+  if (!shown.length) s += T(P + 22, y + 240, 'No pools found', 16, C.dim);
+  // supply (top of the right column)
+  const burn = d?.burn || null, minted = ph.minted, burnt = burn?.burnt > 0 ? burn.burnt : null, circ = minted != null ? Math.max(0, minted - (burnt || 0)) : null;
+  const sh = 150; s += panel(rx0, y, hw, sh) + T(rx0 + 22, y + 42, 'SUPPLY', 20, C.white, 'letter-spacing="2"');
+  s += cells(rx0 + 22, y + 84, hw - 44, [['MINTED', cmp(minted)], [burnt ? `BURNED ${burn.pct.toFixed(1)}%` : 'BURNED', burnt ? cmp(burnt) : '0'], ['CIRCULATING', cmp(circ)], ['FDV', usd(ph.fdv)]], 22);
+  // locked (under supply): total, locker, the next unlocks
+  const lkY = y + sh + 14, lkH = r2 - sh - 14, locks = (d?.locks || []).filter((l) => l.locked > 0);
+  s += panel(rx0, lkY, hw, lkH) + T(rx0 + 22, lkY + 42, 'LOCKED', 20, C.white, 'letter-spacing="2"');
+  if (locks.length) {
+    const lk = locks[0], parts = (lk.parts || []).filter((p) => p.amount > 0 && p.unlock * 1000 > Date.now()).sort((a, b) => a.unlock - b.unlock), nowS = Date.now() / 1000;
+    s += T(rx0 + 22, lkY + 84, `${cmp(lk.locked)} ${sym}`, 26) + T(rx0 + hw - 22, lkY + 84, lk.pct != null ? `${lk.pct < 0.01 ? '&lt;0.01' : lk.pct.toFixed(2)}% of supply` : '', 16, C.green, 'text-anchor="end"');
+    s += T(rx0 + 22, lkY + 108, esc(`in the ${lk.label || 'locker'}${locks.length > 1 ? ` (+${locks.length - 1} more locker${locks.length > 2 ? 's' : ''})` : ''}`), 14, C.gray);
+    const rows = Math.max(0, Math.floor((lkH - 150) / 28));
+    parts.slice(0, rows).forEach((p, i) => { const yy = lkY + 142 + i * 28;
+      s += T(rx0 + 22, yy, esc(cmp(p.amount)), 15) + T(rx0 + 170, yy, `unlocks ${dmy(p.unlock)}`, 15, C.gray) + T(rx0 + hw - 22, yy, `${Math.max(0, Math.ceil((p.unlock - nowS) / 86400))}d`, 15, C.green, 'text-anchor="end"'); });
+    if (parts.length > rows) s += T(rx0 + 22, lkY + lkH - 14, `+${parts.length - rows} more parts · last unlocks ${lk.lastUnlock ? dmy(lk.lastUnlock) : '—'}`, 13, C.dim);
+  } else s += T(rx0 + 22, lkY + 92, 'No tokens in a known locker', 16, C.dim);
+  // ── money flow | holder profitability
+  y += r2 + G; const r3 = 420, fw = (ex.flow?.windows || []).find((q) => q.window === '24h');
+  s += panel(P, y, hw, r3) + T(P + 22, y + 42, 'MONEY FLOW · 24H', 20, C.white, 'letter-spacing="2"');
+  if (fw && (fw.buys || fw.sells)) {
+    const tot = fw.buyUsd + fw.sellUsd || 1, up = fw.net >= 0;
+    s += T(P + 22, y + 96, `${up ? '+' : '−'}${usd(Math.abs(fw.net))}`, 36, up ? C.green : C.red) + T(P + 22, y + 120, `net ${up ? 'inflow' : 'outflow'}`, 15, C.gray);
+    s += bar(P + 22, y + 138, hw - 44, 12, [[fw.buyUsd / tot, C.green], [fw.sellUsd / tot, C.red]]);
+    s += T(P + 22, y + 174, `Bought ${usd(fw.buyUsd)}`, 16, C.green) + T(P + hw - 22, y + 174, `Sold ${usd(fw.sellUsd)}`, 16, C.red, 'text-anchor="end"');
+    s += cells(P + 22, y + 216, hw - 44, [['BUYS', num(fw.buys)], ['SELLS', num(fw.sells)], ['BUYERS', fw.makersKnown ? num(fw.buyers) : '—'], ['SELLERS', fw.makersKnown ? num(fw.sellers) : '—']], 22);
+    s += cells(P + 22, y + 284, hw - 44, [['BIGGEST BUY', usd(fw.biggestBuy)], ['BIGGEST SELL', usd(fw.biggestSell)]], 22);
+    [['TOP BUYER', fw.topBuyer], ['TOP SELLER', fw.topSeller]].forEach(([k, w], i) => { if (!w?.wallet) return; const yy = y + 362 + i * 30, upW = w.net >= 0;
+      s += T(P + 22, yy, k, 12, C.gold, 'letter-spacing="2"') + T(P + 150, yy, esc(short(w.wallet)), 15) + T(P + hw - 22, yy, `${upW ? '+' : '−'}${usd(Math.abs(w.net))}`, 15, upW ? C.green : C.red, 'text-anchor="end"'); });
+  } else s += T(P + 22, y + 100, 'No trades in the last 24 hours', 18, C.dim);
+  s += panel(rx0, y, hw, r3) + T(rx0 + 22, y + 42, 'HOLDER PROFITABILITY', 20, C.white, 'letter-spacing="2"');
+  const pr = ex.profit, prOk = pr && pr.holders >= 10 && pr.pctHolders != null && pr.coverage != null && pr.coverage >= 0.5;
+  if (prOk) {
+    s += T(rx0 + 22, y + 98, `${pr.pctHolders.toFixed(0)}%`, 40, pr.pctHolders >= 50 ? C.green : C.red) + T(rx0 + 22 + 20 + `${pr.pctHolders.toFixed(0)}%`.length * 24, y + 98, `of ${num(pr.holders)} holders are in profit right now`, 16, C.gray);
+    s += cells(rx0 + 22, y + 140, hw - 44, [['IN PROFIT', pr.pctSupply != null ? `${pr.pctSupply.toFixed(0)}%` : '—'], ['TYPICAL BUY', { raw: priceInner(pr.medianEntry, 18) }], ['AVG BUY', { raw: priceInner(pr.avgEntry, 18) }], ['PRICE NOW', { raw: priceInner(pr.price, 18) }]], 18);
+    s += T(rx0 + 22, y + 214, 'Holders by how far they are up or down since they bought', 14, C.gray);
+    const BANDS = ['Down over 50%', 'Down 20 to 50%', 'Down under 20%', 'Up under 25%', 'Up 25 to 100%', 'More than 2x'];
+    (pr.dist || []).slice(0, 6).forEach((b, i) => { const yy = y + 248 + i * 27;
+      s += T(rx0 + 22, yy, BANDS[i] || esc(b.label), 14, C.white) + bar(rx0 + 170, yy - 9, hw - 330, 8, [[Math.max(0.01, b.pct / 100), i < 3 ? C.red : C.green]])
+        + T(rx0 + hw - 70, yy, num(b.holders), 14, C.white, 'text-anchor="end"') + T(rx0 + hw - 22, yy, b.pct < 1 && b.holders ? '&lt;1%' : `${b.pct.toFixed(0)}%`, 14, C.gray, 'text-anchor="end"'); });
+  } else s += T(rx0 + 22, y + 100, 'Not enough trades matched to wallets yet', 18, C.dim);
+  // ── top holders | latest trades (10 each)
+  y += r3 + G; const r4 = 432;
+  s += panel(P, y, hw, r4) + T(P + 22, y + 42, 'TOP HOLDERS', 20, C.white, 'letter-spacing="2"') + T(P + hw - 22, y + 42, d?.holderCount ? `${num(d.holderCount)} holders` : '', 14, C.dim, 'text-anchor="end"');
   const poolSet = new Set(pools.map((q) => String(q.pool).toLowerCase()));
-  (d?.holders || []).slice(0, 6).forEach((h, i) => { const yy = y + 80 + i * 34, a = String(h.address || '').toLowerCase();
-    // server labels (holder-intel.ts): V4 pools / Liquidity pool / Burned / Argus locker; any other contract gets a CONTRACT tag
+  (d?.holders || []).slice(0, 10).forEach((h, i) => { const yy = y + 80 + i * 34, a = String(h.address || '').toLowerCase();
     const named = h.label || KNOWN_HOLDER[a] || (poolSet.has(a) ? 'Liquidity pool' : null), lab = named || short(a), p = h.percent != null ? Math.max(0, Math.min(100, h.percent)) : null;
-    s += T(P + 22, yy, `${i + 1}`, 15, C.dim) + T(P + 48, yy, esc(lab), 16, named ? C.gold : C.white);
+    s += T(P + 22, yy, `${i + 1}`, 15, C.dim) + T(P + 52, yy, esc(lab), 16, named ? C.gold : C.white);
     const tag = h.kind === 'locker' ? ['LOCKED', C.green] : h.kind === 'contract' ? ['CONTRACT', '#b8a3ff'] : null;
-    // room after the name/address (the tag touched '0x6763…6976')
-    if (tag) { const tx0 = P + 60 + lab.length * 9.6; s += `<rect x="${tx0}" y="${yy - 15}" width="${tag[0].length * 8 + 12}" height="20" rx="5" fill="none" stroke="${tag[1]}" stroke-opacity="0.5"/>` + T(tx0 + 6, yy, tag[0], 11, tag[1], 'letter-spacing="1"'); }
-    s += bar(P + 250, yy - 10, hw - 360, 8, [[(p || 0) / 100, C.fire]]) + T(P + hw - 22, yy, p == null ? '—' : p > 0 && p < 0.01 ? '<0.01%' : `${p.toFixed(2)}%`, 16, C.white, 'text-anchor="end"'); });
+    if (tag) { const tx0 = P + 64 + lab.length * 9.6; s += `<rect x="${tx0}" y="${yy - 15}" width="${tag[0].length * 8 + 12}" height="20" rx="5" fill="none" stroke="${tag[1]}" stroke-opacity="0.5"/>` + T(tx0 + 6, yy, tag[0], 11, tag[1], 'letter-spacing="1"'); }
+    s += bar(P + 260, yy - 10, hw - 370, 8, [[(p || 0) / 100, C.fire]]) + T(P + hw - 22, yy, p == null ? '—' : p > 0 && p < 0.01 ? '&lt;0.01%' : `${p.toFixed(2)}%`, 16, C.white, 'text-anchor="end"'); });
   if (!(d?.holders || []).length) s += T(P + 22, y + 90, 'Holder list not available', 16, C.dim);
-  s += panel(rx0, y, hw, hh) + T(rx0 + 22, y + 42, 'LATEST TRADES', 20, C.white, 'letter-spacing="2"') + T(rx0 + hw - 22, y + 42, 'UTC', 14, C.dim, 'text-anchor="end"');
-  const trades = (d?.swaps || []).filter((x) => x && isFinite(x.usd) && x.usd >= 0 && x.usd < 1e9).slice(0, 6);
+  s += panel(rx0, y, hw, r4) + T(rx0 + 22, y + 42, 'LATEST TRADES', 20, C.white, 'letter-spacing="2"') + T(rx0 + hw - 22, y + 42, 'UTC', 14, C.dim, 'text-anchor="end"');
+  const trades = (d?.swaps || []).filter((x) => x && isFinite(x.usd) && x.usd >= 0 && x.usd < 1e9).slice(0, 10);
   trades.forEach((x, i) => { const yy = y + 80 + i * 34, buy = x.side === 'buy';
     s += `<rect x="${rx0 + 22}" y="${yy - 19}" width="52" height="26" rx="7" fill="${buy ? '#10251a' : '#2a1210'}"/>` + T(rx0 + 48, yy - 1, buy ? 'BUY' : 'SELL', 13, buy ? C.green : C.red, 'text-anchor="middle"');
-    s += T(rx0 + 88, yy, usd(x.usd), 17) + T(rx0 + 210, yy, esc(x.trader ? short(x.trader) : ''), 15, C.gray) + T(rx0 + hw - 22, yy, x.time ? hhmm(x.time) : '', 15, C.gray, 'text-anchor="end"'); });
+    s += T(rx0 + 88, yy, usd(x.usd), 17) + T(rx0 + 200, yy, esc(x.amount != null ? `${cmp(x.amount)} ${t?.symbol || ''}`.slice(0, 18) : ''), 14, C.gray)
+      + T(rx0 + 370, yy, esc(x.trader ? short(x.trader) : ''), 15, C.gray) + T(rx0 + hw - 22, yy, x.time ? hhmm(x.time) : '', 15, C.gray, 'text-anchor="end"'); });
   if (!trades.length) s += T(rx0 + 22, y + 90, 'No recent trades found', 16, C.dim);
-  // ── biggest trades, 24h (owner 10-07: the snapshot shows the top buys and sells like the token page does). Top 3 each
-  // side by USD from every pool (server/token-detail.ts `biggest`); rows older than 24 h by OUR clock are dropped — the
-  // server's list can be a few minutes old.
-  y = 1386; const bh2 = 196, nowS = Date.now() / 1000;
-  const fmtAmt = (v) => (v == null || !isFinite(v) ? '' : v >= 1e9 ? (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'K' : v >= 1 ? v.toFixed(0) : v.toPrecision(3));
+  // ── biggest trades 24h (top 3 each side, rows older than 24 h by OUR clock dropped)
+  y += r4 + G; const bh2 = 196, nowS = Date.now() / 1000;
   [['buys', 'BIGGEST BUYS · 24H', C.green, P], ['sells', 'BIGGEST SELLS · 24H', C.red, rx0]].forEach(([k, title, col, x0]) => {
     s += panel(x0, y, hw, bh2) + T(x0 + 22, y + 42, title, 20, C.white, 'letter-spacing="2"') + T(x0 + hw - 22, y + 42, 'UTC', 14, C.dim, 'text-anchor="end"');
     const list = (d?.biggest?.h24?.[k] || []).filter((x) => x && x.usd != null && isFinite(x.usd) && x.usd >= 0 && x.usd < 1e9 && x.time >= nowS - 86400).slice(0, 3);
     list.forEach((x, i) => { const yy = y + 86 + i * 38;
-      s += T(x0 + 22, yy, `${i + 1}`, 15, C.dim) + T(x0 + 46, yy, usd(x.usd), 22, col) + T(x0 + 180, yy, esc(`${fmtAmt(x.amount)} ${t?.symbol || ''}`.trim().slice(0, 18)), 15, C.gray)
+      s += T(x0 + 22, yy, `${i + 1}`, 15, C.dim) + T(x0 + 46, yy, usd(x.usd), 22, col) + T(x0 + 180, yy, esc(`${cmp(x.amount)} ${t?.symbol || ''}`.trim().slice(0, 18)), 15, C.gray)
         + T(x0 + 350, yy, esc(x.trader ? short(x.trader) : ''), 15, C.gray) + T(x0 + hw - 22, yy, x.time ? hhmm(x.time) : '', 15, C.gray, 'text-anchor="end"'); });
     if (!list.length) s += T(x0 + 22, y + 92, `No ${k} in the last 24 hours`, 16, C.dim);
   });
-  // ── money flow 24h + top traders (or the price since launch while wallets are still being matched) — 10-21
-  y = 1598; const mh2 = 250, fw = (ex.flow?.windows || []).find((q) => q.window === '24h');
-  s += panel(P, y, hw, mh2) + T(P + 22, y + 42, 'MONEY FLOW · 24H', 20, C.white, 'letter-spacing="2"');
-  if (fw && (fw.buys || fw.sells)) {
-    const tot = fw.buyUsd + fw.sellUsd || 1, up = fw.net >= 0;
-    s += T(P + 22, y + 94, `${up ? '+' : '-'}${usd(Math.abs(fw.net))}`, 36, up ? C.green : C.red) + T(P + 22, y + 118, `net ${up ? 'inflow' : 'outflow'}`, 15, C.gray);
-    s += T(P + hw - 22, y + 94, usd(fw.buyUsd), 22, C.green, 'text-anchor="end"') + T(P + hw - 22, y + 118, `bought · sold ${usd(fw.sellUsd)}`, 15, C.gray, 'text-anchor="end"');
-    s += bar(P + 22, y + 134, hw - 44, 12, [[fw.buyUsd / tot, C.green], [fw.sellUsd / tot, C.red]]);
-    [['BUYS', num(fw.buys)], ['SELLS', num(fw.sells)], ['BIGGEST BUY', usd(fw.biggestBuy)], ['BIGGEST SELL', usd(fw.biggestSell)]].forEach(([k, v], i) => {
-      const x = P + 22 + i * ((hw - 44) / 4); s += T(x, y + 190, k, 12, C.gold, 'letter-spacing="2"') + T(x, y + 222, esc(v), 22); });
-  } else s += T(P + 22, y + 100, 'No trades in the last 24 hours', 18, C.dim);
-  s += panel(rx0, y, hw, mh2);
+  // ── top traders | info
+  y += bh2 + G; const r5 = 250;
+  s += panel(P, y, hw, r5);
   const tt = ex.traders, ttOk = tt && tt.coverage != null && tt.coverage >= 0.5 && (tt.rows || []).length;
+  s += T(P + 22, y + 42, 'TOP TRADERS · BY PROFIT', 20, C.white, 'letter-spacing="2"');
   if (ttOk) {
-    s += T(rx0 + 22, y + 42, 'TOP TRADERS · BY PROFIT', 20, C.white, 'letter-spacing="2"') + T(rx0 + hw - 22, y + 42, `${num(tt.traders)} wallets`, 14, C.dim, 'text-anchor="end"');
+    s += T(P + hw - 22, y + 42, `${num(tt.traders)} wallets`, 14, C.dim, 'text-anchor="end"');
     tt.rows.slice(0, 5).forEach((r, i) => { const yy = y + 84 + i * 34, up = r.pnl >= 0;
-      s += T(rx0 + 22, yy, `${i + 1}`, 15, C.dim) + T(rx0 + 48, yy, esc(short(r.wallet)), 16) + T(rx0 + 240, yy, `bought ${usd(r.bought)}`, 15, C.gray)
-        + T(rx0 + hw - 22, yy, `${up ? '+' : '-'}${usd(Math.abs(r.pnl))}`, 18, up ? C.green : C.red, 'text-anchor="end"'); });
-  } else {
-    // price since the token's first trade (daily closes from the swap store) — always available, so the panel is never empty
-    const ds = (ex.daily?.candles || []).filter((k) => k && k.close > 0);
-    s += T(rx0 + 22, y + 42, 'PRICE SINCE LAUNCH', 20, C.white, 'letter-spacing="2"');
-    if (ds.length >= 2) {
-      const f0 = ds[0].close, fl = ds[ds.length - 1].close, ch = ((fl - f0) / f0) * 100, hiK = ds.reduce((a, k) => (k.high > a.high ? k : a)), lo = Math.min(...ds.map((k) => k.low));
-      s += T(rx0 + hw - 22, y + 42, `${ch >= 0 ? '+' : ''}${ch.toFixed(ch >= 100 || ch <= -100 ? 0 : 1)}% since ${new Date(ds[0].time * 1000).toUTCString().slice(5, 11)}`, 16, ch >= 0 ? C.green : C.red, 'text-anchor="end"');
-      const gx = rx0 + 22, gy = y + 66, gw = hw - 44, gh = 120, mx = Math.max(...ds.map((k) => k.close)), mn = Math.min(...ds.map((k) => k.close)), rg = mx - mn || mx || 1;
-      const pts = ds.map((k, i) => `${(gx + (i / (ds.length - 1)) * gw).toFixed(1)},${(gy + gh - ((k.close - mn) / rg) * gh).toFixed(1)}`);
-      s += `<polyline points="${pts.join(' ')}" fill="none" stroke="${acc ? acc.line : C.fire}" stroke-width="2.5"/>`;
-      s += T(rx0 + 22, y + 220, `ATH ${priceInner(hiK.high, 15)} (${new Date(hiK.time * 1000).toUTCString().slice(5, 11)})`, 15, C.gray) + T(rx0 + hw - 22, y + 220, `Low ${priceInner(lo, 15)} · ${ds.length} days`, 15, C.gray, 'text-anchor="end"');
-    } else s += T(rx0 + 22, y + 100, 'Not enough history yet', 18, C.dim);
-  }
+      s += T(P + 22, yy, `${i + 1}`, 15, C.dim) + T(P + 48, yy, esc(short(r.wallet)), 16) + T(P + 240, yy, `bought ${usd(r.bought)}`, 15, C.gray)
+        + T(P + hw - 22, yy, `${up ? '+' : '−'}${usd(Math.abs(r.pnl))}`, 18, up ? C.green : C.red, 'text-anchor="end"'); });
+  } else s += T(P + 22, y + 100, 'Wallets are still being matched to trades', 18, C.dim);
+  s += panel(rx0, y, hw, r5) + T(rx0 + 22, y + 42, 'INFO', 20, C.white, 'letter-spacing="2"');
+  const ct = d?.contract || {};
+  [['Contract', addr], ['Standard', 'ERC20'], ['Decimals', String(d?.dec ?? ct.decimals ?? t?.decimals ?? '—')], ['Pool', t?.poolId || t?.pool ? short(t.poolId || t.pool) : '—'],
+   ['Creator', ct.creator ? short(ct.creator) : '—'], ['Transfers 24h', ct.transfers24h != null ? num(ct.transfers24h) : '—']]
+    .forEach(([k, v], i) => { const yy = y + 80 + i * 28; s += T(rx0 + 22, yy, k, 15, C.gray) + T(rx0 + hw - 22, yy, esc(v), k === 'Contract' ? 13 : 15, C.white, 'text-anchor="end"'); });
   // ── footer
+  y += r5 + G; const H = y + 130;
   s += `<rect x="0" y="${H - 130}" width="${W}" height="130" fill="url(#foot)"/>`;
   s += T(P, H - 56, `stateraarc.com/token/${addr.slice(0, 8)}…${addr.slice(-4)}`, 28, C.fire) + T(W - P, H - 56, 'Live on-chain data · not financial advice', 18, C.gray, 'text-anchor="end"');
   s += T(P, H - 26, 'Screener · Swap · Portfolio · Network', 16, C.dim) + T(W - P, H - 26, 'Arc mainnet · chain 5042', 16, C.dim, 'text-anchor="end"');
@@ -448,11 +575,12 @@ export default async function handler(req, res) {
     const tokenAddr = (u.searchParams.get('token') || '').toLowerCase();
     if (tokenAddr) {
       if (!/^0x[0-9a-f]{40}$/.test(tokenAddr)) throw new Error('bad token address');
-      const [row, d, c15, c5, logo, , b15, flow, traders, daily] = await Promise.all([within(v2(`token/${tokenAddr}`), 5000), within(v2(`token/${tokenAddr}/detail`), 9000),
+      const [row, d, c15, c5, logo, , b15, flow, traders, daily, profit] = await Promise.all([within(v2(`token/${tokenAddr}`), 5000), within(v2(`token/${tokenAddr}/detail`), 9000),
         within(v2(`token/${tokenAddr}/candles?sec=900&look=259200`), 6000), within(v2(`token/${tokenAddr}/candles?sec=300&look=86400`), 6000), within(tokenLogo(tokenAddr), 3000, ''), ensureWasm(),
         // the swap store (10-21): real 15m candles, money flow, top traders, daily closes since launch — each optional
         within(v2(`token/${tokenAddr}/bars?res=15m&limit=288`), 6000), within(v2(`token/${tokenAddr}/flow`), 6000),
-        within(v2(`token/${tokenAddr}/traders?limit=5`), 7000), within(v2(`token/${tokenAddr}/bars?res=1d&limit=400`), 6000)]);
+        within(v2(`token/${tokenAddr}/traders?limit=5`), 7000), within(v2(`token/${tokenAddr}/bars?res=1d&limit=400`), 6000),
+        within(v2(`token/${tokenAddr}/profitability`), 7000)]);
       // token names/symbols are the creator's own text — shown as they are, emojis included (owner 09-29: the no-emoji
       // rule is for OUR wording, not token data)
       const t = row?.token ?? null;
@@ -463,7 +591,7 @@ export default async function handler(req, res) {
       const now = new Date(), st = stampOf(now);
       // the card's colour comes from the token's logo; a grey/black/white or missing logo gets a quiet neutral
       const acc = accentOf(logoAccent(logo)) || { line: '#9aa3b2', glow: '#5b6475' };
-      const png = new Resvg(tokenTall(t, d, cs, tf, logo, st, tokenAddr, acc, { flow, traders, daily }), { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 1200 } }).render().asPng();
+      const png = new Resvg(tokenTall(t, d, cs, tf, logo, st, tokenAddr, acc, { flow, traders, daily, profit }), { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 1200 } }).render().asPng();
       res.setHeader('content-type', 'image/png');
       const symSafe = String(t.symbol || 'token').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) || 'token';
       if (download) { res.setHeader('content-disposition', `attachment; filename="statera-${symSafe}-snapshot-${st.file}-UTC.png"`); res.setHeader('cache-control', 'no-store'); }
