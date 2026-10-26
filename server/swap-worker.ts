@@ -19,13 +19,28 @@ class Lane {
   private pending = new Map<number, Pending>();
   private seq = 0;
   private name: string; private ms: number; private heapMb: number;
+  // 10-26 OOM fix: an idle worker is shut down after IDLE_MS. A worker never hands memory back — measured in a capped sandbox on
+  // the VPS: 3 idle workers ~80 MB, one big token page (ARGUS chart + trades + flow + traders + profitability) +105 MB that
+  // stayed; terminating them freed it all (252 → 125 MB). With them kept forever the API sat at 550–600 MB of its 700 MB
+  // and one big token page pushed it over (OOM kill ~daily since 10-23). Respawn = one import + DB open, well under 1 s.
+  private idle: NodeJS.Timeout | null = null;
   constructor(name: string, ms: number, heapMb: number) { this.name = name; this.ms = ms; this.heapMb = heapMb; }
+  private armIdle() {
+    if (this.idle) clearTimeout(this.idle);
+    this.idle = setTimeout(() => {
+      this.idle = null;
+      const w = this.w; if (!w || this.pending.size) return;
+      this.w = null; w.terminate().catch(() => {}); poolStats.idleStops++;
+    }, IDLE_MS);
+    this.idle.unref();
+  }
   private spawn() {
     const w = new Worker(new URL(import.meta.url), { execArgv: ['--disable-warning=ExperimentalWarning'], resourceLimits: { maxOldGenerationSizeMb: this.heapMb, maxYoungGenerationSizeMb: 8 } });
     w.on('message', (m: { id: number; r: unknown; err: string | null }) => {
       const p = this.pending.get(m.id); if (!p) return;
       clearTimeout(p.timer); this.pending.delete(m.id);
       if (m.err) p.ko(new Error(m.err)); else p.ok(m.r);
+      if (!this.pending.size) this.armIdle();
     });
     const fail = (e: Error) => { if (this.w === w) this.w = null; for (const [, p] of this.pending) { clearTimeout(p.timer); p.ko(e); } this.pending.clear(); };
     w.on('error', fail); w.on('exit', () => fail(new Error(`${this.name} worker exited`)));
@@ -33,7 +48,8 @@ class Lane {
     this.w = w;
   }
   call(fn: string, args: unknown[]): Promise<unknown> {
-    if (!this.w) this.spawn();
+    if (this.idle) { clearTimeout(this.idle); this.idle = null; }
+    if (!this.w) { this.spawn(); poolStats.spawns++; }
     const id = ++this.seq, w = this.w!;
     return new Promise((ok, ko) => {
       const timer = setTimeout(() => {
@@ -47,7 +63,8 @@ class Lane {
     });
   }
 }
-export const poolStats = { calls: 0, timeouts: 0, dedup: 0 };
+const IDLE_MS = 60_000;
+export const poolStats = { calls: 0, timeouts: 0, dedup: 0, spawns: 0, idleStops: 0 };
 // 3 lanes (10-21 load test: cirBTC's money flow — a 7-day join over the maker history — ran 12 s after a restart in the SAME lane
 // as the chart, so the chart and trade history queued behind it and were dropped with it): charts + trades + wallet swaps never
 // wait on flow or on the whole-history rankings
