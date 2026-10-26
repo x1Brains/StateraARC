@@ -191,7 +191,7 @@ function tall(c, l, w, st, logos, act) {
     s += T(lx0 + 22, y + 118, usd(lent), 34) + T(lx0 + 22, y + 140, 'deposited (Aave + Morpho)', 15, C.gray);
     s += T(lx0 + hw - 22, y + 118, usd(bor), 34, C.gold, 'text-anchor="end"') + T(lx0 + hw - 22, y + 140, `borrowed out · ${lent > 0 ? Math.round((bor / lent) * 100) : 0}% of deposits`, 15, C.gray, 'text-anchor="end"');
     const rows = [['Aave V4', l.aave.supplyUsd, l.aave.borrowUsd], ...(mOk ? [['Morpho', l.morpho.supplyUsd, l.morpho.borrowUsd]] : [])];
-    rows.forEach(([n, a, b], i) => { const yy = y + 190 + i * 62, u = a > 0 ? b / a : 0;
+    rows.forEach(([n, a, b], i) => { const yy = y + 190 + i * 76, u = a > 0 ? b / a : 0;
       s += T(lx0 + 22, yy, n, 19) + T(lx0 + hw - 22, yy, `${usd(a)} deposited`, 16, C.white, 'text-anchor="end"');
       s += bar(lx0 + 22, yy + 12, hw - 44, 10, [[u, u >= 0.9 ? C.red : C.gold]]) + T(lx0 + hw - 22, yy + 42, `${usd(b)} borrowed out (${Math.round(u * 100)}%)`, 14, C.gray, 'text-anchor="end"'); });
     if (!mOk) s += T(lx0 + 22, y + bh - 20, 'Morpho: still counting its markets', 14, C.dim);
