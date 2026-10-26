@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright
 BASE = (sys.argv[1] if len(sys.argv) > 1 else 'https://www.stateraarc.com').rstrip('/')
 OUT = (sys.argv[2] if len(sys.argv) > 2 else 'audit-out').rstrip('/') + '/'
 import os; os.makedirs(OUT, exist_ok=True)
-WALLET = '0x398c96b846966eaa7fdf56f89a028de9e8c9598a'  # the lab wallet (public address; read-only portfolio view)
+WALLET = os.environ.get('AUDIT_WALLET', '')  # any public address for the read-only portfolio check (set locally, never committed)
 TOKENS = {'cirBTC': '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', 'ARGUS': '0xece5ca8bf9220718e5727754026757512212cb3c',
           'WETH': '0x128cc466b61f542da60c70e3aa11c10e19b84edb', 'EURC': '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1'}
 # scientific notation only as a standalone number (not inside a 0x… address / hash, which caused false positives)
