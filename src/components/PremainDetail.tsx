@@ -847,6 +847,35 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
 
           {/* after liquidity + pools (owner 10-23): the safety numbers first, then the swap-store analytics */}
           {storeTx && <MoneyFlowCard address={address} onMaker={pickMaker} />}
+          {/* Biggest trades (10-02) — the top 3 buys and sells by USD in the last 1h / 12h / 24h, from every pool (server). */}
+          {biggest && (biggest.h24.buys.length > 0 || biggest.h24.sells.length > 0) && (
+            <div className="panel side-card bt-card">
+              <div className="bt-head">
+                <h3 style={{ margin: 0 }}>Biggest trades</h3>
+                <div className="nx-tabs">
+                  {(['h1', 'h12', 'h24'] as const).map((w) => <button key={w} className={bigWin === w ? 'on' : ''} onClick={() => setBigWin(w)}>{w === 'h1' ? '1H' : w === 'h12' ? '12H' : '24H'}</button>)}
+                </div>
+              </div>
+              {(['buys', 'sells'] as const).map((k) => {
+                const winSec = bigWin === 'h1' ? 3600 : bigWin === 'h12' ? 43200 : 86400, nowS = Date.now() / 1000;
+                const list = biggest[bigWin][k].filter((t) => t.time >= nowS - winSec).slice(0, 3); // the server's list may be a few minutes old
+                return (
+                  <div key={k} className="bt-group">
+                    <div className={`bt-label ${k}`}>{k === 'buys' ? 'Buys' : 'Sells'}</div>
+                    {list.length ? list.map((t, i) => (
+                      <div key={t.tx + i} className="bt-row">
+                        <span className="bt-rank">{i + 1}</span>
+                        <span className={`bt-usd mono ${t.side}`}>{t.usd != null ? usd(t.usd) : '—'}</span>
+                        <span className="bt-amt mono">{compact(t.amount)} {sym}</span>
+                        {t.trader ? <a className="bt-mk mono" href={`https://explorer.arc.io/address/${t.trader}`} target="_blank" rel="noreferrer" title={t.trader}>{displayName(t.trader, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a> : <span className="bt-mk">…</span>}
+                        <a className="bt-ago" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer" title="Open the transaction">{t.time ? agoStr(t.time) : ''} <IconExternal className="i" /></a>
+                      </div>
+                    )) : <div className="bt-none">No {k} in the last {bigWin === 'h1' ? 'hour' : bigWin === 'h12' ? '12 hours' : '24 hours'}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {storeTx && <ProfitCard address={address} />}
 
           {/* Supply — minted / burnt / circulating / FDV. */}
@@ -888,36 +917,6 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
               })}
             </div>
           )}
-          {/* Biggest trades (10-02) — the top 3 buys and sells by USD in the last 1h / 12h / 24h, from every pool (server). */}
-          {biggest && (biggest.h24.buys.length > 0 || biggest.h24.sells.length > 0) && (
-            <div className="panel side-card bt-card">
-              <div className="bt-head">
-                <h3 style={{ margin: 0 }}>Biggest trades</h3>
-                <div className="nx-tabs">
-                  {(['h1', 'h12', 'h24'] as const).map((w) => <button key={w} className={bigWin === w ? 'on' : ''} onClick={() => setBigWin(w)}>{w === 'h1' ? '1H' : w === 'h12' ? '12H' : '24H'}</button>)}
-                </div>
-              </div>
-              {(['buys', 'sells'] as const).map((k) => {
-                const winSec = bigWin === 'h1' ? 3600 : bigWin === 'h12' ? 43200 : 86400, nowS = Date.now() / 1000;
-                const list = biggest[bigWin][k].filter((t) => t.time >= nowS - winSec).slice(0, 3); // the server's list may be a few minutes old
-                return (
-                  <div key={k} className="bt-group">
-                    <div className={`bt-label ${k}`}>{k === 'buys' ? 'Buys' : 'Sells'}</div>
-                    {list.length ? list.map((t, i) => (
-                      <div key={t.tx + i} className="bt-row">
-                        <span className="bt-rank">{i + 1}</span>
-                        <span className={`bt-usd mono ${t.side}`}>{t.usd != null ? usd(t.usd) : '—'}</span>
-                        <span className="bt-amt mono">{compact(t.amount)} {sym}</span>
-                        {t.trader ? <a className="bt-mk mono" href={`https://explorer.arc.io/address/${t.trader}`} target="_blank" rel="noreferrer" title={t.trader}>{displayName(t.trader, names, (a) => a.slice(0, 6) + '…' + a.slice(-4))}</a> : <span className="bt-mk">…</span>}
-                        <a className="bt-ago" href={`https://explorer.arc.io/tx/${t.tx}`} target="_blank" rel="noreferrer" title="Open the transaction">{t.time ? agoStr(t.time) : ''} <IconExternal className="i" /></a>
-                      </div>
-                    )) : <div className="bt-none">No {k} in the last {bigWin === 'h1' ? 'hour' : bigWin === 'h12' ? '12 hours' : '24 hours'}</div>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
           {/* Calculator — convert a token amount to USD at the live price. */}
           {px != null && (
             <div className="panel side-card">
