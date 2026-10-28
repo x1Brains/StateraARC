@@ -369,7 +369,9 @@ export function swapsInTxs(txs: string[], token?: string) {
   const tok = token?.toLowerCase();
   for (let i = 0; i < want.length; i += 400) {
     const part = want.slice(i, i + 400);
-    const q = `SELECT s.blk, s.li, s.ts, s.side, s.price, s.usd, s.amt, s.tx, p.token, p.venue FROM swaps s JOIN pools p ON p.pid = s.pid
+    // ⛔ CROSS JOIN pins the order: swaps by tx first. With a plain JOIN + `p.token = ?` SQLite walked EVERY swap of the token
+    // (pools_token → swaps_pid_ts): ARGUS's My trades took 20 s and timed out (10-28 audit); this way 69 ms.
+    const q = `SELECT s.blk, s.li, s.ts, s.side, s.price, s.usd, s.amt, s.tx, p.token, p.venue FROM swaps s CROSS JOIN pools p ON p.pid = s.pid
       WHERE s.tx IN (${part.map(() => '?').join(',')})${tok ? ' AND p.token = ?' : ''}`;
     const rows = d.prepare(q).all(...part.map(txToBlob), ...(tok ? [tok] : [])) as any[];
     for (const r of rows) out.push({ token: r.token, side: r.side > 0 ? 'buy' : 'sell', usd: r.usd, amount: r.amt, price: r.price, tx: blobToTx(r.tx), ts: r.ts, block: r.blk, logIndex: r.li, venue: r.venue });

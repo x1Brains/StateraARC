@@ -656,20 +656,22 @@ async function main() {
   // of volume in this loop's own output.
   const store = (() => {
     if (process.env.ONCHAIN_STORE_VOL === '0') return null;
+    let db = null;
     try {
-      const db = new DatabaseSync(process.env.SWAPS_DB || '/root/statera-swaps/swaps.db', { readOnly: true });
+      db = new DatabaseSync(process.env.SWAPS_DB || '/root/statera-swaps/swaps.db', { readOnly: true });
       const at = Number(db.prepare("SELECT v FROM meta WHERE k = 'tstats_at'").get()?.v || 0);
       if (Date.now() - at > 10 * 60_000) { console.log(`[disc] swap store stats are ${Math.round((Date.now() - at) / 60000)} min old — scanning the chain instead`); db.close(); return null; }
       const st = new Map(db.prepare('SELECT token, j FROM tstats').all().map((r) => [r.token, JSON.parse(r.j)]));
       // each token's busiest V4 USDC pool by 24h USD volume (the chain scan picked by swap count — dust trades could win it)
+      // (≥ 3 trades in the 24h, so one wash-traded junk pool can't take it)
       const v4 = new Map();
       for (const r of db.prepare(`SELECT p.token, p.key, p.usdc0, SUM(c.v) v FROM c1m c JOIN pools p ON p.pid = c.pid
-          WHERE c.t >= ? AND p.kind = 'V4' AND p.ok = 1 GROUP BY c.pid`).all(Math.floor(Date.now() / 1000) - 86400)) {
+          WHERE c.t >= ? AND p.kind = 'V4' AND p.ok = 1 GROUP BY c.pid HAVING SUM(c.n) >= 3`).all(Math.floor(Date.now() / 1000) - 86400)) {
         const b = v4.get(r.token); if (!b || r.v > b.v) v4.set(r.token, { poolId: r.key, usdcIsC0: !!r.usdc0, v: r.v });
       }
       db.close();
       return { st, v4 };
-    } catch (e) { console.log('[disc] swap store unreadable — scanning the chain instead:', e.message); return null; }
+    } catch (e) { try { db?.close(); } catch { /* */ } console.log('[disc] swap store unreadable — scanning the chain instead:', e.message); return null; }
   })();
   let fromStore = 0;
   for (const x of liquid) {
