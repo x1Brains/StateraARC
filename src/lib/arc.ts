@@ -1586,7 +1586,10 @@ export async function fetchOnchainDayStats(token: string, decimals = 18): Promis
         if (tokAmt === 0n) continue;
         const amount = Math.abs(Number(tokAmt)) / 10 ** decimals;
         // V4 amounts are the CALLER's BalanceDelta: token leg POSITIVE = caller received token = BUY.
-        if (isFinite(price) && price > 0) pts.push({ ts, price, usd: amount * price, side: tokAmt > 0n ? 'buy' : 'sell', tx });
+        // usd = the USDC leg actually paid/received (tokens × post-swap price overstated big buys, 10-27: $11.92K vs $11.72K paid)
+        let uAmt = BigInt('0x' + d.slice((v4.usdcIsC0 ? 0 : 1) * 64, (v4.usdcIsC0 ? 0 : 1) * 64 + 64)); if (uAmt >= (1n << 255n)) uAmt -= (1n << 256n);
+        const usd = uAmt !== 0n ? Math.abs(Number(uAmt)) / 1e6 : amount * price;
+        if (isFinite(price) && price > 0) pts.push({ ts, price, usd, side: tokAmt > 0n ? 'buy' : 'sell', tx });
       } else {
         const topic = (l.topics?.[0] || '').toLowerCase();
         const d = l.data.slice(2);
@@ -1896,8 +1899,9 @@ async function fetchV4Trades(v4: V4Pool, decimals: number, want: number, ctx: Tr
       const price = (v4.usdcIsC0 ? 1 / ratio : ratio) * dexp;
       if (!isFinite(price) || price <= 0) continue;
       const amount = Math.abs(Number(tokAmt)) / 10 ** decimals;
+      const uAmt = sword(1 - tokIdx); // the USDC leg actually paid/received — same number the swap store / Money flow use (10-27)
       out.push({
-        side: tokAmt > 0n ? 'buy' : 'sell', usd: amount * price, amount, price,
+        side: tokAmt > 0n ? 'buy' : 'sell', usd: uAmt !== 0n ? Math.abs(Number(uAmt)) / 1e6 : amount * price, amount, price,
         trader: ('0x' + (l.topics?.[2] || '').slice(-40)).toLowerCase(),
         tx: l.transactionHash || '',
         time: Math.round(headTs - Number(head - BigInt(l.blockNumber)) * blockTime),
