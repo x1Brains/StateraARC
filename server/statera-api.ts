@@ -314,7 +314,8 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     const bm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/bars$/);
     if (bm) {
       const before = u.searchParams.get('before') ? intIn(u.searchParams.get('before'), 0, 0, 4e9) : undefined;
-      const r = await swapCall('candles', bm[1].toLowerCase(), u.searchParams.get('res') || '5m', intIn(u.searchParams.get('limit'), 1000, 10, 2000), before).catch(() => null);
+      const r = await (u.searchParams.get('res') === 'all' && !before ? swapCall('candlesAll', bm[1].toLowerCase())
+        : swapCall('candles', bm[1].toLowerCase(), u.searchParams.get('res') || '5m', intIn(u.searchParams.get('limit'), 1000, 10, 2000), before)).catch(() => null);
       send(req, res, r ? 200 : 503, JSON.stringify(r ?? { error: 'swap store unavailable' }), undefined, r ? (before ? 120 : 5) : 0); return;
     }
     const hsm = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/history$/);

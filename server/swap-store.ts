@@ -59,6 +59,17 @@ export function coverage() {
   return { backTs: n('back_ts'), backBlock: n('back'), liveBlock: n('live'), liveAt: n('live_at'), backDone: n('back_done') != null };
 }
 
+// The chart's ALL view in ONE request (10-28: the page asked for 1d candles to learn the first trade, then for the real
+// resolution — two round trips through Vercel, ~1 s each): the finest of 5m/15m/1h/4h/1d that fits the token's whole life
+// in ≤ 1,500 candles, same rule as PriceChart's ALL_PICK. `res` in the answer says which one was picked.
+export function candlesAll(token: string) {
+  const pools = conn() ? poolsOf(token) : [];
+  if (!pools.length) return candles(token, '1d', 2000);
+  const now = Math.floor(Date.now() / 1000), span = Math.max(3600, now - Math.min(...pools.map((p) => p.first)));
+  const pick = ['5m', '15m', '1h', '4h', '1d'].find((k) => span / RES[k] <= 1500) ?? '1d';
+  return candles(token, pick, Math.min(2000, Math.ceil(span / RES[pick]) + 5));
+}
+
 // Candles for `token` at `res`, the newest `limit` buckets ending before `before` (unix s; default = now).
 // Per bucket: OHLC from the token's MAIN pool (see the loop below for the side-pool rule) (pools are arbitraged together, and one pool's own path is
 // a real price path — mixing the swaps of several pools would draw their tiny offsets as wicks); volume = every counted pool.

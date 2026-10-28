@@ -137,11 +137,14 @@ export function PriceChart({ address, symbol, decimals, priceScale = 1, change24
         try {
           let pick = res, r: V2Bars;
           if (res === 'all') {
-            // learn the token's first trade from a daily read, then draw the finest candles that fit its whole life
-            const day = await v2Bars(address, '1d', 2000);
-            const span = Math.max(3600, Date.now() / 1000 - (day.first ?? Date.now() / 1000));
-            pick = ALL_PICK.find((k) => span / SEC[k] <= 1500) ?? '1d';
-            r = pick === '1d' ? day : await v2Bars(address, pick, Math.min(2000, Math.ceil(span / SEC[pick]) + 5));
+            // the server picks the finest candles that fit the token's whole life (one round trip; 10-28 it was two)
+            try { r = await v2Bars(address, 'all'); pick = r.res; }
+            catch {
+              const day = await v2Bars(address, '1d', 2000);
+              const span = Math.max(3600, Date.now() / 1000 - (day.first ?? Date.now() / 1000));
+              pick = ALL_PICK.find((k) => span / SEC[k] <= 1500) ?? '1d';
+              r = pick === '1d' ? day : await v2Bars(address, pick, Math.min(2000, Math.ceil(span / SEC[pick]) + 5));
+            }
           } else r = await v2Bars(address, res, res === '1m' || res === '5m' || res === '15m' ? 1000 : 2000);
           if (id === reqId.current) setEff(pick);
           if (r.candles.length) { got = r.candles; m = { source: 'store', hasMore: r.hasMore, pools: r.pools.map((p) => p.venue), backTs: r.coverage?.backTs ?? null }; }
