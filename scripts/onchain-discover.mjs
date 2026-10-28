@@ -10,6 +10,7 @@
 //    through Multicall3; V4 by live swap activity) — only NEW pools get checked each run.
 //  - State (cursor + known tokens) lives OUTSIDE the git repo so the snapshot push's hard-reset can't wipe it.
 import fs from 'fs';
+import { DatabaseSync } from 'node:sqlite';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { encAggregate3, decAggregate3 } from './lib/multicall.mjs';
 
@@ -647,7 +648,38 @@ async function main() {
   for (const [pid, r] of Object.entries(reg.pools)) { const tok = r[0] === USDC ? r[1] : r[0]; (v4ByToken.get(tok) || v4ByToken.set(tok, []).get(tok)).push(pid); }
   const blocks1h = Math.ceil(3600 / blockTime), cut1h = head - blocks1h;
   const dayMap = new Map();
+  // ⛔ 10-28: this loop re-downloaded 24h of swap logs per token, ONE TOKEN AT A TIME (~2,400 tokens, ~17,800 requests, 25 min
+  // a run, back to back) — and the swap indexer already has every one of those swaps (server/swap-stats.ts → table tstats,
+  // rebuilt every 2 min), which statera-api lays over these numbers anyway. A run stuck in here held its memory during the
+  // 21:42 box-wide OOM that took the site down. Now: when the store is fresh, volume / change / spark / liquidity come from
+  // tstats; the old chain scan runs only if the store is missing or stale. Checked 10-28: no token outside tstats had > $50
+  // of volume in this loop's own output.
+  const store = (() => {
+    if (process.env.ONCHAIN_STORE_VOL === '0') return null;
+    try {
+      const db = new DatabaseSync(process.env.SWAPS_DB || '/root/statera-swaps/swaps.db', { readOnly: true });
+      const at = Number(db.prepare("SELECT v FROM meta WHERE k = 'tstats_at'").get()?.v || 0);
+      if (Date.now() - at > 10 * 60_000) { console.log(`[disc] swap store stats are ${Math.round((Date.now() - at) / 60000)} min old — scanning the chain instead`); db.close(); return null; }
+      const st = new Map(db.prepare('SELECT token, j FROM tstats').all().map((r) => [r.token, JSON.parse(r.j)]));
+      // each token's busiest V4 USDC pool by 24h USD volume (the chain scan picked by swap count — dust trades could win it)
+      const v4 = new Map();
+      for (const r of db.prepare(`SELECT p.token, p.key, p.usdc0, SUM(c.v) v FROM c1m c JOIN pools p ON p.pid = c.pid
+          WHERE c.t >= ? AND p.kind = 'V4' AND p.ok = 1 GROUP BY c.pid`).all(Math.floor(Date.now() / 1000) - 86400)) {
+        const b = v4.get(r.token); if (!b || r.v > b.v) v4.set(r.token, { poolId: r.key, usdcIsC0: !!r.usdc0, v: r.v });
+      }
+      db.close();
+      return { st, v4 };
+    } catch (e) { console.log('[disc] swap store unreadable — scanning the chain instead:', e.message); return null; }
+  })();
+  let fromStore = 0;
   for (const x of liquid) {
+    const s = store?.st.get(x.addr.toLowerCase());
+    if (store && (s?.liq != null || s?.volume24h != null)) {
+      const b = store.v4.get(x.addr.toLowerCase());
+      dayMap.set(x.addr, { vol: s.volume24h ?? 0, chg: s.change24h ?? null, chg1h: s.change1h ?? null, spark: s.spark?.length >= 4 ? s.spark : null,
+        extraUsdc: s.liq != null && isFinite(s.liq) ? Math.max(0, s.liq - (x.liq || 0)) : 0, v4best: b ? { poolId: b.poolId, usdcIsC0: b.usdcIsC0 } : null });
+      fromStore++; continue;
+    }
     try {
       const { pools, extraUsdc } = await poolsOf(x);
       let vol = 0; let primaryPts = []; let v4best = null, v4bestN = -1;
@@ -734,7 +766,7 @@ async function main() {
       hooked: !!(t.hooks && t.hooks !== ZERO && /[1-9a-f]/.test(t.hooks.slice(2))),
       source: t.kind === 'v2' ? (t.dex || 'V2') : t.kind === 'v3' && t.dex ? t.dex : t.kind.toUpperCase(), launchpad: null }); // ⛔ was 'onchain' on every V4 row — a source, not a launchpad (09-26); the snapshot tags real pads
   }
-  console.log(`[disc] priced ${out.length}, liquid (vol/chg scanned) ${liquid.length}`);
+  console.log(`[disc] priced ${out.length}, liquid ${liquid.length} (${fromStore} from the swap store, ${liquid.length - fromStore} scanned on chain)`);
 
   for (const x of rows) { const st = state.tokens[x.addr]; if (st && x.liq > 0) st.lastLiq = x.liq; } // remember last-good liquidity
   for (const o of out) { const st = state.tokens[o.address]; if (st) { st.lastPrice = o.price; if (o.volume24h != null) st.lastVol = o.volume24h; } } // last-good price; last volume (hot test)
