@@ -281,7 +281,10 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
         // 10-21: pool liquidity from the swap store's REAL reserves (a V4 pool was valued by its token side only — a fresh launch
         // with $0 USDC read its whole market cap as liquidity); pools the card didn't know are added
         .then(async (d) => {
-          const pr = await swapCall<{ key: string; kind: string; venue: string; usdc: number; tok: number; px: number | null; liq: number }[] | null>('poolReserves', a).catch(() => null);
+          const [pr, big] = await Promise.all([
+            swapCall<{ key: string; kind: string; venue: string; usdc: number; tok: number; px: number | null; liq: number }[] | null>('poolReserves', a).catch(() => null),
+            swapCall<Record<string, unknown> | null>('biggest', a).catch(() => null), // 10-27: same complete trade list as Money flow
+          ]);
           let pools = (d as any).ocPools as any[] | null;
           if (pr && pr.length && Array.isArray(pools)) {
             type PR = { key: string; kind: string; venue: string; usdc: number; tok: number; px: number | null; liq: number };
@@ -292,7 +295,7 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
             pools.sort((x, y) => (y.liquidityUsdc || 0) - (x.liquidityUsdc || 0));
           }
           const row = v.byAddr.get(a);
-          send(req, res, 200, JSON.stringify({ ...d, ...(pools ? { ocPools: pools } : {}), lookalike: row ? Board.isDupTicker(v.ix, row) : null }), undefined, 15);
+          send(req, res, 200, JSON.stringify({ ...d, ...(pools ? { ocPools: pools } : {}), ...(big ? { biggest: big } : {}), lookalike: row ? Board.isDupTicker(v.ix, row) : null }), undefined, 15);
         })
         .catch((e) => send(req, res, 502, JSON.stringify({ error: 'detail failed: ' + (e as Error).message }), undefined, 0));
       return;

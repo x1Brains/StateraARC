@@ -70,7 +70,7 @@ export const poolStats = { calls: 0, timeouts: 0, dedup: 0, spawns: 0, idleStops
 // wait on flow or on the whole-history rankings
 // heap caps (10-23 OOM kills): a worker that outgrows its cap dies alone and respawns — the API process keeps serving
 const fast = new Lane('fast', 12_000, 56), mid = new Lane('mid', 30_000, 56), slow = new Lane('slow', 60_000, 112);
-const SLOW = new Set(['topTraders', 'profitability']), MID = new Set(['flow']);
+const SLOW = new Set(['topTraders', 'profitability']), MID = new Set(['flow', 'biggest']);
 const inflight = new Map<string, Promise<unknown>>();
 /** Run a swap-store function in a worker; identical concurrent calls share one run. */
 export function swapCall<T = unknown>(fn: string, ...args: unknown[]): Promise<T> {

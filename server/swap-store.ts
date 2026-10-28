@@ -197,6 +197,30 @@ export function flow(token: string) {
   });
 }
 
+// Biggest trades (10-27): the top 8 buys and sells by USD over 1H / 12H / 24H, from the store — the same complete list Money
+// flow reads (the page's on-chain day scan skipped failed log ranges: ARGUS 1,754 of 1,794 trades, its biggest sell missing).
+// Per pool off the (pid, ts) index, then only the winners' makers are looked up.
+export function biggest(token: string) {
+  const d = conn(); if (!d) return null;
+  const pools = poolsOf(token); if (!pools.length) return null;
+  return cached('big:' + token, 60_000, () => {
+    const venue = new Map(pools.map((p) => [p.pid, p.venue])), now = Math.floor(Date.now() / 1000);
+    const q = d.prepare('SELECT blk, li, pid, ts, side, price, usd, amt, tx FROM swaps WHERE pid = ? AND ts >= ? AND side = ? ORDER BY usd DESC LIMIT 8');
+    const mk = hasMakers(d) ? d.prepare('SELECT maker FROM makers WHERE tx = ?') : null;
+    const top = (sec: number, side: number) => {
+      const rows: Row[] = [];
+      for (const p of pools) rows.push(...(q.all(p.pid, now - sec, side) as Row[]));
+      return rows.sort((a, b) => b.usd - a.usd).slice(0, 8).map((r) => {
+        const m = mk ? (mk.get(r.tx) as { maker: Uint8Array } | undefined) : undefined;
+        const o = rowOut(venue)({ ...r, maker: m?.maker ?? null } as Row);
+        return { ...o, time: r.ts, trader: o.trader ?? '' }; // the page's trade rows count seconds
+      });
+    };
+    const w = (sec: number) => ({ buys: top(sec, 1), sells: top(sec, -1) });
+    return { h1: w(3600), h12: w(43200), h24: w(86400) };
+  });
+}
+
 // Every wallet that traded the token (maker known), with average-cost P&L: realized = sold USD − avg buy × qty sold (only up
 // to what it bought — tokens that came in by transfer have no known cost), open = what it still holds from its own trades
 // marked to the last price. Shared by Top traders and Holder profitability. Cached 5 min (a busy token is ~1 s to build).
