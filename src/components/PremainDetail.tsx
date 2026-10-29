@@ -7,7 +7,7 @@ import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { v2Enabled, v2TokenDetail, v2Trades, v2WalletSwaps, v2History, v2MakerTrades, type V2TokenDetail, type V2Trades, type V2HistTrade } from '../lib/v2';
-import { isStateraImpersonator, stateraHasToken } from '../lib/rules';
+import { isStateraImpersonator, stateraHasToken, ABANDONED } from '../lib/rules';
 import { fetchWalletTokenTrades, type WalletTrade } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX, IconLink, IconCamera } from './icons';
 import { useNames, displayName } from '../lib/names';
@@ -523,6 +523,13 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
             <div className="fake-banner" role="alert">
               <b>FAKE — not associated with Statera.</b>
               <span>This token uses the Statera name but was not created by us. {stateraHasToken() ? 'The only official Statera token is listed on our $STR page.' : 'Statera has not launched a token yet — any token calling itself Statera is not ours.'} Do not buy it thinking it is Statera.</span>
+            </div>
+          )}
+          {/* 10-29 owner: an abandoned project gets an unmissable warning (rules.ts ABANDONED) */}
+          {ABANDONED[address.toLowerCase()] && (
+            <div className="fake-banner" role="alert">
+              <b>{ABANDONED[address.toLowerCase()].title}</b>
+              {ABANDONED[address.toLowerCase()].facts.map((f) => <span key={f}>{f}</span>)}
             </div>
           )}
           {/* 10-21: on-chain red flags (server/statera-api.ts redFlags) — what the data shows, stated plainly */}

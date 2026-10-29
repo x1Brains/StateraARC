@@ -104,6 +104,17 @@ export const isStateraImpersonator = (t: { address: string; name?: string | null
 };
 export const stateraHasToken = () => OFFICIAL_STATERA.size > 0;
 
+// ── Abandoned projects (owner 10-29: "add to their page a scam alert") — a warning on the token page, stated as the facts we
+// checked on chain and on the web, nothing we can't show. The token still trades (the Swap routes its pool directly).
+export const ABANDONED: Record<string, { title: string; facts: string[] }> = {
+  '0x384c60f98ecd4c26345499345c03d677e40f115e': { title: 'Warning — Warp has been abandoned by its team', facts: [
+    'The Warp website (circlewarp.fun) has been switched off.',
+    "Warp's servers have been offline since Oct 22, 2026.",
+    "Warp's exchange no longer lists this token's pool, so Warp's own router can't trade it. Statera routes the pool directly so holders can still sell.",
+    'Volume has fallen over 99% since mid-September. Trade at your own risk.',
+  ] },
+};
+
 export const PINNED = new Set<string>([NATIVE_USDC_ADDR, ...ECOSYSTEM_TOKENS.map((e) => e.address), ...MAINNET_CORE.map((t) => t.address)].map((a) => a.toLowerCase()));
 // Impersonator = claims to BE a Circle / major asset: that exact ticker, or a name that starts like the real one. (Was any
 // name containing circle/usdc — the 09-25 audit found it hid meme tokens that only MENTION Circle: "Circled" 2,076 holders,

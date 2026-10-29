@@ -61,9 +61,11 @@ export const swapReady = () => SWAP_CFG.routers.length > 0 || !!UNI_ROUTER;
 // V2 adds swapWithPermit() — EIP-2612 gasless-approval swaps (see permit helpers below).
 const UNI_ROUTER_BY_NET: Record<string, string> = {
   testnet: '0xc680832437E23cdfce9A4D5B1193d77DA12Ae7eC',
-  mainnet: '', // deploy on launch day, then paste the address here
+  mainnet: '0x82f14d28a1d8d3e08ef88b00275d7b053124d5d2', // UniversalPairRouterV2, deployed 10-29 (tx 0xac9c97ee…), ownerless
 };
 export const UNI_ROUTER = UNI_ROUTER_BY_NET[NET] || '';
+// The swap engine flips to mainnet per trade (setSwapMainnet), so the pair router follows it.
+const activeUniRouter = () => (ACTIVE_MAINNET ? UNI_ROUTER_BY_NET.mainnet : UNI_ROUTER);
 
 // ── Mainnet execution override (Warp tokens) ─────────────────────────────────
 // Arc mainnet 5042 is LIVE (rpc.mainnet.arc.io serves 0x13b2), but the app's global NET stays
@@ -287,14 +289,51 @@ async function pairRouterQuote(pairs: string[], path: string[], amountIn: bigint
   const off1 = 128;                                  // 4 head slots × 32
   const off2 = off1 + (1 + pairs.length) * 32;
   const data = '0x69fb7b4c' + padU(off1) + padU(off2) + padU(amountIn) + padU(feeBps) + encArr(pairs) + encArr(path);
-  const r = await ethCall(UNI_ROUTER, data);
+  const r = await ethCall(activeUniRouter(), data);
   if (!r) return null;
   try { const out = BigInt(r); return out > 0n ? out : null; } catch { return null; }
 }
+// ── Mainnet pair route (10-29): WarpV2 pools the Warp factory no longer lists ────────────────────────────────────────────
+// Warp's factory (0x32330c24…, a proxy) stopped returning WARP's own pair after the team took circlewarp.fun and its backend
+// down (10-22), so the WarpV2 router reverts NO_PAIR and the token had no route here. Our pair router takes the EXACT pool,
+// so any WarpV2 pool still holding liquidity trades again. The pool comes from our token data (the screener's own on-chain
+// pool scan) and is checked on chain before use: it must hold this token and USDC, and belong to the WarpV2 factory.
+const WARPV2_FACTORY = '0x32330c2400a6e0830d56661169ebb6c147e3577a';
+const WARPV2_FEE_BPS = 100; // 1%, same as ROUTER_FEE_BPS WarpV2
+const mainPairCache = new Map<string, { pair: string; base: string; feeBps: number } | null>();
+async function findPairMainnet(token: string): Promise<{ pair: string; base: string; feeBps: number } | null> {
+  const key = token.toLowerCase();
+  if (key === USDC || PAIR_BASES.includes(key)) return null;
+  if (mainPairCache.has(key)) return mainPairCache.get(key)!;
+  let found: { pair: string; base: string; feeBps: number } | null = null;
+  try {
+    const r = await fetch(`/api/v2/token/${key}/detail`, { signal: AbortSignal.timeout(8000) });
+    const j = r.ok ? await r.json() : null;
+    const cands: string[] = (j?.ocPools || []).filter((p: any) => /warp/i.test(p?.version || '') && typeof p?.pool === 'string')
+      .sort((a: any, b: any) => (b.liquidityUsdc || 0) - (a.liquidityUsdc || 0)).map((p: any) => p.pool.toLowerCase());
+    for (const h of cands) {
+      const [t0, t1, fac] = await Promise.all([readAddr(h, '0x0dfe1681'), readAddr(h, '0xd21220a7'), readAddr(h, '0xc45a0155')]);
+      if (fac !== WARPV2_FACTORY || !t0 || !t1) continue;
+      if (!((t0 === key && t1 === USDC) || (t1 === key && t0 === USDC))) continue;
+      found = { pair: h, base: USDC, feeBps: WARPV2_FEE_BPS }; break;
+    }
+  } catch { /* no data → no pair route */ }
+  mainPairCache.set(key, found);
+  return found;
+}
 async function pairBestQuote(tokenIn: string, tokenOut: string, amountInRaw: bigint): Promise<Quote | null> {
-  // Pair discovery reads the testnet Blockscout API (CHAIN.api). It can't see mainnet pools, so in
-  // mainnet mode we rely solely on the WarpV2 UniV2 engine above.
-  if (ACTIVE_MAINNET || !UNI_ROUTER) return null;
+  if (ACTIVE_MAINNET) {
+    // USDC ↔ token only (one WarpV2 pool); token→token stays with the venue routers
+    const a = tokenIn.toLowerCase(), b = tokenOut.toLowerCase();
+    if ((a === USDC) === (b === USDC)) return null;
+    const info = await findPairMainnet(a === USDC ? b : a); if (!info) return null;
+    const path = [a, b], router = activeUniRouter();
+    const out = await pairRouterQuote([info.pair], path, amountInRaw, info.feeBps);
+    if (!out) return null;
+    return { kind: 'pair', router, routerName: 'Statera Router', path, amountInRaw, amountOutRaw: out, hops: 1, pairs: [info.pair], feeBps: info.feeBps };
+  }
+  // Testnet: pair discovery reads the testnet Blockscout API (CHAIN.api).
+  if (!UNI_ROUTER) return null;
   const route = await buildPairRoute(tokenIn, tokenOut);
   if (!route) return null;
   const out = await pairRouterQuote(route.pairs, route.path, amountInRaw, route.feeBps);

@@ -7,6 +7,8 @@
 | **Statera Robots** (X1CITY) — 4,444, $8→$44, random design at mint, 10,000 STR/mint | `0xA57C7AC417b3895F3b865119710c90a1733c5ac0` |
 | RobotsAllocationVault (empty after release) | `0x2a89D9711204bbEffD36d9b8124B19C59493102c` |
 
+**Statera Router** (UniversalPairRouterV2, ownerless, swaps through an EXACT pool — source `~/bt/arc/contracts/UniversalPairRouterV2.sol`) `0x82f14d28a1d8D3e08ef88B00275d7B053124D5d2` · deployed 2026-10-29 by the lab wallet `0x398c96b846966eaA7Fdf56F89A028DE9e8c9598a`, tx `0xac9c97eebc18113cfd90211a42ff80576083441ed5d19ce89e0fc047768b1194` · proven with a real $0.05 USDC→WARP→USDC round trip (txs `0x3c649302…`, `0xd4790687…`).
+
 Deployer/owner `0x125c2aB36e45A161ADb8BFed417f514563DFBAa9` (holds 20% game STR) · Treasury `0x731CE24A5b475006A466B9B3Bf69707999b328DF` (20% STR, mint USDC, 5% royalty) · Team `0x286262070270a2E8FCbD1984d143837f05635ad5` (10%).
 baseURI `https://arweave.net/4qP1Yfo1WVj3YWJG-NEDh7RN0ZHmcWtiomF8J4tfoVI/`. Verified on-chain after deploy: split exact, mint open at $8.00. **Metadata LOCKED 2026-10-18** (`lockMetadata` tx `0xd89e8d1a51d8020fe68fec465108970dce1d21d5b6220766f7eba5eec514a891`, block 26,537,412) — `metadataLocked() == true`, the art/metadata can never change.
 
