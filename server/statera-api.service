@@ -19,6 +19,11 @@ RestartSec=5
 Nice=5
 MemoryMax=900M
 Environment=NODE_ENV=production
+# 10-29: RSS crept to the 900M cap though the JS heap stayed ~180M — the swap workers start/stop (idle-stop, 53 cycles a day)
+# and each thread got its own glibc malloc arena that kept its freed memory (10 stranded arenas + a 144M fragmented main heap
+# in /proc/PID/smaps). 2 arenas max + trim freed memory back to the OS.
+Environment=MALLOC_ARENA_MAX=2
+Environment=MALLOC_TRIM_THRESHOLD_=131072
 
 [Install]
 WantedBy=multi-user.target
