@@ -265,8 +265,8 @@ const priceInner = (n, fs) => {
   const sub = Math.round(fs * 0.58), dy = Math.round(fs * 0.22);
   return `$0.0<tspan font-size="${sub}" dy="${dy}">${zeros}</tspan><tspan font-size="${fs}" dy="${-dy}">${sig}</tspan>`;
 };
-const chg = (v) => (v == null || !isFinite(v) ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`);
-const chgCol = (v) => (v == null || !isFinite(v) ? C.gray : v >= 0 ? C.green : C.red);
+const chg = (v) => (v == null || !isFinite(v) ? '—' : Math.abs(v) < 0.05 ? '0.0%' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`);
+const chgCol = (v) => (v == null || !isFinite(v) || Math.abs(v) < 0.05 ? C.gray : v >= 0 ? C.green : C.red);
 const short = (a) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '—');
 const hhmm = (sec) => { const d = new Date(sec * 1000); return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
 const KNOWN_HOLDER = { '0x8366a39cc670b4001a1121b8f6a443a643e40951': 'Uniswap V4 pools', '0x000000000000000000000000000000000000dead': 'Burned' };
@@ -496,6 +496,54 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}) {
 
 // ── accent colour ── (owner 09-29: no orange-red grading in the corner; each token card takes its LOGO's colour)
 // The logo is drawn at 24×24 by resvg itself and read back as RGBA — no extra image library. Pixels that are see-through,
+// ── SCREENER SNAPSHOT (owner 10-29: "a preview report card for the screener … top 10/20/30") — the screener's own list
+// (board sorted by liquidity, same default view as the page) as one image, with its header stats. Drawn 1376 wide.
+function screenerTall(rows, home, st, logos, n, hero) {
+  const W = 1376, P = 56, IW = W - 2 * P, G = 16, RH = 66, BH = 420; let s = heroBanner(W, BH, hero), y;
+  s += T(P, 92, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"');
+  s += `<rect x="${P}" y="118" width="250" height="34" rx="17" fill="#1a0f08" stroke="#5a3418"/>` + T(P + 125, 141, 'SCREENER SNAPSHOT', 15, C.gold, 'text-anchor="middle" letter-spacing="3"');
+  s += T(P, 230, `Top ${n}`, 88, C.white, 'font-weight="700"') + T(P, 302, 'Arc Tokens', 60, C.white);
+  s += T(P, 344, 'By liquidity · every Arc mainnet pool', 21, C.gray);
+  s += stampPill(P + 330, 362, st, '');
+  // ── header stats (the screener's stat bar)
+  y = BH + 28; const hs = home?.stats || {}, hc = home?.counts || {};
+  const stats = [['TOKENS TRACKED', num(hs.tracked)], ['ACTIVE 24H', num(hs.count)], ['DEX LIQUIDITY', usd(hs.tvl)], ['24H VOLUME', usd(hs.vol24)], ['NEW TODAY', num(hs.newToday)], ['LAUNCHPAD TOKENS', num(hc.launchpad)]];
+  const sw = (IW - 5 * 12) / 6;
+  stats.forEach(([k, v], i) => { const x = P + i * (sw + 12); s += panel(x, y, sw, 104) + T(x + 16, y + 36, k, 13, C.gold, 'letter-spacing="2"') + T(x + 16, y + 78, esc(v), 30); });
+  y += 104 + G;
+  // ── the table
+  const th = 56, H = th + rows.length * RH + 20;
+  s += panel(P, y, IW, H);
+  const cols = [['#', P + 24, 'start'], ['TOKEN', P + 64, 'start'], ['PRICE', P + 560, 'end'], ['1H', P + 650, 'end'], ['24H', P + 745, 'end'],
+    ['MARKET CAP', P + 870, 'end'], ['LIQUIDITY', P + 995, 'end'], ['VOLUME 24H', P + 1112, 'end'], ['7D', P + 1240, 'end']];
+  cols.forEach(([k, x, a]) => { s += T(x, y + 36, k, 13, C.gold, `letter-spacing="2" text-anchor="${a}"`); });
+  s += `<rect x="${P + 16}" y="${y + th - 2}" width="${IW - 32}" height="1" fill="${C.line}"/>`;
+  rows.forEach((t, i) => {
+    const ry = y + th + i * RH, cy = ry + RH / 2;
+    if (i % 2) s += `<rect x="${P + 12}" y="${ry + 3}" width="${IW - 24}" height="${RH - 6}" rx="10" fill="${C.tile}" opacity="0.55"/>`;
+    s += T(P + 24, cy + 7, String(i + 1), 18, i < 3 ? C.fire : C.dim);
+    const lx = P + 64, logo = logos[t.address?.toLowerCase()];
+    if (logo) s += `<clipPath id="sl${i}"><rect x="${lx}" y="${cy - 20}" width="40" height="40" rx="11"/></clipPath><rect x="${lx}" y="${cy - 20}" width="40" height="40" rx="11" fill="${C.tile}"/><image x="${lx}" y="${cy - 20}" width="40" height="40" href="${logo}" clip-path="url(#sl${i})" preserveAspectRatio="xMidYMid slice"/>`;
+    else s += `<rect x="${lx}" y="${cy - 20}" width="40" height="40" rx="11" fill="#1f1611" stroke="#4a3020"/>` + T(lx + 20, cy + 8, esc((t.symbol || '?').replace(/[^A-Za-z0-9]/g, '').charAt(0).toUpperCase() || '?'), 20, C.fire, 'text-anchor="middle"');
+    const sym = String(t.symbol || '?'), nm = String(t.name || '');
+    s += T(lx + 54, cy - 2, esc(sym.length > 14 ? sym.slice(0, 13) + '…' : sym), 20) + T(lx + 54, cy + 20, esc(nm.length > 30 ? nm.slice(0, 29) + '…' : nm), 14, C.dim);
+    s += T(P + 560, cy + 7, priceInner(t.price, 19), 19, C.white, 'text-anchor="end"');
+    s += T(P + 650, cy + 7, chg(t.change1h), 17, chgCol(t.change1h), 'text-anchor="end"') + T(P + 745, cy + 7, chg(t.change24h), 17, chgCol(t.change24h), 'text-anchor="end"');
+    s += T(P + 870, cy + 7, usd(t.mcap), 18, C.white, 'text-anchor="end"') + T(P + 995, cy + 7, usd(t.liq), 18, C.white, 'text-anchor="end"') + T(P + 1112, cy + 7, usd(t.volume24h), 18, C.gray, 'text-anchor="end"');
+    const sp = (t.spark || []).filter((v) => isFinite(v) && v > 0);
+    if (sp.length >= 2) {
+      const x0 = P + 1140, w = 100, h = 34, mn = Math.min(...sp), mx = Math.max(...sp), rg = mx - mn || mx || 1;
+      const pts = sp.map((v, k) => `${(x0 + (k / (sp.length - 1)) * w).toFixed(1)},${(cy + h / 2 - ((v - mn) / rg) * h).toFixed(1)}`).join(' ');
+      s += `<polyline points="${pts}" fill="none" stroke="${sp[sp.length - 1] >= sp[0] ? C.green : C.red}" stroke-width="2" stroke-linejoin="round"/>`;
+    }
+  });
+  y += H + G;
+  s += T(P, y + 30, 'Liquidity counts both sides of every pool (the token side up to 3x its USDC). Volume and changes from every swap on Arc.', 15, C.dim);
+  s += T(W - P, y + 30, 'stateraarc.com', 22, C.fire, 'text-anchor="end"');
+  const Ht = y + 64;
+  return svg(W, Ht, s, 44, { line: "#ff7a1e", glow: "#ff5a1e" });
+}
+
 // near-grey, near-black or near-white are skipped; the rest vote by hue (weighted by saturation) and the winning hue's
 // average colour is lifted to a readable brightness. No usable colour → the neutral default.
 const toHsl = (r, g, b) => { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
@@ -550,6 +598,31 @@ async function validatorLogos(origin) {
   if (Object.keys(out).length >= 6) logoCache = out;
   return out;
 }
+// The site's hero art (public/hero-lava-*.jpg) as a data URI for the card banners (owner 10-29: "make it look nicer, like the
+// hero images"). Read from the deploy's own files when bundled, else fetched once from the site.
+const heroCache = {};
+async function heroImage(origin, n) {
+  if (heroCache[n]) return heroCache[n];
+  let b = null;
+  try { b = (await import('fs')).readFileSync(new URL(`../public/hero-lava-${n}.jpg`, import.meta.url)); } catch { /* not bundled */ }
+  if (!b) try { const r = await fetch(`${origin}/hero-lava-${n}.jpg`, { signal: AbortSignal.timeout(2500) }); if (r.ok) b = Buffer.from(await r.arrayBuffer()); } catch { /* none */ }
+  return b && b.length > 1000 ? (heroCache[n] = `data:image/jpeg;base64,${b.toString('base64')}`) : '';
+}
+// Banner: the hero image on the right (the S), faded into the card on the left and at the bottom so the title reads.
+const heroBanner = (W, H, img) => {
+  if (!img) return '';
+  const iw = Math.round(H * 1.6), ix = W - iw - 10; // the art spans the right ~60%; masked to fade out left and at the bottom
+  return `<defs>
+    <linearGradient id="hmL" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.3" stop-color="#fff" stop-opacity="0.35"/><stop offset="0.55" stop-color="#fff" stop-opacity="1"/></linearGradient>
+    <linearGradient id="hmB" x1="0" y1="0" x2="0" y2="1"><stop offset="0.5" stop-color="#fff" stop-opacity="1"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <mask id="hmaskL" maskUnits="userSpaceOnUse" x="${ix}" y="0" width="${iw}" height="${H}"><rect x="${ix}" y="0" width="${iw}" height="${H}" fill="url(#hmL)"/></mask>
+    <mask id="hmaskB" maskUnits="userSpaceOnUse" x="${ix}" y="0" width="${iw}" height="${H}"><rect x="${ix}" y="0" width="${iw}" height="${H}" fill="url(#hmB)"/></mask>
+    <radialGradient id="hbG" cx="0.7" cy="0.5" r="0.55"><stop offset="0" stop-color="#ff7a1e" stop-opacity="0.12"/><stop offset="1" stop-color="#ff7a1e" stop-opacity="0"/></radialGradient>
+  </defs>
+  <g mask="url(#hmaskB)"><g mask="url(#hmaskL)"><image x="${ix}" y="0" width="${iw}" height="${H}" href="${img}" preserveAspectRatio="xMidYMin slice"/></g></g>
+  <rect width="${W}" height="${H}" fill="url(#hbG)"/>`;
+};
+
 // radius > 0 = transparent rounded corners (everything clipped to a rounded card); 0 = square (X rounds link cards itself).
 const svg = (W, H, body, radius = 0, acc = null) => `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}">
   <defs>
@@ -595,6 +668,19 @@ export default async function handler(req, res) {
       res.setHeader('content-type', 'image/png');
       const symSafe = String(t.symbol || 'token').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) || 'token';
       if (download) { res.setHeader('content-disposition', `attachment; filename="statera-${symSafe}-snapshot-${st.file}-UTC.png"`); res.setHeader('cache-control', 'no-store'); }
+      else res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
+      return res.status(200).send(Buffer.from(png));
+    }
+    if (u.searchParams.get('view') === 'screener') {
+      const n = [10, 20, 30].includes(Number(u.searchParams.get('n'))) ? Number(u.searchParams.get('n')) : 30;
+      const [board, home, , hero] = await Promise.all([within(v2(`board?sort=liq&per=${n}`), 6000), within(v2('home'), 5000), ensureWasm(), within(heroImage(origin, 3), 3000, '')]);
+      const rows = (board?.rows || []).slice(0, n);
+      if (rows.length < Math.min(n, 5)) throw new Error('no board data');
+      const logos = Object.fromEntries((await Promise.all(rows.map((t) => within(tokenLogo(t.address.toLowerCase()), 3000, '').then((l) => [t.address.toLowerCase(), l])))).filter(([, l]) => l));
+      const st = stampOf(new Date());
+      const png = new Resvg(screenerTall(rows, home, st, logos, n, hero), { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 1200 } }).render().asPng();
+      res.setHeader('content-type', 'image/png');
+      if (download) { res.setHeader('content-disposition', `attachment; filename="statera-arc-top${n}-${st.file}-UTC.png"`); res.setHeader('cache-control', 'no-store'); }
       else res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
       return res.status(200).send(Buffer.from(png));
     }

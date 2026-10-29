@@ -2499,3 +2499,7 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .risk-badge.warn { border-color: rgba(255,194,74,.5); color: #ffc24a; background: rgba(255,194,74,.08); }
 .na-lp-top small .up { color: #5ad18a; } .na-lp-top small .down { color: #ff5a5a; }
 .tx-liq-usdc { display: block; font: 600 10.5px var(--mono); color: var(--gray); margin-top: 1px; }
+
+/* screener Snapshot button + its Top 10/20/30 choices (10-29) */
+.scr-snap { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.scr-snap .scr-snap-n:disabled { opacity: .6; cursor: wait; }

@@ -1,3 +1,4 @@
+import { ScreenerSnapshot } from './components/ScreenerSnapshot';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Board from './lib/board';
 import * as Live from './lib/live';
@@ -580,6 +581,7 @@ export default function App() {
                   {hideDupes ? `${searchHidden} lookalike${searchHidden === 1 ? '' : 's'} hidden · show` : 'Hide lookalikes'}
                 </button>
               )}
+              <ScreenerSnapshot />
               {asOf && (Date.now() - asOf < 90000
                 ? <span className="asof live" title="Prices refresh live every ~40s"><span className="live-dot" /> Live</span>
                 : <span className="asof" title="Live prices refresh every ~40s">Updated {agoStr(asOf)}</span>)}
