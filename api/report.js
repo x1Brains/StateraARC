@@ -224,35 +224,32 @@ function tall(c, l, w, st, logos, act, hero) {
 }
 
 // X link card (1200×630). ⛔ X lays its own title label over the BOTTOM-LEFT (~0–600 × 560–630): nothing important goes there.
-function wide(c, l, w, when) {
-  const W = 1200, H = 630, P = 48; let s = '';
-  s += T(P, 62, 'STATERA · ARC', 22, C.fire, 'letter-spacing="6"') + T(W - P, 62, 'stateraarc.com/network', 22, C.fire, 'text-anchor="end"');
-  s += T(P, 118, 'Arc Network Report', 48) + T(W - P, 116, esc(when), 20, C.gray, 'text-anchor="end"');
+function wide(c, l, w, when, hero) {
+  // 10-29 owner ("those preview cards for the network are horrible"): the /network link card in the snapshot cards' look —
+  // the hero art full-height on the right, the textured side on the left with the title and the four numbers that matter,
+  // big enough to read in a timeline preview.
+  const W = 1200, H = 630, P = 52; let s = heroBanner(W, H, hero, 640);
+  s += T(P, 74, 'STATERA · ARC', 22, C.fire, 'letter-spacing="6"');
+  s += `<rect x="${P}" y="94" width="214" height="32" rx="16" fill="#1a0f08" stroke="#5a3418"/>` + T(P + 107, 116, 'NETWORK REPORT', 14, C.gold, 'text-anchor="middle" letter-spacing="3"');
+  s += T(P, 196, 'Arc Network', 66, C.white, 'font-weight="700"');
+  s += `<circle cx="${P + 7}" cy="228" r="6" fill="${C.green}"/>` + T(P + 22, 234, `Live from Arc mainnet · ${esc(when)}`, 18, C.gray);
   const tot = c?.supplyUsd ? ['USDC', 'EURC', 'cirBTC'].reduce((a, k) => a + (c.supplyUsd[k] || 0), 0) : null;
   const stable = c?.supplyUsd ? (c.supplyUsd.USDC || 0) + (c.supplyUsd.EURC || 0) : null, btc = c?.supplyUsd?.cirBTC ?? null;
   const mOk = !!l?.morpho?.complete, lent = l ? l.aave.supplyUsd + (mOk ? l.morpho.supplyUsd : 0) : null, bor = l ? l.aave.borrowUsd + (mOk ? l.morpho.borrowUsd : 0) : null;
-  const f = c?.cctp?.h24 || c?.cctp?.h1, net = f ? f.in.usd - f.out.usd : null; // 24h once covered (label follows)
+  const f = c?.cctp?.h24 || c?.cctp?.h1, net = f ? f.in.usd - f.out.usd : null;
   const cells = [
     [usd(tot), 'MONEY ON ARC', `${usd(stable)} stables · ${usd(btc)} BTC`, C.fire],
-    [usd(lent), 'LENT', bor != null ? `${usd(bor)} borrowed · ${lent ? Math.round((bor / lent) * 100) : 0}%` : '', C.white],
-    [c?.m5 ? `${num(c.m5.tps)} tx/s` : '—', 'LIVE TRAFFIC', c?.h1 ? `${num(c.h1.txs)} tx/hr${c.m5?.fill ? ` · blocks ${(c.m5.fill * 100).toFixed(1)}% full` : ''}` : '', C.white],
-    [net == null ? '—' : `${net >= 0 ? '+' : '−'}${usd(Math.abs(net))}`, `NET BRIDGED ${net != null && net < 0 ? 'OUT' : 'IN'} · ${c?.cctp?.h24 ? '24H' : '1H'}`, f ? `${usd(f.in.usd)} into Arc · ${usd(f.out.usd)} out` : '', net != null && net >= 0 ? C.green : C.red],
+    [usd(lent), 'LENT OUT', bor != null && lent ? `${usd(bor)} borrowed · ${Math.round((bor / lent) * 100)}%` : '', C.white],
+    [c?.m5 ? `${num(c.m5.tps)} tx/s` : '—', 'LIVE TRAFFIC', c?.h1 ? `${num(c.h1.txs)} transactions / hour` : '', C.white],
+    [net == null ? '—' : `${net >= 0 ? '+' : '−'}${usd(Math.abs(net))}`, `NET BRIDGED ${net != null && net < 0 ? 'OUT' : 'IN'} · ${c?.cctp?.h24 ? '24H' : '1H'}`, f ? `${usd(f.in.usd)} in · ${usd(f.out.usd)} out` : '', net != null && net < 0 ? C.red : C.green],
   ];
-  const cw = (W - 2 * P - 3 * 14) / 4;
-  cells.forEach(([v, k, d, col], i) => { const x = P + i * (cw + 14); s += panel(x, 148, cw, 150) + T(x + 18, 206, esc(v), 36, col) + T(x + 18, 236, k, 15, C.gold, 'letter-spacing="2"') + T(x + 18, 268, esc(d), 15, C.gray); });
-  // Bitcoin where-it-sits bar + lending utilization + validators
-  const bt = w?.assets?.find((a) => a.sym === 'cirBTC');
-  s += panel(P, 316, W - 2 * P, 116);
-  s += T(P + 20, 350, 'WHERE THE BITCOIN SITS', 15, C.gold, 'letter-spacing="2"');
-  if (bt && bt.supply > 0) {
-    s += bar(P + 20, 364, W - 2 * P - 40, 16, BUCKETS.map(([bk, , col]) => [bt.buckets[bk] / bt.supply, col]));
-    s += T(P + 20, 412, esc(`Lending ${pct(bt.buckets.lending, bt.supply).toFixed(1)}%  ·  DEX pools ${pct(bt.buckets.dex, bt.supply).toFixed(1)}%  ·  Wallets ${pct(bt.buckets.wallets, bt.supply).toFixed(1)}%`), 18, C.white);
-  }
+  const cw = 318, ch = 128, gx = 14, gy = 14, y0 = 266;
+  cells.forEach(([v, k, d, col], i) => { const x = P + (i % 2) * (cw + gx), y = y0 + Math.floor(i / 2) * (ch + gy);
+    s += `<rect x="${x}" y="${y}" width="${cw}" height="${ch}" rx="16" fill="${C.panel}" fill-opacity="0.82" stroke="${C.line}"/><rect x="${x + 20}" y="${y}" width="${cw - 40}" height="2" fill="url(#hair)"/>`
+      + T(x + 20, y + 54, esc(v), 38, col, 'font-weight="700"') + T(x + 20, y + 84, k, 14, C.gold, 'letter-spacing="2"') + T(x + 20, y + 108, esc(d), 15, C.gray); });
   const mU = mOk && l.morpho.supplyUsd > 0 ? Math.round((l.morpho.borrowUsd / l.morpho.supplyUsd) * 100) : null;
-  s += panel(P, 448, (W - 2 * P - 14) / 2, 96) + T(P + 20, 482, 'MORPHO UTILIZATION', 15, C.gold, 'letter-spacing="2"') + T(P + 20, 524, mU != null ? `${mU}% borrowed` : 'counting…', 28, mU != null && mU >= 90 ? C.red : C.white);
-  const x2 = P + (W - 2 * P - 14) / 2 + 14;
-  s += panel(x2, 448, (W - 2 * P - 14) / 2, 96) + T(x2 + 20, 482, 'VALIDATORS', 15, C.gold, 'letter-spacing="2"') + T(x2 + 20, 524, c ? `${c.validatorCount} · Circle, BlackRock, Visa, Mastercard +8` : '—', 22, C.white);
-  s += T(W - P, 600, 'Live from Arc mainnet', 18, C.gray, 'text-anchor="end"');
+  const foot = [mU != null ? `Morpho ${mU}% borrowed` : null, c ? `${c.validatorCount} validators` : null, c?.h1 ? `${c.h1.blockTime.toFixed(2)}s blocks` : null].filter(Boolean).join('  ·  ');
+  s += T(P, 586, esc(foot), 18, C.gray) + T(W - P, 586, 'stateraarc.com/network', 22, C.fire, 'text-anchor="end"');
   return svg(W, H, s, 0, NETWORK_ACCENT);
 }
 // ── TOKEN SNAPSHOT (the token page as one image) ────────────────────────────────────────────────────────────────────
@@ -577,7 +574,9 @@ function logoAccent(dataUri) {
 }
 // Accent set for the card: a strong colour for lines, a glow colour for the corner wash.
 const accentOf = (a) => (a ? { line: hsl(a.h, a.s, 0.58), glow: hsl(a.h, a.s, 0.5) } : null);
-const NETWORK_ACCENT = { line: '#4f8cff', glow: '#2f6bff' }; // the network card: a cool blue (not the old orange-red wash)
+// the network cards: 10-29 owner — no blue ("make it darker black … match the Statera aesthetics"): near-black with a faint
+// dark-ember glow, orange hairlines like the screener card (the 10-26 blue replaced the old loud orange-red wash)
+const NETWORK_ACCENT = { line: '#ff7a1e', glow: '#3a1608' };
 
 // Token logo for the snapshot: the VPS logo cache (192px PNG — resvg draws png/jpeg only).
 async function tokenLogo(addr) {
@@ -618,9 +617,9 @@ async function heroImage(origin, n) {
   return b && b.length > 1000 ? (heroCache[n] = `data:image/jpeg;base64,${b.toString('base64')}`) : '';
 }
 // Banner: the hero image on the right (the S), faded into the card on the left and at the bottom so the title reads.
-const heroBanner = (W, H, img) => {
+const heroBanner = (W, H, img, artW = 0) => {
   if (!img) return '';
-  const iw = Math.round(H * 1.6), ix = W - iw - 10; // the art spans the right ~60%; masked to fade out left and at the bottom
+  const iw = artW || Math.round(H * 1.6), ix = W - iw - 10; // the art spans the right ~60%; masked to fade out left and at the bottom
   return `<defs>
     <linearGradient id="hmL" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.3" stop-color="#fff" stop-opacity="0.35"/><stop offset="0.55" stop-color="#fff" stop-opacity="1"/></linearGradient>
     <linearGradient id="hmB" x1="0" y1="0" x2="0" y2="1"><stop offset="0.5" stop-color="#fff" stop-opacity="1"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
@@ -730,10 +729,10 @@ export default async function handler(req, res) {
       return res.status(200).send(Buffer.from(png));
     }
     const [c, l, w, logos, , act, hero] = await Promise.all([within(v2('chain'), 4500), within(v2('lending'), 4500), within(v2('where'), 4500), isWide ? {} : within(validatorLogos(origin), 3000, {}), ensureWasm(),
-      isWide ? null : within(v2('activity'), 4500), isWide ? '' : within(heroImage(origin, 1), 3000, '')]);
+      isWide ? null : within(v2('activity'), 4500), within(heroImage(origin, 1), 3000, '')]);
     if (!c) throw new Error('no chain data');
     const now = new Date(), when = now.toISOString().replace('T', ' ').slice(0, 16) + ' UTC', st = stampOf(now);
-    const png = new Resvg(isWide ? wide(c, l, w, when) : tall(c, l, w, st, logos || {}, act && act.h24 ? act : null, hero), {
+    const png = new Resvg(isWide ? wide(c, l, w, when, hero) : tall(c, l, w, st, logos || {}, act && act.h24 ? act : null, hero), {
       font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false },
       fitTo: { mode: 'width', value: 1200 },
     }).render().asPng();
