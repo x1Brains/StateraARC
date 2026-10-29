@@ -28,7 +28,10 @@ export default async function handler(req, res) {
   // &t = a 5-minute bucket: X/Discord cache a card image by its URL, so a fresh page fetch must point at a fresh
   // image URL or they keep showing the old price. (&v busts caches on a redesign.)
   const bucket = Math.floor(Date.now() / 300000);
-  const img = addr ? `${origin}/api/og?token=${addr}&sq=1&v=8&t=${bucket}` : `${origin}/api/og?sq=1&v=8`;
+  // 10-29 TEST (owner: a shorter, wider card): ?card=wide asks X for the full-width card with a short 1200x400 image.
+  // Plain links are unchanged until the owner picks.
+  const wide = url.searchParams.get('card') === 'wide';
+  const img = addr ? (wide ? `${origin}/api/og?token=${addr}&strip=1&v=9&t=${bucket}` : `${origin}/api/og?token=${addr}&sq=1&v=8&t=${bucket}`) : `${origin}/api/og?sq=1&v=8`;
   // A crawler (X/Discord/Telegram…) reads this page, then fetches the image ONCE with a short timeout and keeps a
   // failed image for good. Render the image now so its fetch is a cache hit. Crawlers only; capped at 3s.
   // ⛔ 10-14: shell, live price and this pre-render ran one AFTER another (~6.5 s worst case for a crawler — long
@@ -62,7 +65,7 @@ export default async function handler(req, res) {
   const desc = t
     ? `${stats ? stats + ' · ' : ''}${t.name || sym} on Arc mainnet — live chart, holders & trades on StateraArc.`
     : 'Live Arc-mainnet token screener — price, charts, liquidity, holders and trades.';
-  const pageUrl = `${origin}/token/${addr}`;
+  const pageUrl = `${origin}/token/${addr}${wide ? '?card=wide' : ''}`;
   if (prewarm) { await prewarm; ms.prewarm = Date.now() - T0; }
   res.setHeader('x-page-ms', Object.entries(ms).map(([k, v]) => `${k}=${v}`).join(','));
 
@@ -70,12 +73,12 @@ export default async function handler(req, res) {
     `<meta property="og:title" content="${esc(title)}"/>`,
     `<meta property="og:description" content="${esc(desc)}"/>`,
     `<meta property="og:image" content="${img}"/>`,
-    `<meta property="og:image:width" content="600"/>`,
-    `<meta property="og:image:height" content="600"/>`,
+    `<meta property="og:image:width" content="${wide ? 1200 : 600}"/>`,
+    `<meta property="og:image:height" content="${wide ? 400 : 600}"/>`,
     `<meta property="og:type" content="website"/>`,
     `<meta property="og:url" content="${pageUrl}"/>`,
     `<meta property="og:site_name" content="StateraArc"/>`,
-    `<meta name="twitter:card" content="summary"/>`,
+    `<meta name="twitter:card" content="${wide ? 'summary_large_image' : 'summary'}"/>`,
     `<meta name="twitter:title" content="${esc(title)}"/>`,
     `<meta name="twitter:description" content="${esc(desc)}"/>`,
     `<meta name="twitter:image" content="${img}"/>`,

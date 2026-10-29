@@ -5,6 +5,9 @@ import FONT_B64 from '../lib/ogfont.js';
 import WASM_B64 from '../lib/ogwasm.js';
 import { liveToken, within } from '../lib/livetoken.js';
 import { isStateraImpersonator } from '../lib/fakes.js';
+import { tokenStrip } from '../lib/ogcards.js';
+import HERO_B64 from '../lib/oghero.js';
+const HERO = `data:image/jpeg;base64,${HERO_B64}`;
 
 // Dynamic social card for a token: paste stateraarc.com/token/0x… anywhere and it unfurls into this.
 // Rasterised with the WASM build of resvg. The NATIVE @resvg/resvg-js renders blank text under
@@ -111,7 +114,8 @@ export default async function handler(req, res) {
     const url = new URL(req.url, origin);
     const rawAddr = (url.searchParams.get('token') || '').toLowerCase();
     const addr = /^0x[0-9a-f]{40}$/.test(rawAddr) ? rawAddr : ''; // 10-26: only a real address reaches the keyed logo upstream
-    const square = url.searchParams.get('sq') === '1'; // 600x600 for X's compact `summary` card (short, not the tall banner)
+    const square = url.searchParams.get('sq') === '1';
+    const strip = url.searchParams.get('strip') === '1'; // 10-29 test: 1200x400 for the full-width card at a short height // 600x600 for X's compact `summary` card (short, not the tall banner)
     res.setHeader('x-og-ver', OG_VER);
 
     if (url.searchParams.get('debug')) {
@@ -213,7 +217,7 @@ export default async function handler(req, res) {
       ${fakeStrip(600)}
     </svg>`;
 
-    const png = new Resvg(square ? sqSvg : wideSvg, {
+    const png = new Resvg(strip ? tokenStrip(t, logo, HERO, fake) : square ? sqSvg : wideSvg, {
       font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false },
       fitTo: { mode: 'width', value: square ? 600 : 1200 },
     }).render().asPng();
