@@ -80,13 +80,18 @@ const miniBars = (x, y, w, h, vals, col, per = 1) => {
   return o;
 };
 
-function tall(c, l, w, st, logos, act) {
+function tall(c, l, w, st, logos, act, hero) {
   // 10-26 (owner: "the network snapshot is not showing all the information we're showing on the real website"): every
   // section of the Network page, in its order — pulse, live blocks, activity (with its bars), protocols, launchpads, money
   // on Arc, bridge (every chain), lending, validators. Height follows the content.
   const W = 1200, P = 56, IW = W - 2 * P, G = 16; let s = '', y;
-  s += T(P, 70, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"');
-  s += T(P, 128, 'Arc Network Report', 54) + stampPill(W - P, 40, st, c ? `at block ${num(c.head)}` : '');
+  // 10-29 owner: the hero art banner on every snapshot card. The header lives in the banner; the body is drawn as before
+  // and shifted down by OFF (wrapped in a translate at the end).
+  const BH = 360, OFF = BH + 16 - 156;
+  let head = heroBanner(W, BH, hero) + T(P, 92, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"')
+    + `<rect x="${P}" y="118" width="230" height="34" rx="17" fill="#1a0f08" stroke="#5a3418"/>` + T(P + 115, 141, 'NETWORK REPORT', 15, C.gold, 'text-anchor="middle" letter-spacing="3"')
+    + T(P, 222, 'Arc Network', 68, C.white, 'font-weight="700"') + T(P, 266, 'Report', 40, C.white)
+    + stampPill(P + 330, 284, st, c ? `at block ${num(c.head)}` : '');
   // ── headline takeaways (the hook)
   const tk = takeaways(c, l, w); y = 156;
   s += `<rect x="${P}" y="${y}" width="${IW}" height="${24 + tk.length * 38}" rx="16" fill="#110c09" stroke="#3a2516"/><rect x="${P}" y="${y + 14}" width="4" height="${tk.length * 38 - 4}" rx="2" fill="${C.fire}"/>`;
@@ -215,7 +220,7 @@ function tall(c, l, w, st, logos, act) {
   s += `<rect x="0" y="${H - 150}" width="${W}" height="150" fill="url(#foot)"/>`;
   s += T(P, H - 70, 'stateraarc.com/network', 30, C.fire) + T(W - P, H - 70, 'Live · read directly from Arc mainnet', 20, C.gray, 'text-anchor="end"');
   s += T(P, H - 38, 'Screener · Swap · Portfolio · Network', 18, C.dim) + T(W - P, H - 38, 'chain 5042', 18, C.dim, 'text-anchor="end"');
-  return svg(W, H, s, 44, NETWORK_ACCENT);
+  return svg(W, H + OFF, head + `<g transform="translate(0,${OFF})">${s}</g>`, 44, NETWORK_ACCENT);
 }
 
 // X link card (1200×630). ⛔ X lays its own title label over the BOTTOM-LEFT (~0–600 × 560–630): nothing important goes there.
@@ -325,7 +330,7 @@ const dmy = (sec) => new Date(sec * 1000).toUTCString().slice(5, 16);
 const cells = (x, y, w, items, vs = 24) => { const cw = w / items.length; let o = '';
   items.forEach(([k, v, col], i) => { o += T(x + i * cw, y, k, 12, C.gold, 'letter-spacing="2"') + T(x + i * cw, y + 32, typeof v === 'object' && v ? v.raw : esc(v), vs, col || C.white); }); return o; };
 
-function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}) {
+function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}, hero = '') {
   // 10-26 (owner: "money flow, profitability, multiple liquidities, full charts, holders, pool health … the snapshot should
   // include all of that"): every panel of the token page, in its order. Drawn 1376 wide, scaled to 1200 on render.
   const W = 1376, P = 56, IW = W - 2 * P, hw = (IW - 14) / 2, rx0 = P + hw + 14, G = 16; let s = '', y;
@@ -335,8 +340,12 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}) {
   const totLiq = t?.liqUsdc != null && t?.liq > 0 ? t.liq : pools.length ? pools.reduce((a, q) => a + q.liquidityUsdc, 0) : t?.liq;
   const ph = poolHealth(t, d, totLiq);
   // ── header: kicker + stamp, logo, name, price
-  s += T(P, 70, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"') + T(P + 290, 70, 'TOKEN SNAPSHOT', 18, C.gray, 'letter-spacing="3"');
-  s += stampPill(W - P, 40, st, 'read directly from Arc mainnet');
+  // 10-29 owner: the hero art banner on every snapshot card — kicker, label and stamp in the banner; the token's own header
+  // (logo, name, price) and everything after it drawn as before, shifted down by OFF.
+  const BH = 300, OFF = BH - 116;
+  let head = heroBanner(W, BH, hero) + T(P, 92, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"')
+    + `<rect x="${P}" y="118" width="226" height="34" rx="17" fill="#1a0f08" stroke="#5a3418"/>` + T(P + 113, 141, 'TOKEN SNAPSHOT', 15, C.gold, 'text-anchor="middle" letter-spacing="3"')
+    + stampPill(P + 330, 176, st, 'read directly from Arc mainnet');
   const ly = 140;
   if (logo) s += `<clipPath id="lg"><rect x="${P}" y="${ly}" width="104" height="104" rx="24"/></clipPath><rect x="${P}" y="${ly}" width="104" height="104" rx="24" fill="${C.tile}"/><image x="${P}" y="${ly}" width="104" height="104" href="${logo}" clip-path="url(#lg)" preserveAspectRatio="xMidYMid slice"/>`;
   else s += `<rect x="${P}" y="${ly}" width="104" height="104" rx="24" fill="#1f1611" stroke="#4a3020"/>` + T(P + 52, ly + 68, esc((t?.symbol || '?').replace(/[^A-Za-z0-9]/g, '').charAt(0).toUpperCase() || '?'), 44, C.fire, 'text-anchor="middle"');
@@ -347,7 +356,7 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}) {
   s += T(W - P, ly + 62, priceInner(t?.price, 58), 58, C.white, 'text-anchor="end"');
   const chips = [['5M', day?.change5m], ['1H', day?.change1h ?? t?.change1h], ['6H', day?.change6h], ['24H', day?.change24h ?? t?.change24h]].filter(([, v]) => v != null);
   let cx = W - P; [...chips].reverse().forEach(([k, v]) => { const txt = `${k} ${chg(v)}`, tw = 22 + txt.length * 9.4; cx -= tw; s += `<rect x="${cx}" y="${ly + 84}" width="${tw}" height="32" rx="9" fill="${C.tile}" stroke="${chgCol(v)}" stroke-opacity="0.45"/>` + T(cx + tw / 2, ly + 106, esc(txt), 16, chgCol(v), 'text-anchor="middle"'); cx -= 8; });
-  if (isStateraImpersonator(addr, t?.name, t?.symbol)) s += `<rect x="${P}" y="12" width="${IW}" height="30" rx="8" fill="#d63a3a"/>` + T(W / 2, 33, 'FAKE — NOT ASSOCIATED WITH STATERA', 18, '#ffffff', 'text-anchor="middle" letter-spacing="2"');
+  if (isStateraImpersonator(addr, t?.name, t?.symbol)) head += `<rect x="${P}" y="12" width="${IW}" height="30" rx="8" fill="#d63a3a"/>` + T(W / 2, 33, 'FAKE — NOT ASSOCIATED WITH STATERA', 18, '#ffffff', 'text-anchor="middle" letter-spacing="2"');
   // ── stats row (the page's stat bar + FDV)
   y = 284; const sw = (IW - 5 * 12) / 6;
   [['MARKET CAP', usd(t?.mcap)], ['FDV', usd(ph.fdv)], ['LIQUIDITY', usd(totLiq), t?.liqUsdc != null ? `${usd(t.liqUsdc)} USDC` : ''],
@@ -491,7 +500,7 @@ function tokenTall(t, d, cs, tf, logo, st, addr, acc, ex = {}) {
   s += `<rect x="0" y="${H - 130}" width="${W}" height="130" fill="url(#foot)"/>`;
   s += T(P, H - 56, `stateraarc.com/token/${addr.slice(0, 8)}…${addr.slice(-4)}`, 28, C.fire) + T(W - P, H - 56, 'Live on-chain data · not financial advice', 18, C.gray, 'text-anchor="end"');
   s += T(P, H - 26, 'Screener · Swap · Portfolio · Network', 16, C.dim) + T(W - P, H - 26, 'Arc mainnet · chain 5042', 16, C.dim, 'text-anchor="end"');
-  return svg(W, H, s, 44, acc);
+  return svg(W, H + OFF, head + `<g transform="translate(0,${OFF})">${s}</g>`, 44, acc);
 }
 
 // ── accent colour ── (owner 09-29: no orange-red grading in the corner; each token card takes its LOGO's colour)
@@ -620,8 +629,44 @@ const heroBanner = (W, H, img) => {
     <radialGradient id="hbG" cx="0.7" cy="0.5" r="0.55"><stop offset="0" stop-color="#ff7a1e" stop-opacity="0.12"/><stop offset="1" stop-color="#ff7a1e" stop-opacity="0"/></radialGradient>
   </defs>
   <g mask="url(#hmaskB)"><g mask="url(#hmaskL)"><image x="${ix}" y="0" width="${iw}" height="${H}" href="${img}" preserveAspectRatio="xMidYMin slice"/></g></g>
-  <rect width="${W}" height="${H}" fill="url(#hbG)"/>`;
+  <rect width="${W}" height="${H}" fill="url(#hbG)"/>${bannerTexture(W, H)}`;
 };
+// Texture over the banner's plain left side (owner 10-29: "the gradients on the left are too plain — add a pattern, particles"):
+// a fine dot grid that fades toward the art, glowing embers that thicken toward the S, and a few rising spark streaks.
+// Seeded, so every card gets the same texture.
+function bannerTexture(W, H) {
+  let seed = 1029; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  let o = `<defs>
+    <pattern id="tgrid" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="11" cy="11" r="1.3" fill="#ffb27a" fill-opacity="0.38"/></pattern>
+    <linearGradient id="tgL" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="1"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.5"/><stop offset="0.75" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <linearGradient id="tgB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="1"/><stop offset="0.7" stop-color="#fff" stop-opacity="0.6"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <mask id="tmaskL" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="url(#tgL)"/></mask>
+    <mask id="tmaskB" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="url(#tgB)"/></mask>
+    <radialGradient id="ember"><stop offset="0" stop-color="#ffd27a" stop-opacity="1"/><stop offset="0.35" stop-color="#ff8a2a" stop-opacity="0.75"/><stop offset="1" stop-color="#ff5a1e" stop-opacity="0"/></radialGradient>
+    <linearGradient id="streak" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#ff7a1e" stop-opacity="0"/><stop offset="1" stop-color="#ffc24a" stop-opacity="0.85"/></linearGradient>
+  </defs>
+  <g mask="url(#tmaskB)"><g mask="url(#tmaskL)"><rect width="${W}" height="${H}" fill="url(#tgrid)"/></g></g>`;
+  // embers: more and brighter toward the right (the art); a few large soft ones, many small sharp ones
+  for (let i = 0; i < 150; i++) {
+    const t = rnd(), x = 20 + t * (W - 40), y = 10 + rnd() * (H - 30);
+    const big = rnd() < 0.18, r = big ? 5 + rnd() * 9 : 1.2 + rnd() * 2.6, op = (0.25 + rnd() * 0.65) * (0.6 + 0.4 * t) * (y > H * 0.82 ? 0.5 : 1);
+    o += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="url(#ember)" opacity="${(big ? op * 0.45 : op).toFixed(2)}"/>`;
+  }
+  // flowing lava contour lines across the plain side (faint, masked like the grid)
+  let cl = '';
+  for (let k = 0; k < 7; k++) {
+    const y0 = H * (0.12 + k * 0.12), amp = 10 + rnd() * 18, ph = rnd() * 6.28, f = 0.004 + rnd() * 0.003; let d = '';
+    for (let x = 0; x <= W; x += 24) d += `${x ? 'L' : 'M'}${x},${(y0 + Math.sin(x * f + ph) * amp + Math.sin(x * f * 2.3 + ph * 1.7) * amp * 0.35).toFixed(1)}`;
+    cl += `<path d="${d}" fill="none" stroke="#ff7a1e" stroke-width="${k % 3 === 0 ? 1.6 : 1}" stroke-opacity="${(0.14 + rnd() * 0.14).toFixed(2)}"/>`;
+  }
+  o += `<g mask="url(#tmaskB)"><g mask="url(#tmaskL)">${cl}</g></g>`;
+  // rising spark streaks
+  for (let i = 0; i < 14; i++) {
+    const x = W * (0.12 + rnd() * 0.6), y = H * (0.2 + rnd() * 0.65), len = 14 + rnd() * 26, a = -0.9 - rnd() * 0.5;
+    o += `<line x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${(x + Math.cos(a) * -len * -1).toFixed(1)}" y2="${(y + Math.sin(a) * len).toFixed(1)}" stroke="url(#streak)" stroke-width="${(1 + rnd() * 1.2).toFixed(1)}" stroke-linecap="round" opacity="${(0.35 + rnd() * 0.5).toFixed(2)}"/>`;
+  }
+  return o;
+}
 
 // radius > 0 = transparent rounded corners (everything clipped to a rounded card); 0 = square (X rounds link cards itself).
 const svg = (W, H, body, radius = 0, acc = null) => `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}">
@@ -648,12 +693,12 @@ export default async function handler(req, res) {
     const tokenAddr = (u.searchParams.get('token') || '').toLowerCase();
     if (tokenAddr) {
       if (!/^0x[0-9a-f]{40}$/.test(tokenAddr)) throw new Error('bad token address');
-      const [row, d, c15, c5, logo, , b15, flow, traders, daily, profit] = await Promise.all([within(v2(`token/${tokenAddr}`), 5000), within(v2(`token/${tokenAddr}/detail`), 9000),
+      const [row, d, c15, c5, logo, , b15, flow, traders, daily, profit, hero] = await Promise.all([within(v2(`token/${tokenAddr}`), 5000), within(v2(`token/${tokenAddr}/detail`), 9000),
         within(v2(`token/${tokenAddr}/candles?sec=900&look=259200`), 6000), within(v2(`token/${tokenAddr}/candles?sec=300&look=86400`), 6000), within(tokenLogo(tokenAddr), 3000, ''), ensureWasm(),
         // the swap store (10-21): real 15m candles, money flow, top traders, daily closes since launch — each optional
         within(v2(`token/${tokenAddr}/bars?res=15m&limit=288`), 6000), within(v2(`token/${tokenAddr}/flow`), 6000),
         within(v2(`token/${tokenAddr}/traders?limit=5`), 7000), within(v2(`token/${tokenAddr}/bars?res=1d&limit=400`), 6000),
-        within(v2(`token/${tokenAddr}/profitability`), 7000)]);
+        within(v2(`token/${tokenAddr}/profitability`), 7000), within(heroImage(origin, 3), 3000, '')]);
       // token names/symbols are the creator's own text — shown as they are, emojis included (owner 09-29: the no-emoji
       // rule is for OUR wording, not token data)
       const t = row?.token ?? null;
@@ -664,7 +709,7 @@ export default async function handler(req, res) {
       const now = new Date(), st = stampOf(now);
       // the card's colour comes from the token's logo; a grey/black/white or missing logo gets a quiet neutral
       const acc = accentOf(logoAccent(logo)) || { line: '#9aa3b2', glow: '#5b6475' };
-      const png = new Resvg(tokenTall(t, d, cs, tf, logo, st, tokenAddr, acc, { flow, traders, daily, profit }), { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 1200 } }).render().asPng();
+      const png = new Resvg(tokenTall(t, d, cs, tf, logo, st, tokenAddr, acc, { flow, traders, daily, profit }, hero), { font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false }, fitTo: { mode: 'width', value: 1200 } }).render().asPng();
       res.setHeader('content-type', 'image/png');
       const symSafe = String(t.symbol || 'token').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) || 'token';
       if (download) { res.setHeader('content-disposition', `attachment; filename="statera-${symSafe}-snapshot-${st.file}-UTC.png"`); res.setHeader('cache-control', 'no-store'); }
@@ -684,11 +729,11 @@ export default async function handler(req, res) {
       else res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
       return res.status(200).send(Buffer.from(png));
     }
-    const [c, l, w, logos, , act] = await Promise.all([within(v2('chain'), 4500), within(v2('lending'), 4500), within(v2('where'), 4500), isWide ? {} : within(validatorLogos(origin), 3000, {}), ensureWasm(),
-      isWide ? null : within(v2('activity'), 4500)]);
+    const [c, l, w, logos, , act, hero] = await Promise.all([within(v2('chain'), 4500), within(v2('lending'), 4500), within(v2('where'), 4500), isWide ? {} : within(validatorLogos(origin), 3000, {}), ensureWasm(),
+      isWide ? null : within(v2('activity'), 4500), isWide ? '' : within(heroImage(origin, 1), 3000, '')]);
     if (!c) throw new Error('no chain data');
     const now = new Date(), when = now.toISOString().replace('T', ' ').slice(0, 16) + ' UTC', st = stampOf(now);
-    const png = new Resvg(isWide ? wide(c, l, w, when) : tall(c, l, w, st, logos || {}, act && act.h24 ? act : null), {
+    const png = new Resvg(isWide ? wide(c, l, w, when) : tall(c, l, w, st, logos || {}, act && act.h24 ? act : null, hero), {
       font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false },
       fitTo: { mode: 'width', value: 1200 },
     }).render().asPng();
