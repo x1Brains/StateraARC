@@ -273,7 +273,7 @@ function summaryCard(c, l, w, st, act, hero) {
     const net = f.in.usd - f.out.usd, sum = f.in.usd + f.out.usd || 1;
     s += panel(P, y, IW, 158) + T(P + 24, y + 42, `USDC BRIDGED · ${c?.cctp?.h24 ? 'LAST 24 HOURS' : 'LAST HOUR'}`, 20, C.white, 'letter-spacing="2"')
       + T(W - P - 24, y + 42, `Net ${usd(Math.abs(net))} ${net >= 0 ? 'into' : 'out of'} Arc`, 20, net >= 0 ? C.green : C.red, 'text-anchor="end"');
-    s += T(P + 24, y + 92, `${esc(usd(f.in.usd))}<tspan font-size="16" fill="${C.gray}" dx="10">into Arc</tspan>`, 32, C.green) + T(W - P - 24, y + 92, `<tspan font-size="16" fill="${C.gray}" dx="-10">out of Arc </tspan>${esc(usd(f.out.usd))}`, 32, C.red, 'text-anchor="end"');
+    s += T(P + 24, y + 92, `${esc(usd(f.in.usd))}<tspan font-size="16" fill="${C.gray}" dx="10">into Arc</tspan>`, 32, C.green) + T(W - P - 24, y + 92, `<tspan font-size="16" fill="${C.gray}">out of Arc  </tspan>${esc(usd(f.out.usd))}`, 32, C.red, 'text-anchor="end"');
     s += bar(P + 24, y + 116, IW - 48, 14, [[f.in.usd / sum, C.green], [f.out.usd / sum, C.red]]);
     y += 158 + G;
   }
