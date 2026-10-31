@@ -40,6 +40,7 @@ const IMPERSONATOR_ALLOW = new Set([
   '0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1', // EURC (Circle euro)
   '0x8a5d989bbb96929f689b0200f435f53da42bf490', // USYC (Circle yield)
   '0x171a4217b86a807a64eb94757db6849fb4bdbaa0', // cirBTC (already whitelisted by symbol, kept for clarity)
+  '0x178b01f61cbea1d2a5581fe1621be607835ec349', // XAUM Matrixdock Gold — announced on Arc 09-23; 1,481 holders, price tracks gold; the other XAUM has 6 holders
 ]);
 
 const STATE_FILE = process.env.ONCHAIN_STATE || './onchain-state.json';
