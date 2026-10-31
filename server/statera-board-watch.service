@@ -1,0 +1,11 @@
+[Unit]
+Description=StateraArc board check: alerts on ntfy when a real token is off the list
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/statera-repo
+EnvironmentFile=/etc/arc-gridbot/alert.env
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning --max-old-space-size=200 scripts/board-watch.mjs
+Nice=15
+MemoryMax=250M
+TimeoutStartSec=300

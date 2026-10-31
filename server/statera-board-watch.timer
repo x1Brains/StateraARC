@@ -1,0 +1,8 @@
+[Unit]
+Description=StateraArc board check, after each snapshot
+
+[Timer]
+OnCalendar=*:08,38
+
+[Install]
+WantedBy=timers.target
