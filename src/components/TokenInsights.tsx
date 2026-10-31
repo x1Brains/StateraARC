@@ -15,9 +15,14 @@ export function MoneyFlowCard({ address, onMaker }: { address: string; onMaker?:
   const [w, setW] = useState('24h');
   useEffect(() => {
     let alive = true; setD(null);
-    const load = () => v2Flow(address).then((r) => { if (alive) setD(r.windows); }).catch(() => { if (alive) setD((x) => x ?? []); });
+    let tries = 0, again: ReturnType<typeof setTimeout> | undefined;
+    const load = () => v2Flow(address).then((r) => {
+      if (!alive) return; setD(r.windows);
+      const x7 = r.windows.find((k) => k.window === '7d'); // 7D wallet counts not ready yet: ask again shortly, not in 30 s
+      if (x7 && x7.buys + x7.sells > 0 && !x7.makersKnown && tries++ < 6) again = setTimeout(load, 3000);
+    }).catch(() => { if (alive) setD((x) => x ?? []); });
     load(); const t = setInterval(load, 30_000);
-    return () => { alive = false; clearInterval(t); };
+    return () => { alive = false; clearInterval(t); clearTimeout(again); };
   }, [address]);
   const x = d?.find((k) => k.window === w) ?? null;
   const names = useNames([x?.topBuyer?.wallet, x?.topSeller?.wallet]);

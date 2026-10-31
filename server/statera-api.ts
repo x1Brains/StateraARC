@@ -211,24 +211,39 @@ async function live() {
 
 // ── HTTP ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const FILTERS = new Set(['all', 'new', 'eco']);
-// Money flow's 7D buyers/sellers (10-31): read in the background, one token at a time, so the card never waits on them. The first
-// reply for a token shows '—'; the page's 30 s refresh fills them in.
-const flow7 = new Map<string, { at: number; v: { n: number; buyers: number; sellers: number } }>(); let flow7Busy = false;
-function withWallets7d(a: string, f: any) {
-  const h = flow7.get(a);
-  if ((!h || Date.now() - h.at > 5 * 60_000) && !flow7Busy && f?.windows?.length) {
-    flow7Busy = true;
-    swapCall<{ n: number; buyers: number; sellers: number } | null>('flowWallets7d', a).then((v) => {
-      if (!v) return; flow7.delete(a); flow7.set(a, { at: Date.now(), v }); if (flow7.size > 300) flow7.delete(flow7.keys().next().value!);
-    }).catch(() => {}).finally(() => { flow7Busy = false; });
-  }
-  const w = f?.windows?.find((x: any) => x.window === '7d'), total = w ? w.buys + w.sells : 0;
-  if (h && w && total) { w.buyers = h.v.buyers; w.sellers = h.v.sellers; w.makersKnown = Math.min(1, h.v.n / total); }
-  return f;
+// Money flow's 7D buyers/sellers (10-31): read one token at a time apart from flow(). A known count is served at once and refreshed
+// behind the reply; a token not read yet waits ≤ 0.8 s (most finish in that), else the reply is not cached and the page asks again.
+// The busiest tokens are kept ready below, so the slow ones (cirBTC ~10 s cold) never make a visitor wait.
+const flow7 = new Map<string, { at: number; v: { n: number; buyers: number; sellers: number } }>(); let flow7Run: Promise<void> | null = null;
+function read7(a: string) {
+  if (flow7Run) return flow7Run;
+  flow7Run = swapCall<{ n: number; buyers: number; sellers: number } | null>('flowWallets7d', a).then((v) => {
+    if (!v) return; flow7.delete(a); flow7.set(a, { at: Date.now(), v }); if (flow7.size > 300) flow7.delete(flow7.keys().next().value!);
+  }).catch(() => {}).finally(() => { flow7Run = null; });
+  return flow7Run;
 }
+async function withWallets7d(a: string, f: any) {
+  const w = f?.windows?.find((x: any) => x.window === '7d'), total = w ? w.buys + w.sells : 0;
+  if (!total) return { f, pending: false };
+  let h = flow7.get(a);
+  if (!h) await Promise.race([read7(a), new Promise((r) => setTimeout(r, 800))]);
+  else if (Date.now() - h.at > 5 * 60_000) read7(a);
+  h = flow7.get(a);
+  if (h) { w.buyers = h.v.buyers; w.sellers = h.v.sellers; w.makersKnown = Math.min(1, h.v.n / total); }
+  return { f, pending: !h };
+}
+async function warmFlow7() {
+  const top = [...tokens].sort((x, y) => (y.txns24 ?? 0) - (x.txns24 ?? 0)).slice(0, 40);
+  for (const t of top) {
+    const a = t.address.toLowerCase(), h = flow7.get(a);
+    if (h && Date.now() - h.at < 8 * 60_000) continue;
+    await read7(a); await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+setTimeout(warmFlow7, 60_000); setInterval(warmFlow7, 10 * 60_000);
 const SORTS = new Set(['liq', 'mcap', 'holders', 'price', 'name', 'volume', 'change24h', 'change1h', 'age']);
 function send(req: http.IncomingMessage, res: http.ServerResponse, status: number, body: string, gz?: Buffer, maxAge = 10) {
-  const h: Record<string, string> = { 'content-type': 'application/json; charset=utf-8', 'cache-control': `public, max-age=0, s-maxage=${maxAge}, stale-while-revalidate=60`,
+  const h: Record<string, string> = { 'content-type': 'application/json; charset=utf-8', 'cache-control': maxAge < 0 ? 'no-store' : `public, max-age=0, s-maxage=${maxAge}, stale-while-revalidate=60`,
     vary: 'accept-encoding', 'x-statera-asof': String(asOf ?? ''), 'x-snapshot-age': String(snapMtime ? Math.round((Date.now() - snapMtime) / 1000) : '') };
   if (/\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) { h['content-encoding'] = 'gzip'; res.writeHead(status, h).end(gz ?? zlib.gzipSync(body)); }
   else res.writeHead(status, h).end(body);
@@ -343,7 +358,13 @@ http.createServer(async (req, res) => { // async: the /wallet route awaits (09-3
     const am = path.match(/^\/token\/(0x[0-9a-fA-F]{40})\/(flow|traders|profitability)$/);
     if (am) {
       const a = am[1].toLowerCase(), so = u.searchParams.get('sort');
-      const r = await (am[2] === 'flow' ? swapCall<any>('flow', a).then((f) => withWallets7d(a, f)) : am[2] === 'traders' ? swapCall('topTraders', a, so === 'volume' || so === 'loss' ? so : 'pnl', intIn(u.searchParams.get('limit'), 50, 1, 200)) : swapCall('profitability', a)).catch(() => null);
+      if (am[2] === 'flow') {
+        const f = await swapCall<any>('flow', a).catch(() => null);
+        if (!f) { send(req, res, 503, JSON.stringify({ error: 'swap store unavailable' }), undefined, 0); return; }
+        const { pending } = await withWallets7d(a, f);
+        send(req, res, 200, JSON.stringify(f), undefined, pending ? -1 : 30); return;
+      }
+      const r = await (am[2] === 'traders' ? swapCall('topTraders', a, so === 'volume' || so === 'loss' ? so : 'pnl', intIn(u.searchParams.get('limit'), 50, 1, 200)) : swapCall('profitability', a)).catch(() => null);
       send(req, res, r ? 200 : 503, JSON.stringify(r ?? { error: 'swap store unavailable' }), undefined, r ? 30 : 0); return;
     }
     const sm = path.match(/^\/wallet\/(0x[0-9a-fA-F]{40})\/swaps$/);
