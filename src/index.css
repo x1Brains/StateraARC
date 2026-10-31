@@ -1783,11 +1783,13 @@ footer .wrap { padding: 16px 20px; }
 .tx-hero-tint { position: absolute; inset: -40%; background-size: 55% auto; background-repeat: no-repeat; background-position: 12% 50%;
   filter: blur(60px) saturate(1.6); opacity: .28; pointer-events: none; }
 .tx-hero-id, .tx-hero-px { position: relative; z-index: 1; }
-.tx-hero-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.tx-hero-id { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1 1 320px; }
 .tx-logo { flex: none; padding: 3px; border-radius: 50%; background: conic-gradient(from 200deg, #ffc24a, #ff7a1e, #ff2f14, #ffc24a); box-shadow: 0 0 22px rgba(255,122,30,.45); }
 .tx-logo .tlogo, .tx-logo .tmono { width: 52px; height: 52px; border-radius: 50%; display: block; background: #0b0b0d; border: 2px solid #0b0b0d; }
 .tx-names { min-width: 0; }
 .tx-name { font-family: var(--disp); font-weight: 700; font-size: 26px; line-height: 1.1; color: var(--white); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 10-31: a very long token name ($PI, 30 digits) ran under the price — cut it, full name on hover */
+.tx-name-text { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tx-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .tx-chip { font: 600 10.5px var(--mono); letter-spacing: .5px; padding: 4px 9px; border-radius: 999px; color: var(--gray); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09); }
 .tx-chip.sym { color: #ffc24a; border-color: rgba(255,194,74,.35); background: rgba(255,194,74,.08); }

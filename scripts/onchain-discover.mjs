@@ -442,6 +442,26 @@ async function main() {
     const logs = await scanLogs(null, [[T_V3_SWAP, T_V2_SWAP]], since, BigInt(head), 2000n); // topic-only: every V2/V3-style pool
     for (const l of logs) swappedPools.add(l.address.toLowerCase());
   }
+  // ⛔ 10-31 (KAIRO, $760K cap, hosted the Arc Builders Space, missing from the board): a token is only filed once, under the
+  // pool seen first. Its live V3 pool was skipped because the token was already known from a dead $22 V4 pool, and the $100
+  // floor then dropped it. Each run, a V4-filed token under the floor with an active V3 USDC pool (from the swap store) holding real USDC moves onto it.
+  try {
+    const db = new DatabaseSync(process.env.SWAPS_DB || '/root/statera-swaps/swaps.db', { readOnly: true });
+    const v3 = new Map();
+    for (const r of db.prepare(`SELECT p.token, p.key, p.usdc0, SUM(c.v) v FROM c1m c JOIN pools p ON p.pid = c.pid
+        WHERE c.t >= ? AND p.kind = 'V3' AND p.ok = 1 GROUP BY c.pid HAVING SUM(c.n) >= 3`).all(Math.floor(Date.now() / 1000) - 7 * 86400)) {
+      const b = v3.get(r.token); if (!b || r.v > b.v) v3.set(r.token, r);
+    }
+    db.close();
+    const cand = [...v3.values()].filter((r) => state.tokens[r.token]?.kind === 'v4');
+    const bal = await runLimited(cand.map((r) => () => rpc('eth_getBalance', [r.key, 'latest']).catch(() => null)), 6);
+    cand.forEach((r, i) => {
+      const t = state.tokens[r.token], usdc = bal[i] ? Number(BigInt(bal[i])) / 1e18 : 0;
+      if (usdc < MIN_USDC || (t.lastLiq || 0) >= MIN_LIQ) return; // only tokens the floor would drop — listed tokens keep their pool
+      t.kind = 'v3'; t.pool = r.key; t.usdcIsC0 = !!r.usdc0; // V3 and V4 both sort by address, so the flag holds for its V4 pool too
+      console.log(`[disc] ${t.symbol} ${r.token} moved onto its V3 pool ${r.key} ($${Math.round(usdc)} USDC)`);
+    });
+  } catch (e) { console.log('[disc] V3 pool check skipped:', e.message); }
   const isHot = (addr, t) => (t.lastVol || 0) >= 50 || (t.lastLiq || 0) >= 5000 || (t.pool && swappedPools.has(t.pool)) ||
     (t.poolId && v4active.has(t.poolId)) || (Date.now() - (t.firstSeen || 0) < 48 * 3600e3) || t.kind === 'v2' || !!t.dex ||
     clByToken.has(addr) || v2ByToken.has(addr) || t.lastPrice == null;

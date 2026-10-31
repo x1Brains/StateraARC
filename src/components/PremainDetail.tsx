@@ -545,7 +545,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
             <div className="tx-hero-id">
               <div className="tx-logo"><TokenLogo symbol={sym} seed={address} url={warp?.image ?? seed?.iconUrl ?? null} /></div>
               <div className="tx-names">
-                <div className="tx-name">{name || sym}
+                <div className="tx-name"><span className="tx-name-text" title={name || sym}>{name || sym}</span>
                   {d?.lookalike && <span className="wl-note">Lookalike</span>}
                   {d?.reservedName && <span className="wl-note">Reserved-name</span>}
                 </div>
