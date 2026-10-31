@@ -223,6 +223,91 @@ function tall(c, l, w, st, logos, act, hero) {
   return svg(W, H + OFF, head + `<g transform="translate(0,${OFF})">${s}</g>`, 44, NETWORK_ACCENT);
 }
 
+// 10-31 owner ("anywhere we can cut it down and show the main information"): two cards made for a post. The full report above is
+// too tall for X (cropped in the feed, small text on a phone). Same numbers, same look; these two only leave things out.
+const cardHead = (W, P, BH, hero, tag, tagW, title, st, sub) => heroBanner(W, BH, hero) + T(P, 92, 'STATERA · ARC', 24, C.fire, 'letter-spacing="6"')
+  + `<rect x="${P}" y="118" width="${tagW}" height="34" rx="17" fill="#1a0f08" stroke="#5a3418"/>` + T(P + tagW / 2, 141, tag, 15, C.gold, 'text-anchor="middle" letter-spacing="3"')
+  + T(P, 222, title, 68, C.white, 'font-weight="700"') + stampPill(P + 330, 244, st, sub);
+const cardFoot = (W, P, H) => `<rect x="0" y="${H - 150}" width="${W}" height="150" fill="url(#foot)"/>` + T(P, H - 66, 'stateraarc.com/network', 30, C.fire)
+  + T(W - P, H - 66, 'Live · read directly from Arc mainnet', 20, C.gray, 'text-anchor="end"');
+
+function summaryCard(c, l, w, st, act, hero) {
+  const W = 1200, P = 56, IW = W - 2 * P, G = 16, BH = 340; let y = BH + 12;
+  let s = cardHead(W, P, BH, hero, 'NETWORK SUMMARY', 250, 'Arc, today', st, c ? `at block ${num(c.head)}` : '');
+  const tk = takeaways(c, l, w);
+  if (tk.length) {
+    s += `<rect x="${P}" y="${y}" width="${IW}" height="${24 + tk.length * 38}" rx="16" fill="#110c09" stroke="#3a2516"/><rect x="${P}" y="${y + 14}" width="4" height="${tk.length * 38 - 4}" rx="2" fill="${C.fire}"/>`;
+    tk.forEach((t, i) => { s += T(P + 26, y + 42 + i * 38, esc(t), 22, C.white); });
+    y += 24 + tk.length * 38 + G;
+  }
+  const pw = (IW - 3 * 14) / 4, fee = c ? (21000 * c.baseFeeGwei * 1e9) / 1e18 : null;
+  [[c?.h1 ? `${c.h1.blockTime.toFixed(2)}s` : '—', 'NEW BLOCK EVERY', C.white], [c?.m5 ? `${num(c.m5.tps)}/sec` : '—', 'TRANSACTIONS', C.white],
+   [fee != null ? (fee < 0.01 ? '$' + fee.toFixed(4) : usd(fee)) : '—', 'COST TO SEND USDC', C.green], [c ? String(c.validatorCount) : '—', 'VALIDATORS', C.white]]
+    .forEach(([v, k, col], i) => { const x = P + i * (pw + 14); s += panel(x, y, pw, 96) + T(x + 20, y + 50, esc(v), 36, col) + T(x + 20, y + 78, k, 15, C.gold, 'letter-spacing="2"'); });
+  y += 96 + G;
+  const x = act?.h24 || act?.h1;
+  if (x) {
+    s += panel(P, y, IW, 150) + T(P + 24, y + 42, 'ARC ACTIVITY · 24H', 20, C.white, 'letter-spacing="2"');
+    const kw = (IW - 48) / 5;
+    [[`${x.net >= 0 ? '+' : '−'}${usd(Math.abs(x.net))}`, 'USDC NET ISSUED', x.net >= 0 ? C.green : C.red], [usd(x.moved), 'USDC MOVED', C.white], [num(x.txs), 'TRANSACTIONS', C.white],
+     [num(x.active), 'ACTIVE WALLETS', C.white], [num(x.newWallets), 'NEW WALLETS', C.white]]
+      .forEach(([v, k, col], i) => { const xx = P + 24 + i * kw; s += T(xx, y + 96, esc(v), 30, col) + T(xx, y + 124, k, 12, C.gold, 'letter-spacing="2"'); });
+    y += 150 + G;
+  }
+  const tot = c?.supplyUsd ? ['USDC', 'EURC', 'cirBTC'].reduce((a, k) => a + (c.supplyUsd[k] || 0), 0) : null;
+  s += panel(P, y, IW, 330) + T(P + 24, y + 46, 'MONEY ON ARC', 22, C.white, 'letter-spacing="2"') + T(W - P - 24, y + 50, usd(tot), 44, C.fire, 'text-anchor="end"');
+  ['USDC', 'EURC', 'cirBTC'].forEach((k, i) => {
+    const yy = y + 76 + i * 82, a = w?.assets?.find((q) => q.sym === k), val = c?.supplyUsd?.[k];
+    s += T(P + 24, yy + 18, NAME[k], 21) + T(W - P - 24, yy + 18, usd(val), 22, C.white, 'text-anchor="end"');
+    if (a && a.supply > 0) {
+      s += bar(P + 24, yy + 30, IW - 48, 16, BUCKETS.map(([bk, , col]) => [a.buckets[bk] / a.supply, col]));
+      let lx = P + 24;
+      for (const [bk, label, col] of BUCKETS) { const f = a.buckets[bk] / a.supply; if (f < 0.01) continue;
+        const t = `${label} ${(f * 100).toFixed(1)}%`;
+        s += `<rect x="${lx}" y="${yy + 56}" width="11" height="11" rx="3" fill="${col}"/>` + T(lx + 17, yy + 66, esc(t), 15, C.gray); lx += 34 + t.length * 7.6; }
+    }
+  });
+  y += 330 + G;
+  const f = c?.cctp?.h24 || c?.cctp?.h1;
+  if (f) {
+    const net = f.in.usd - f.out.usd, sum = f.in.usd + f.out.usd || 1;
+    s += panel(P, y, IW, 158) + T(P + 24, y + 42, `USDC BRIDGED · ${c?.cctp?.h24 ? 'LAST 24 HOURS' : 'LAST HOUR'}`, 20, C.white, 'letter-spacing="2"')
+      + T(W - P - 24, y + 42, `Net ${usd(Math.abs(net))} ${net >= 0 ? 'into' : 'out of'} Arc`, 20, net >= 0 ? C.green : C.red, 'text-anchor="end"');
+    s += T(P + 24, y + 92, `${esc(usd(f.in.usd))}<tspan font-size="16" fill="${C.gray}" dx="10">into Arc</tspan>`, 32, C.green) + T(W - P - 24, y + 92, `<tspan font-size="16" fill="${C.gray}" dx="-10">out of Arc </tspan>${esc(usd(f.out.usd))}`, 32, C.red, 'text-anchor="end"');
+    s += bar(P + 24, y + 116, IW - 48, 14, [[f.in.usd / sum, C.green], [f.out.usd / sum, C.red]]);
+    y += 158 + G;
+  }
+  const H = y + 96; s += cardFoot(W, P, H);
+  return svg(W, H, s, 44, NETWORK_ACCENT);
+}
+
+function launchpadCard(act, st, hero) {
+  const lp = act?.launchpads, pads = (lp?.pads || []).filter((p) => p.trades > 0).sort((a, z) => z.volume - a.volume), top = (lp?.top || []).slice(0, 5);
+  if (!pads.length) throw new Error('no launchpad data');
+  const W = 1200, P = 56, IW = W - 2 * P, G = 16, BH = 340; let y = BH + 12;
+  let s = cardHead(W, P, BH, hero, 'LAUNCHPADS · 24H', 260, 'Launchpads', st, 'last 24 hours');
+  const tw = (IW - 2 * 14) / 3;
+  [[usd(lp.volume), 'VOLUME', C.fire], [num(lp.trades), 'TRADES', C.white], [num(lp.traded), 'TOKENS TRADED', C.white]]
+    .forEach(([v, k, col], i) => { const x = P + i * (tw + 14); s += panel(x, y, tw, 112) + T(x + 22, y + 58, esc(v), 42, col) + T(x + 22, y + 90, k, 15, C.gold, 'letter-spacing="2"'); });
+  y += 112 + G;
+  const ph = 66 + pads.length * 48, mx = Math.max(...pads.map((p) => p.volume)) || 1;
+  s += panel(P, y, IW, ph) + T(P + 24, y + 42, 'BY 24H VOLUME', 20, C.white, 'letter-spacing="2"');
+  pads.forEach((p, i) => { const yy = y + 80 + i * 48;
+    s += T(P + 24, yy, esc(p.pad === 'Argus pad' ? 'Argus' : p.pad), 22, C.white) + T(W - P - 24, yy, usd(p.volume), 22, C.gold, 'text-anchor="end"')
+      + T(W - P - 180, yy, `${num(p.trades)} trade${p.trades === 1 ? '' : 's'} · ${num(p.traded)} token${p.traded === 1 ? '' : 's'}`, 16, C.gray, 'text-anchor="end"')
+      + bar(P + 24, yy + 10, IW - 48, 8, [[Math.max(0.004, p.volume / mx), C.fire]]); });
+  y += ph + G;
+  if (top.length) {
+    const th = 66 + top.length * 40; s += panel(P, y, IW, th) + T(P + 24, y + 42, 'TOP BY MARKET CAP', 20, C.white, 'letter-spacing="2"');
+    top.forEach((t, i) => { const yy = y + 80 + i * 40, ch = t.change24h;
+      s += T(P + 24, yy, esc(`$${t.symbol}`), 22, C.white) + T(P + 300, yy, esc(t.pad === 'Argus pad' ? 'Argus' : t.pad), 18, C.gold) + T(P + 640, yy, `${usd(t.mcap)} mcap`, 20, C.white, 'text-anchor="end"')
+        + T(P + 880, yy, `${usd(t.liq)} liq`, 20, C.gray, 'text-anchor="end"') + (ch != null && isFinite(ch) ? T(W - P - 24, yy, chg(ch), 20, chgCol(ch), 'text-anchor="end"') : ''); });
+    y += th + G;
+  }
+  const H = y + 96; s += cardFoot(W, P, H);
+  return svg(W, H, s, 44, NETWORK_ACCENT);
+}
+
 // X link card (1200×630). ⛔ X lays its own title label over the BOTTOM-LEFT (~0–600 × 560–630): nothing important goes there.
 function wide(c, l, w, when, hero) {
   // 10-29 owner ("those preview cards for the network are horrible"): the /network link card in the snapshot cards' look —
@@ -728,18 +813,20 @@ export default async function handler(req, res) {
       else res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
       return res.status(200).send(Buffer.from(png));
     }
+    const card = u.searchParams.get('view');
     const [c, l, w, logos, , act, hero] = await Promise.all([within(v2('chain'), 4500), within(v2('lending'), 4500), within(v2('where'), 4500), isWide ? {} : within(validatorLogos(origin), 3000, {}), ensureWasm(),
-      isWide ? null : within(v2('activity'), 4500), within(heroImage(origin, 1), 3000, '')]);
+      isWide ? null : within(v2('activity'), 4500), within(heroImage(origin, card === 'launchpads' ? 3 : 1), 3000, '')]);
     if (!c) throw new Error('no chain data');
     const now = new Date(), when = now.toISOString().replace('T', ' ').slice(0, 16) + ' UTC', st = stampOf(now);
-    const png = new Resvg(isWide ? wide(c, l, w, when, hero) : tall(c, l, w, st, logos || {}, act && act.h24 ? act : null, hero), {
+    const liveAct = act && act.h24 ? act : null;
+    const png = new Resvg(isWide ? wide(c, l, w, when, hero) : card === 'summary' ? summaryCard(c, l, w, st, liveAct, hero) : card === 'launchpads' ? launchpadCard(liveAct, st, hero) : tall(c, l, w, st, logos || {}, liveAct, hero), {
       font: { fontBuffers: [FONT], defaultFontFamily: 'Open Sans', loadSystemFonts: false },
       fitTo: { mode: 'width', value: 1200 },
     }).render().asPng();
     res.setHeader('content-type', 'image/png');
     res.setHeader('cache-control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
     // Timestamped name: several downloads in a day were all 'arc-network-report-<date>.png' and the old one got opened.
-    if (download) res.setHeader('content-disposition', `attachment; filename="arc-network-report-${st.file}-UTC.png"`);
+    if (download) res.setHeader('content-disposition', `attachment; filename="arc-${card === 'summary' ? 'summary' : card === 'launchpads' ? 'launchpads' : 'network-report'}-${st.file}-UTC.png"`);
     if (download) res.setHeader('cache-control', 'no-store');
     res.status(200).send(Buffer.from(png));
   } catch (e) {

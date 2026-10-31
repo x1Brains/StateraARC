@@ -88,6 +88,8 @@ export function Network() {
         {c && <div className="nx-share">
           <span className="asof live"><span className="live-dot" /> Live · block {n0(c.head)}</span>
           {/* The whole page as one image (api/report.js) — download to attach to a post, or post the link: /network unfurls into the report card. */}
+          <a className="btn ghost nx-btn" href="/api/report?view=summary&download=1" download onClick={(e) => { e.currentTarget.href = `/api/report?view=summary&download=1&t=${Date.now()}`; }}>Summary card</a>
+          <a className="btn ghost nx-btn" href="/api/report?view=launchpads&download=1" download onClick={(e) => { e.currentTarget.href = `/api/report?view=launchpads&download=1&t=${Date.now()}`; }}>Launchpad card</a>
           <a className="btn ghost nx-btn" href="/api/report?download=1" download onClick={(e) => { e.currentTarget.href = `/api/report?download=1&t=${Date.now()}`; }}>Download report</a>
           {/* Stamped at CLICK time (shareStamp, same as token links) — a url X has never crawled, so it can't serve a stale/broken card. */}
           <a className="btn solid nx-btn" target="_blank" rel="noreferrer" href="https://x.com/intent/post"
