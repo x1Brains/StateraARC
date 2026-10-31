@@ -208,6 +208,18 @@ export function flow(token: string) {
   });
 }
 
+// 7D buyers / sellers, apart from flow(): ~10 s cold on cirBTC, so Money flow never waits on it (statera-api.ts fills them in).
+// One row back, no per-wallet list: ~9 MB on the VPS.
+export function flowWallets7d(token: string) {
+  const d = conn(); if (!d || !hasMakers(d)) return null;
+  const pools = poolsOf(token); if (!pools.length) return null;
+  return cached('flow7w:' + token, 5 * 60_000, () => {
+    const pids = pools.map((p) => p.pid), ph = pids.map(() => '?').join(','), from = Math.floor(Date.now() / 1000) - 604800;
+    return d.prepare(`SELECT COUNT(*) n, COUNT(DISTINCT CASE WHEN s.side > 0 THEN m.maker END) buyers, COUNT(DISTINCT CASE WHEN s.side < 0 THEN m.maker END) sellers
+      FROM swaps s JOIN makers m ON m.tx = s.tx WHERE s.pid IN (${ph}) AND s.ts >= ?`).get(...pids, from) as { n: number; buyers: number; sellers: number };
+  });
+}
+
 // Biggest trades (10-27): the top 8 buys and sells by USD over 1H / 12H / 24H, from the store — the same complete list Money
 // flow reads (the page's on-chain day scan skipped failed log ranges: ARGUS 1,754 of 1,794 trades, its biggest sell missing).
 // Per pool off the (pid, ts) index, then only the winners' makers are looked up.
