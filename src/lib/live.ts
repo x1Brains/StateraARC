@@ -134,12 +134,13 @@ export async function deepPoolPrices(call: Call): Promise<Record<string, number>
 
 // Live price for a set of ON-CHAIN screener rows (V3 slot0 / V4 extsload), so the top rows aren't ~15 min
 // stale between indexer bakes. Bounded to whatever list the caller passes (the visible top rows).
-export async function onchainPrices(call: Call, rows: { address: string; pool?: string | null; poolId?: string | null; usdcIsC0?: boolean; decimals?: number }[]): Promise<Record<string, number>> {
+export async function onchainPrices(call: Call, rows: { address: string; source?: string | null; pool?: string | null; poolId?: string | null; usdcIsC0?: boolean; decimals?: number }[]): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   await runLimited(rows.map((t) => async () => {
     const dexp = 10 ** ((t.decimals ?? 18) - 6);
     let price: number | null = null;
-    if (t.poolId) { const sq = await v4Slot0Sqrt(call, t.poolId); if (sq != null && sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } }
+    // a V3 row can also carry a V4 pool it was first filed under (XAUM read 2.9e-27 off one 11-01): price it on its own V3 pool
+    if (t.poolId && t.source !== 'V3') { const sq = await v4Slot0Sqrt(call, t.poolId); if (sq != null && sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } }
     else if (t.pool) { const s0 = await call(t.pool, '0x3850c7bd').catch(() => null); if (s0 && s0.length >= 66) { try { const sq = BigInt(s0.slice(0, 66)); if (sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } } catch { /* */ } } }
     if (price != null && isFinite(price) && price > 0 && price < 1e6) out[t.address.toLowerCase()] = price;
   }), 8);
