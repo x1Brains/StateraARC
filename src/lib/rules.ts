@@ -122,6 +122,9 @@ export const PINNED = new Set<string>([NATIVE_USDC_ADDR, ...ECOSYSTEM_TOKENS.map
 const IMPOSTOR_SYM = /^(usdc|usdt|eurc|usyc|cirbtc|crcl|weth|wbtc|dai|usd)$/i;
 const IMPOSTOR_NAME = /^\s*(usd coin|circle internet|circle wrapped|euro coin|us yield coin|tether|wrapped ether|wrapped bitcoin)/i;
 const PRICE_MAX = 1e6, LIQ_MAX = 5e7, MCAP_MAX = 5e8;
+const THIN_PRICE = 100, THIN_LIQ = 1000, THIN_MCAP_X = 1000;
+// Checked by hand, hidden whatever its pool does next. CINU 11-01: 0.012 tokens left in the pool, $0.50 bot buys pushed it to $7,705.
+const BLOCKED = new Set(['0x33402a71caf3ebde88e27c7b94c161941ae0d039']);
 /** Scrub impossible numbers and flag fakes. Flagged rows (`bad`) are hidden from the screener, dashboard and totals. */
 export function sanitizeToken<T extends Token>(t: T): T & { bad?: string } {
   const pinned = PINNED.has(t.address.toLowerCase()) || t.isEcosystem;
@@ -140,6 +143,11 @@ export function sanitizeToken<T extends Token>(t: T): T & { bad?: string } {
     // Wash trading: 60-110x its own liquidity in a day from 4-5 wallets (ONBOARD, BLINKR, fake "SP500 xStock"…) is not volume.
     if (r.volume24h != null && r.liq != null && r.liq > 0 && r.volume24h > r.liq * 20) r.volume24h = null;
     if (IMPOSTOR_SYM.test((r.symbol || '').trim()) || IMPOSTOR_NAME.test(r.name || '')) r.bad = r.bad || 'impersonator';
+    // A $100+ price off a pool under $1K, with no market cap or one 1000x+ the pool, is a drained pool, not a price. The $100 floor
+    // keeps real small-pool tokens (GBPA $1.34) and the cap test keeps cheap stock copies (SPY, SPCX). A/B 11-01: CINU, W3, DC only.
+    const blocked = BLOCKED.has(t.address.toLowerCase());
+    const thin = r.price != null && r.price >= THIN_PRICE && r.liq != null && r.liq < THIN_LIQ && (r.mcap == null || r.mcap > r.liq * THIN_MCAP_X);
+    if (blocked || thin) { r.price = null; r.mcap = null; r.volume24h = null; r.spark = null; r.bad = r.bad || (blocked ? 'blocked' : 'thin price'); }
   }
   if (r.spark && r.spark.some((x) => !isFinite(x) || x <= 0 || x >= PRICE_MAX)) r.spark = null;
   return r;

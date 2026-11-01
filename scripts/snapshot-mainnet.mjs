@@ -408,6 +408,7 @@ async function poolStats(token, pool) {
   // "Circle Inu", "DogInCircle", "USDC Bull". Every fake from the owner's screenshots still matches this narrower rule.)
   const IMPOSTOR_SYM = /^(usdc|usdt|eurc|usyc|cirbtc|crcl|weth|wbtc|dai|usd)$/i;
   const IMPOSTOR_NAME = /^\s*(usd coin|circle internet|circle wrapped|euro coin|us yield coin|tether|wrapped ether|wrapped bitcoin)/i;
+  const BLOCKED = new Set(['0x33402a71caf3ebde88e27c7b94c161941ae0d039']); // CINU 11-01
   let scrubbed = 0;
   for (const t of map.values()) {
     const pinned = PINNED.has(t.address) || t.isEcosystem; const before = JSON.stringify([t.price, t.liq, t.mcap, t.volume24h]);
@@ -421,6 +422,11 @@ async function poolStats(token, pool) {
       if (t.liq != null && t.mcap > 0 && t.liq > t.mcap * 1.5) { t.liq = null; t.bad = t.bad || 'liq>mcap'; } // fake depth (Arcanium $27.9M on $3.7K)
       if (t.volume24h != null && t.liq > 0 && t.volume24h > t.liq * 20) t.volume24h = null; // wash
       if (IMPOSTOR_SYM.test((t.symbol || '').trim()) || IMPOSTOR_NAME.test(t.name || '')) t.bad = t.bad || 'impersonator';
+      // same as sanitizeToken: hand-blocked tokens, and a $100+ price off a drained pool
+      const blocked = BLOCKED.has(t.address);
+      if (blocked || (t.price != null && t.price >= 100 && t.liq != null && t.liq < 1000 && (t.mcap == null || t.mcap > t.liq * 1000))) {
+        t.price = t.mcap = t.volume24h = null; t.spark = null; t.bad = t.bad || (blocked ? 'blocked' : 'thin price');
+      }
     }
     if (Array.isArray(t.spark) && t.spark.some((x) => !isFinite(x) || x <= 0 || x >= 1e6)) t.spark = null;
     if (JSON.stringify([t.price, t.liq, t.mcap, t.volume24h]) !== before || t.bad) scrubbed++;
