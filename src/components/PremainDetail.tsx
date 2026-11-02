@@ -967,7 +967,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                 {socials.map((s) => <a key={s.k} href={s.u} target="_blank" rel="noreferrer">{s.k} <IconExternal className="i" /></a>)}
               </span></div>
             )}
-            <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" onTrade={onTrade ? () => onTrade({ address, symbol: sym, name, price: px }) : undefined} /></div>
+            <div style={{ marginTop: 12 }}><TokenLinks address={address} scanBase="https://explorer.arc.io" onTrade={onTrade && !NO_POOL_YET[address.toLowerCase()] ? () => onTrade({ address, symbol: sym, name, price: px }) : undefined} /></div>
           </div>
 
         </aside>
