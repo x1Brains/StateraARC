@@ -114,7 +114,7 @@ export function TopTraders({ address, sym, onMaker }: { address: string; sym: st
               <span className="num mono">{usd(r.bought)}<small>{r.buys} tx</small></span>
               <span className="num mono">{usd(r.sold)}<small>{r.sells} tx</small></span>
               <span className="num mono hidesm">{r.avgBuy != null ? tprice(r.avgBuy) : '—'}</span>
-              <span className="num mono hidesm">{r.held > 0 ? compact(r.held) : '—'}</span>
+              <span className="num mono hidesm">{r.held > 0 ? compact(r.held) : '0'}</span>
               <span className={`num mono tt-pnl ${r.pnl >= 0 ? 'up' : 'down'}`}>{signed(r.pnl)}{r.roi != null && <small>{r.roi >= 0 ? '+' : ''}{Math.max(-100, Math.min(99999, r.roi)).toFixed(0)}%</small>}</span>
             </div>
           ))}
