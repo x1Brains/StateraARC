@@ -199,6 +199,7 @@ const candleInflight = new Map<string, Promise<Candle[]>>();
 const candleCache = new Map<string, { at: number; c: Candle[] }>();
 export async function tokenCandles(address: string, seed: Token | undefined, sec: number, look: number): Promise<Candle[]> {
   const a = address.toLowerCase(), k = `${a}:${sec}:${look}`;
+  if (NO_POOL_YET[a]) return [];
   const ttl = sec >= 14400 ? 5 * 60_000 : 20_000, hit = candleCache.get(k);
   if (hit && Date.now() - hit.at < ttl) return hit.c;
   // stale-while-revalidate: up to 30 min for every timeframe (the page re-reads and gets the refreshed candles)
