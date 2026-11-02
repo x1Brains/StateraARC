@@ -474,18 +474,21 @@ const indexLoop = async () => {
 setTimeout(indexLoop, 30_000);
 // Every LIQUID token (≥ $100 in pools, ~800) — the screener's holder counts, no longer from arc-scan (09-30). Batches of 40:
 // never-indexed first, then any count older than 30 min. The listed tokens above also refresh every 10 min on their own.
+// ⛔ 11-01: tokens days behind can't be read here (Blockdaemon pruned, Tenderly 429s) and oldest-first retried the same 40 forever,
+// so no other count refreshed. A failed batch is parked for 6 h and the next tokens go ahead.
+const batchParked = new Map<string, number>();
 const batchLoop = async () => {
   let did = false, ok = false;
   try {
     if (view) {
       const now = Date.now();
-      const all = view.tokens.filter((t) => (t.liq ?? 0) >= 100 || NO_POOL_YET[t.address.toLowerCase()]).map((t) => t.address.toLowerCase());
+      const all = view.tokens.filter((t) => (t.liq ?? 0) >= 100 || NO_POOL_YET[t.address.toLowerCase()]).map((t) => t.address.toLowerCase()).filter((a) => (batchParked.get(a) ?? 0) < now);
       let pick = all.filter((a) => !holderCountOf(a)).slice(0, 40);
       if (!pick.length) pick = all.map((a) => ({ a, at: holderCountOf(a)?.at ?? 0 })).filter((x) => now - x.at > 30 * 60_000).sort((x, y) => x.at - y.at).slice(0, 40).map((x) => x.a);
-      if (pick.length) { did = true; ok = (await indexBatch(pick)) > 0; }
+      if (pick.length) { did = true; ok = (await indexBatch(pick)) > 0; if (!ok) for (const a of pick) batchParked.set(a, now + 6 * 3600e3); }
     }
   } catch { /* next tick */ }
-  setTimeout(batchLoop, !did ? 60_000 : ok ? 3_000 : 90_000); // a failed batch waits (see indexLoop)
+  setTimeout(batchLoop, !did ? 60_000 : ok ? 3_000 : 30_000); // a failed batch waits (see indexLoop)
 };
 setTimeout(batchLoop, 90_000);
 setInterval(saveCaches, 5 * 60_000);
