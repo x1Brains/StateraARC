@@ -396,6 +396,9 @@ async function poolStats(token, pool) {
     const row = map.get(e.address.toLowerCase()); if (row) { row.isEcosystem = true; if (e.iconUrl && !row.iconUrl) row.iconUrl = e.iconUrl; }
   }
 
+  // Official STR has no pool yet, so nothing discovers it: listed by address (rules.ts NO_POOL_YET).
+  set(mk({ address: '0xaaeea145196107f96a209a843e4f14a69dae99d0', name: 'Statera', symbol: 'STR', iconUrl: '/str-token-256.png', decimals: 18 }));
+
   // ⛔ Drop true-DUST from the whole snapshot universe: a pool with a KNOWN liquidity under $100 AND under 50
   // holders is noise (a dead/rug micro-launch like ARCPAD — $0.26 liq, 3 holders). The indexer's $100 floor
   // only covers indexer-sourced tokens; RadarDEX-sourced dust bypassed it, so half the snapshot (≈1100/2263)

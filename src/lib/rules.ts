@@ -104,6 +104,15 @@ export const isStateraImpersonator = (t: { address: string; name?: string | null
 };
 export const stateraHasToken = () => OFFICIAL_STATERA.size > 0;
 
+// Official tokens with no pool yet (owner 11-01): listed by address and on the board, left out of the Swap and the market totals.
+export const NO_POOL_YET: Record<string, { title: string; text: string; link: { label: string; url: string } }> = {
+  [STR_ADDRESS]: {
+    title: 'STR has no trading pool yet',
+    text: 'STR is currently being minted through the X1 City Statera Robots NFTs. A trading pool will come later on.',
+    link: { label: 'Mint a Robot', url: 'https://x1city.io/citizenship/robots' },
+  },
+};
+
 // ── Abandoned projects (owner 10-29: "add to their page a scam alert") — a warning on the token page, stated as the facts we
 // checked on chain and on the web, nothing we can't show. The token still trades (the Swap routes its pool directly).
 export const ABANDONED: Record<string, { title: string; facts: string[] }> = {
@@ -115,7 +124,7 @@ export const ABANDONED: Record<string, { title: string; facts: string[] }> = {
   ] },
 };
 
-export const PINNED = new Set<string>([NATIVE_USDC_ADDR, ...ECOSYSTEM_TOKENS.map((e) => e.address), ...MAINNET_CORE.map((t) => t.address)].map((a) => a.toLowerCase()));
+export const PINNED = new Set<string>([NATIVE_USDC_ADDR, STR_ADDRESS, ...ECOSYSTEM_TOKENS.map((e) => e.address), ...MAINNET_CORE.map((t) => t.address)].map((a) => a.toLowerCase()));
 // Impersonator = claims to BE a Circle / major asset: that exact ticker, or a name that starts like the real one. (Was any
 // name containing circle/usdc — the 09-25 audit found it hid meme tokens that only MENTION Circle: "Circled" 2,076 holders,
 // "Circle Inu", "DogInCircle", "USDC Bull". Every fake from the owner's screenshots still matches this narrower rule.)

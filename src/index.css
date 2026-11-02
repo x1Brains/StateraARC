@@ -2492,6 +2492,9 @@ a.tx-icon { text-decoration: none; color: var(--gray); font-size: 11px; }
 .na-lp-note { margin-top: 6px; font-size: 10.5px; color: var(--gray-2); }
 /* red flags (10-21) */
 .risk-banner { margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; border: 1px solid rgba(255,90,60,.5); background: linear-gradient(120deg, rgba(255,60,40,.14), rgba(255,60,40,.04)); font-size: 12.5px; color: var(--chrome); }
+.nopool-banner { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0 0 12px; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(245,181,68,.4); background: rgba(245,181,68,.07); font-size: 13px; color: var(--white); }
+.nopool-banner b { font-family: var(--disp); font-size: 13px; letter-spacing: .4px; color: #f5b544; }
+.nopool-banner a { margin-top: 4px; font-weight: 600; color: #f5b544; }
 .risk-banner.warn { border-color: rgba(255,194,74,.45); background: rgba(255,194,74,.07); }
 .risk-banner b { display: block; font-family: var(--disp); font-size: 13px; letter-spacing: .4px; color: #ff6a4a; margin-bottom: 4px; }
 .risk-banner.warn b { color: #ffc24a; }

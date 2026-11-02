@@ -3,7 +3,7 @@
 // VPS (server/statera-api.mjs, Node strip-types), so the two can never drift. Extracted verbatim from App.tsx on
 // 2026-09-28 (v1-baseline tag) and A/B-proven identical by scripts/regress/board-ab.ts — change a rule HERE only.
 // ⛔ Node runs this file with type-stripping: type-only imports, no enums/namespaces/parameter properties.
-import type { Token } from './rules.ts';
+import { NO_POOL_YET, type Token } from './rules.ts';
 
 export type Filter = 'all' | 'new' | 'eco';
 export type SortKey = 'liq' | 'mcap' | 'holders' | 'price' | 'name' | 'volume' | 'change24h' | 'change1h' | 'age';
@@ -68,7 +68,8 @@ export const isDup = (ix: BoardIndex, t: Token) => !!(t as any).bad || isDupTick
 export const notDup = (ix: BoardIndex, t: Token) => !isDup(ix, t);
 // A real project earns holders; core ecosystem assets are exempt.
 export const hasHolders = (t: Token) => t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS;
-export const quality = (ix: BoardIndex, t: Token) => notDup(ix, t) && hasHolders(t) && isActive(ix, t);
+const noPool = (t: Token) => !!NO_POOL_YET[t.address.toLowerCase()];
+export const quality = (ix: BoardIndex, t: Token) => notDup(ix, t) && hasHolders(t) && isActive(ix, t) && !noPool(t);
 
 export interface BoardQuery { filter: Filter; q: string; sort: SortKey; dir: Dir; hideDupes: boolean; showInactive: boolean }
 
@@ -99,10 +100,10 @@ export function boardRows(tokens: Token[], ix: BoardIndex, o: BoardQuery): Token
     return [...r].sort((a, b) => (rank(a) - rank(b)) || (own(a) - own(b)) || ((b.holders ?? -1) - (a.holders ?? -1)) || ((b.liq ?? -1) - (a.liq ?? -1)));
   }
   // Default view: drop fully-dead tokens (no price/liq/holders/volume) and, unless toggled, impersonators.
-  r = r.filter((t) => t.price != null || t.liq != null || (t.holders ?? 0) > 0 || t.volume24h != null);
+  r = r.filter((t) => t.price != null || t.liq != null || (t.holders ?? 0) > 0 || t.volume24h != null || noPool(t));
   if (o.hideDupes) r = r.filter((t) => !isDup(ix, t));
   // Quality gate: hide sub-50-holder pools (KLO646 = 3, GLASSHOUSE = 12); unknown holder count = below the bar.
-  r = r.filter(hasHolders);
+  r = r.filter((t) => hasHolders(t) || noPool(t));
   if (!o.showInactive) r = r.filter((t) => isActive(ix, t)); // no real trading in 24h = not on the default board
   const val = (t: Token): number | null => (
     o.sort === 'volume' ? t.volume24h
@@ -152,7 +153,7 @@ export const movers = (tokens: Token[], ix: BoardIndex) => [...tokens].filter((t
 
 // Swap token picker: one real token per ticker, no fakes/flagged rows. Pinned/core first, then actively traded by volume,
 // then the rest by liquidity. Any other token is one paste of its address away.
-export const swapTokens = (tokens: Token[], ix: BoardIndex) => tokens.filter((t) => !isDup(ix, t) && hasHolders(t)).sort((a, b) => {
+export const swapTokens = (tokens: Token[], ix: BoardIndex) => tokens.filter((t) => !isDup(ix, t) && hasHolders(t) && !noPool(t)).sort((a, b) => {
   const rank = (t: Token) => (t.isEcosystem || ix.pinned.has(t.address.toLowerCase()) ? 2 : isActive(ix, t) ? 1 : 0);
   return rank(b) - rank(a) || (b.volume24h ?? 0) - (a.volume24h ?? 0) || (b.liq ?? 0) - (a.liq ?? 0);
 });

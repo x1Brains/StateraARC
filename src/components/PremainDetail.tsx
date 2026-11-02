@@ -7,7 +7,7 @@ import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { v2Enabled, v2TokenDetail, v2Trades, v2WalletSwaps, v2History, v2MakerTrades, type V2TokenDetail, type V2Trades, type V2HistTrade } from '../lib/v2';
-import { isStateraImpersonator, stateraHasToken, ABANDONED } from '../lib/rules';
+import { isStateraImpersonator, stateraHasToken, ABANDONED, NO_POOL_YET } from '../lib/rules';
 import { fetchWalletTokenTrades, type WalletTrade } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX, IconLink, IconCamera } from './icons';
 import { useNames, displayName } from '../lib/names';
@@ -532,6 +532,14 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
               {ABANDONED[address.toLowerCase()].facts.map((f) => <span key={f}>{f}</span>)}
             </div>
           )}
+          {/* 11-01 owner: an official token with no pool yet says how to get it */}
+          {NO_POOL_YET[address.toLowerCase()] && (
+            <div className="nopool-banner">
+              <b>{NO_POOL_YET[address.toLowerCase()].title}</b>
+              <span>{NO_POOL_YET[address.toLowerCase()].text}</span>
+              <a href={NO_POOL_YET[address.toLowerCase()].link.url} target="_blank" rel="noreferrer">{NO_POOL_YET[address.toLowerCase()].link.label} ↗</a>
+            </div>
+          )}
           {/* 10-21: on-chain red flags (server/statera-api.ts redFlags) — what the data shows, stated plainly */}
           {seed?.risk && (
             <div className={`risk-banner ${seed.risk.level}`} role="alert">
@@ -566,7 +574,7 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
                   <span key={l} className={`tx-chg ${chgClass(v)}`}><i>{l}</i>{chgTxt(v)}</span>
                 ))}
               </div>
-              {onTrade && <button className="tx-trade" onClick={() => onTrade({ address, symbol: sym, name, price: px })}>Trade <IconArrowRight className="arw" /></button>}
+              {onTrade && !NO_POOL_YET[address.toLowerCase()] && <button className="tx-trade" onClick={() => onTrade({ address, symbol: sym, name, price: px })}>Trade <IconArrowRight className="arw" /></button>}
             </div>
             <div className="tx-actions">
                   <button className="tx-addr" onClick={copy} title="Copy the contract address">{address.slice(0, 6)}…{address.slice(-4)} {copied ? <IconCheck className="i" /> : <IconCopy className="i" />}</button>
