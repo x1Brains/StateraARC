@@ -4,7 +4,7 @@ import path from 'node:path';
 // pool stats, every pool, 24h stats + makers, burn, holders, trades (+ real wallets), transfers. One computation serves
 // every visitor: fresh for 10 s, then served stale (up to 30 min) while a background refresh runs. v1 made each visitor's
 // tab do all of this itself: ~450–650 RPC calls and up to 15 MB of logs per token page.
-import type { Token } from '../src/lib/rules.ts';
+import { NO_POOL_YET, type Token } from '../src/lib/rules.ts';
 import {
   primePool, fetchTokenDecimals, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24,
   fetchTokenBurn, fetchTokenHolders, fetchPoolTrades, TRADES_MAX, resolveMakers, fetchTokenTransfers, fetchPoolCandles, pruneChainCaches,
@@ -66,11 +66,12 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     // ⛔ makers24 must run AFTER the day stats: it samples the tx list fetchOnchainDayStats builds (dayTxList). 09-29 I ran
     // them in parallel to save ~2 s and makers came back empty on a first compute ("makers not loading on any" — GLITCH
     // dev). It now starts the moment the day stats land, still alongside the slower lookups.
-    const dayP = settle(fetchOnchainDayStats(address, dec));
+    const noPool = !!NO_POOL_YET[address]; // nothing to find: the pool and trade scans never end on a token with no pool (STR 11-01)
+    const dayP = noPool ? Promise.resolve(null) : settle(fetchOnchainDayStats(address, dec));
     const makersP = dayP.then((day) => (day ? settle(fetchOnchainMakers24(address)) : null));
     const [ocPool, ocPools, day, burn, holdersRaw, tradesRaw, txs, makers] = await Promise.all([
-      settle(fetchOnchainPoolStats(address, dec)), settle(fetchAllOnchainPools(address, dec)), dayP,
-      settle(fetchTokenBurn(address, dec)), settle(fetchTokenHolders(address, 100)), settle(fetchPoolTrades(address, dec, TRADES_MAX, tradeOpts)),
+      noPool ? null : settle(fetchOnchainPoolStats(address, dec)), noPool ? null : settle(fetchAllOnchainPools(address, dec)), dayP,
+      settle(fetchTokenBurn(address, dec)), settle(fetchTokenHolders(address, 100)), noPool ? null : settle(fetchPoolTrades(address, dec, TRADES_MAX, tradeOpts)),
       settle(fetchTokenTransfers(address, 18, 40)), makersP,
     ]);
     let dayStats: TokenDetail['dayStats'] = day;
