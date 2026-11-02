@@ -26,7 +26,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
 import zlib from 'node:zlib';
-import { PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
+import { NO_POOL_YET, PINNED, sanitizeToken, type Token } from '../src/lib/rules.ts';
 import * as Live from '../src/lib/live.ts';
 import * as Board from '../src/lib/board.ts';
 import { indexHolders, indexStats, indexBatch, batchStats, holderCountOf } from './holder-index.ts';
@@ -479,7 +479,7 @@ const batchLoop = async () => {
   try {
     if (view) {
       const now = Date.now();
-      const all = view.tokens.filter((t) => (t.liq ?? 0) >= 100).map((t) => t.address.toLowerCase());
+      const all = view.tokens.filter((t) => (t.liq ?? 0) >= 100 || NO_POOL_YET[t.address.toLowerCase()]).map((t) => t.address.toLowerCase());
       let pick = all.filter((a) => !holderCountOf(a)).slice(0, 40);
       if (!pick.length) pick = all.map((a) => ({ a, at: holderCountOf(a)?.at ?? 0 })).filter((x) => now - x.at > 30 * 60_000).sort((x, y) => x.at - y.at).slice(0, 40).map((x) => x.a);
       if (pick.length) { did = true; ok = (await indexBatch(pick)) > 0; }
