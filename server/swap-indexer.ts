@@ -334,14 +334,22 @@ async function backfill() {
 // Only V4 Swap logs (V3/V2 history is already complete); INSERT OR IGNORE keeps every stored swap as it is.
 const NATIVE_FROM = Number(process.env.SWAPS_NATIVE_FROM || 10_528_252); // first native-USDC Initialize on Arc
 async function nativeBackfill() {
-  let back = Number(metaGet(db, 'nback') || 0), nspan = 4000, nlog = 0;
+  let back = Number(metaGet(db, 'nback') || 0), nspan = 4000, nlog = 0, fails = 0;
   while (back > NATIVE_FROM) {
     const hi = back - 1, lo = Math.max(NATIVE_FROM, hi - nspan * 3 + 1);
     const parts: [number, number][] = [];
     for (let f = lo; f <= hi; f += nspan) parts.push([f, Math.min(hi, f + nspan - 1)]);
     let res: any[][];
     try { res = await Promise.all(parts.map(([f, t]) => getLogs({ address: PM_V4, topics: [T_V4_SWAP] }, f, t))); stats.calls += parts.length; }
-    catch (e) { nspan = Math.max(500, Math.floor(nspan / 2)); log('native back failed, span', nspan, (e as Error).message); await sleep(5000); continue; }
+    catch (e) {
+      // ⛔ 11-03: from this VPS, arc.io + tenderly 429, blockdaemon is pruned and drpc's free plan only serves recent blocks —
+      // older history can't be read from here. Back off (up to 30 min) instead of hammering; it resumes if access returns.
+      nspan = Math.max(500, Math.floor(nspan / 2)); fails++;
+      const wait = Math.min(30 * 60_000, 5000 * 2 ** Math.min(fails, 9));
+      if (fails <= 3 || fails % 10 === 0) log('native back failed', fails, 'x, next try in', Math.round(wait / 1000), 's:', (e as Error).message.slice(0, 120));
+      await sleep(wait); continue;
+    }
+    fails = 0;
     try { await ingest(res.flat()); } catch (e) { log('native back ingest failed:', (e as Error).message); await sleep(5000); continue; }
     metaSet(db, 'nback', lo); back = lo;
     const most = Math.max(...res.map((r) => r.length));
