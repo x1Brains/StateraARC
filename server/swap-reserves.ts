@@ -18,7 +18,7 @@ const sqrtAt = (t: number) => Math.sqrt(1.0001 ** t);
 export const MAX_V4_WORDS = 3000; // tick spacing ≥ 3 (spacing 1 = 6.9k bitmap words — read lazily, never in the hot path)
 
 export type Deps = { mc: (calls: { target: string; data: string }[]) => Promise<string[]>; logsAt: (filter: Record<string, unknown>, block: number) => Promise<any[]>; log: (...a: unknown[]) => void };
-type Pool = { pid: number; key: string; kind: string; token: string; usdc0: number; dec: number };
+type Pool = { pid: number; key: string; kind: string; token: string; usdc0: number; dec: number; udec: number };
 
 export function initReserveTables(db: DatabaseSync) {
   db.exec(`CREATE TABLE IF NOT EXISTS supply (token TEXT PRIMARY KEY, total REAL NOT NULL, burned REAL NOT NULL, at INTEGER NOT NULL);
@@ -68,7 +68,7 @@ function amountsAt(prof: { t: number[]; n: string[] }, sqrtP: number) {
 /** Re-read the reserves of these pools (`refreshProfile`: V4 pools whose positions changed). */
 export async function refreshReserves(db: DatabaseSync, d: Deps, pids: number[], refreshProfile: Set<string>): Promise<number> {
   if (!pids.length) return 0;
-  const pools = db.prepare(`SELECT pid, key, kind, token, usdc0, dec FROM pools WHERE ok = 1 AND pid IN (${pids.map(() => '?').join(',')})`).all(...pids) as Pool[];
+  const pools = db.prepare(`SELECT pid, key, kind, token, usdc0, dec, udec FROM pools WHERE ok = 1 AND pid IN (${pids.map(() => '?').join(',')})`).all(...pids) as Pool[];
   const put = db.prepare('INSERT INTO reserves(pid, usdc, tok, px, at) VALUES(?,?,?,?,?) ON CONFLICT(pid) DO UPDATE SET usdc=excluded.usdc, tok=excluded.tok, px=excluded.px, at=excluded.at');
   const lastPx = db.prepare('SELECT price FROM swaps WHERE pid = ? ORDER BY ts DESC LIMIT 1');
   let n = 0;
@@ -90,8 +90,8 @@ export async function refreshReserves(db: DatabaseSync, d: Deps, pids: number[],
       try {
         const sq = Number(big(s0[i]) & ((1n << 160n) - 1n)) / 2 ** 96; if (!(sq > 0)) continue;
         const prof = await v4Profile(db, d, p.key, refreshProfile.has(p.key)); if (!prof) continue;
-        const { a0, a1 } = amountsAt(prof, sq), ra = sq * sq, dexp = 10 ** (p.dec - 6);
-        const usdc = (p.usdc0 ? a0 : a1) / 1e6, tok = (p.usdc0 ? a1 : a0) / 10 ** p.dec, px = (p.usdc0 ? 1 / ra : ra) * dexp;
+        const ud = p.udec ?? 6, { a0, a1 } = amountsAt(prof, sq), ra = sq * sq, dexp = 10 ** (p.dec - ud);
+        const usdc = (p.usdc0 ? a0 : a1) / 10 ** ud, tok = (p.usdc0 ? a1 : a0) / 10 ** p.dec, px = (p.usdc0 ? 1 / ra : ra) * dexp;
         put.run(p.pid, usdc, tok, isFinite(px) ? px : null, Date.now()); n++;
       } catch (e) { d.log('reserves v4', p.key.slice(0, 10), (e as Error).message); }
     }

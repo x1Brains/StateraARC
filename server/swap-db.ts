@@ -48,9 +48,13 @@ export function openSwapDb(readonly = false): DatabaseSync {
       qb REAL NOT NULL DEFAULT 0, qs REAL NOT NULL DEFAULT 0, nb INTEGER NOT NULL DEFAULT 0, ns INTEGER NOT NULL DEFAULT 0, first INTEGER, last INTEGER,
       PRIMARY KEY (token, maker)) WITHOUT ROWID;
   `);
+  // 11-03: Arc's native gas token IS USDC. A V4 pool can pair a token with native USDC (currency0 = address(0)), whose
+  // amounts use 18 decimals, not the ERC-20's 6. FAZE's real pool ($141K) is one — we skipped them all as "not a USDC pair".
+  try { db.exec('ALTER TABLE pools ADD COLUMN udec INTEGER NOT NULL DEFAULT 6'); } catch { /* already there */ }
   return db;
 }
 
+export const NATIVE = '0x0000000000000000000000000000000000000000'; // native USDC as a V4 currency (18 decimals)
 export const txToBlob = (h: string) => Buffer.from(h.slice(2), 'hex');
 export const blobToTx = (b: Uint8Array) => '0x' + Buffer.from(b).toString('hex');
 export const addrToBlob = (a: string) => Buffer.from(a.toLowerCase().slice(2), 'hex');

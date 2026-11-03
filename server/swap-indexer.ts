@@ -12,7 +12,7 @@
 // Archive RPC: tenderly (blockdaemon is pruned before ~26M, publicnode needs a token). ⛔ rpc.mainnet.arc.io + blockdaemon are what
 // the other services on this box use — the backfill stays OFF them (and paces itself) so it can never get
 // this IP rate-limited for them. The head follower makes ~1 call / 2 s.
-import { openSwapDb, metaGet, metaSet, txToBlob, addrToBlob, USDC, START_BLOCK } from './swap-db.ts';
+import { openSwapDb, metaGet, metaSet, txToBlob, addrToBlob, USDC, NATIVE, START_BLOCK } from './swap-db.ts';
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
 import { buildTokenStats } from './swap-stats.ts';
 import { initReserveTables, refreshReserves } from './swap-reserves.ts';
@@ -105,7 +105,7 @@ const intOf = (r: string) => { if (!r || r.length < 66) return null; let v = Big
 // ── DB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const db = openSwapDb(false);
 initReserveTables(db); // reserves + V4 tick profiles (server/swap-reserves.ts) — before the v4init insert below is prepared
-type PoolRow = { pid: number; key: string; kind: string; token: string | null; usdc0: number; dec: number; ok: number };
+type PoolRow = { pid: number; key: string; kind: string; token: string | null; usdc0: number; dec: number; ok: number; udec: number };
 // ⛔ 10-20: these were loaded WHOLE into memory at start (every pool ever seen + 264k V4 Initialize rows, mostly decoys) —
 // ~600 MB, OOM-killed under the VPS unit's 300 MB cap. Now: read from SQLite on demand behind a bounded LRU (misses cached too).
 class DbMap<V> {
@@ -121,13 +121,21 @@ class DbMap<V> {
   set(k: string, v: V) { this.put(k, v); }
   private put(k: string, v: V | null) { this.m.delete(k); this.m.set(k, v); if (this.m.size > this.max) this.m.delete(this.m.keys().next().value!); }
 }
-const poolQ = db.prepare('SELECT pid,key,kind,token,usdc0,dec,ok FROM pools WHERE key=?');
+// 11-03: native-USDC V4 pools seen before this fix were filed as 'not a USDC pair' (no swaps were stored for them): drop
+// those rows once so they are resolved again, now as USDC pools (udec 18). Only rows that never stored a swap.
+if (metaGet(db, 'native_fix') == null) {
+  const r = db.prepare(`DELETE FROM pools WHERE kind = 'V4' AND ok = 0 AND key IN (SELECT pool FROM v4init WHERE c0 = ?)
+    AND NOT EXISTS (SELECT 1 FROM swaps s WHERE s.pid = pools.pid LIMIT 1)`).run(NATIVE);
+  metaSet(db, 'native_fix', Date.now()); metaSet(db, 'nback', metaGet(db, 'live') ?? '0');
+  console.log('[swaps] native USDC fix: re-resolving', r.changes, 'V4 pools');
+}
+const poolQ = db.prepare('SELECT pid,key,kind,token,usdc0,dec,ok,udec FROM pools WHERE key=?');
 const poolByKey = new DbMap<PoolRow>((k) => poolQ.get(k) as PoolRow | undefined);
 const v4Q = db.prepare('SELECT c0,c1 FROM v4init WHERE pool=?');
 const v4 = new DbMap<{ c0: string; c1: string }>((k) => v4Q.get(k) as { c0: string; c1: string } | undefined);
 let v4Seen = 0;
 const decCache = new Map<string, number | null>();
-const insPool = db.prepare('INSERT INTO pools(key,kind,venue,token,usdc0,dec,ok,why,at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(key) DO NOTHING');
+const insPool = db.prepare('INSERT INTO pools(key,kind,venue,token,usdc0,dec,ok,why,at,udec) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(key) DO NOTHING');
 const insInit = db.prepare('INSERT OR IGNORE INTO v4init(pool,c0,c1,fee,ts,hooks,blk,spacing) VALUES(?,?,?,?,?,?,?,?)');
 const insSwap = db.prepare('INSERT OR IGNORE INTO swaps(blk,li,pid,ts,side,price,usd,amt,tx) VALUES(?,?,?,?,?,?,?,?,?)');
 const minuteRows = db.prepare('SELECT price,usd FROM swaps WHERE pid=? AND ts>=? AND ts<? ORDER BY blk,li');
@@ -140,9 +148,9 @@ async function decimalsOf(tokens: string[]) {
   const r = await multicall(need.map((t) => ({ target: t, data: '0x313ce567' })));
   need.forEach((t, i) => { const d = uintOf(r[i]); decCache.set(t, d != null && d <= 36 ? d : null); });
 }
-function addPool(key: string, kind: string, venue: string, token: string | null, usdc0: boolean, dec: number | null, ok: boolean, why: string) {
-  insPool.run(key, kind, venue, token, usdc0 ? 1 : 0, dec ?? 0, ok ? 1 : 0, why, Date.now());
-  const row = db.prepare('SELECT pid,key,kind,token,usdc0,dec,ok FROM pools WHERE key=?').get(key) as PoolRow;
+function addPool(key: string, kind: string, venue: string, token: string | null, usdc0: boolean, dec: number | null, ok: boolean, why: string, udec = 6) {
+  insPool.run(key, kind, venue, token, usdc0 ? 1 : 0, dec ?? 0, ok ? 1 : 0, why, Date.now(), udec);
+  const row = db.prepare('SELECT pid,key,kind,token,usdc0,dec,ok,udec FROM pools WHERE key=?').get(key) as PoolRow;
   poolByKey.set(key, row);
 }
 // Resolve unseen V3/V2/CL pool addresses: token0/token1/factory/fee/tickSpacing, then ask the factory to confirm.
@@ -177,11 +185,13 @@ async function resolvePools(addrs: string[], kinds: Map<string, 'v3' | 'v2'>) {
 async function resolveV4(ids: string[]) {
   const need = [...new Set(ids)].filter((id) => !poolByKey.has(id) && v4.has(id));
   if (!need.length) return;
-  const toks = need.map((id) => { const p = v4.get(id)!; return p.c0 === USDC ? p.c1 : p.c0; });
-  await decimalsOf(toks.filter((t, i) => { const p = v4.get(need[i])!; return p.c0 === USDC || p.c1 === USDC; }));
+  // native USDC (address 0) always sorts first, so it is currency0; the USDC ERC-20 pairs are unchanged
+  const isU = (a: string) => a === USDC || a === NATIVE;
+  const toks = need.map((id) => { const p = v4.get(id)!; return isU(p.c0) ? p.c1 : p.c0; });
+  await decimalsOf(toks.filter((t, i) => { const p = v4.get(need[i])!; return (isU(p.c0) || isU(p.c1)) && !isU(t); }));
   need.forEach((id, i) => {
-    const p = v4.get(id)!, usdcPair = p.c0 === USDC || p.c1 === USDC, dec = usdcPair ? decCache.get(toks[i]) ?? null : null;
-    addPool(id, 'V4', 'V4', usdcPair ? toks[i] : null, p.c0 === USDC, dec, usdcPair && dec != null, usdcPair ? (dec == null ? 'no decimals' : 'ok') : 'not a USDC pair');
+    const p = v4.get(id)!, usdcPair = (isU(p.c0) || isU(p.c1)) && !isU(toks[i]), dec = usdcPair ? decCache.get(toks[i]) ?? null : null;
+    addPool(id, 'V4', 'V4', usdcPair ? toks[i] : null, isU(p.c0), dec, usdcPair && dec != null, usdcPair ? (dec == null ? 'no decimals' : 'ok') : 'not a USDC pair', p.c0 === NATIVE ? 18 : 6);
   });
 }
 function storeInits(logs: any[]) {
@@ -195,7 +205,7 @@ function storeInits(logs: any[]) {
 }
 // Decode one Swap log for a known USDC pool → the row (or null for an unpriceable / zero swap).
 function decode(l: any, p: PoolRow): { side: number; price: number; usd: number; amt: number } | null {
-  const d = l.data.slice(2), topic = l.topics[0].toLowerCase(), u0 = p.usdc0 === 1, dexp = 10 ** (p.dec - 6);
+  const d = l.data.slice(2), topic = l.topics[0].toLowerCase(), u0 = p.usdc0 === 1, ud = p.udec ?? 6, dexp = 10 ** (p.dec - ud);
   let usdc: bigint, tok: bigint, side: number, price: number;
   if (topic === T_V2_SWAP) {
     const a0in = word(d, 0), a1in = word(d, 1), a0out = word(d, 2), a1out = word(d, 3);
@@ -216,7 +226,7 @@ function decode(l: any, p: PoolRow): { side: number; price: number; usd: number;
     price = (u0 ? 1 / ratio : ratio) * dexp;
   }
   if (!isFinite(price) || price <= 0 || price > 1e9) return null;
-  return { side, price, usd: Number(usdc) / 1e6, amt: Number(tok) / 10 ** p.dec };
+  return { side, price, usd: Number(usdc) / 10 ** ud, amt: Number(tok) / 10 ** p.dec };
 }
 
 const SWAP_FILTER = { topics: [[T_V3_SWAP, T_V2_SWAP, T_V4_SWAP]] };
@@ -318,6 +328,28 @@ async function backfill() {
   }
   metaSet(db, 'back_done', Date.now());
   log('BACKFILL COMPLETE — stored', stats.stored, 'swaps; unknown factories:', JSON.stringify([...unknownFactories].sort((a, b) => b[1] - a[1]).slice(0, 10)));
+}
+
+// ── 11-03 native-USDC history: the V4 swaps of pools skipped before the fix, newest first (recent days fill in first).
+// Only V4 Swap logs (V3/V2 history is already complete); INSERT OR IGNORE keeps every stored swap as it is.
+const NATIVE_FROM = Number(process.env.SWAPS_NATIVE_FROM || 10_528_252); // first native-USDC Initialize on Arc
+async function nativeBackfill() {
+  let back = Number(metaGet(db, 'nback') || 0), nspan = 4000, nlog = 0;
+  while (back > NATIVE_FROM) {
+    const hi = back - 1, lo = Math.max(NATIVE_FROM, hi - nspan * 3 + 1);
+    const parts: [number, number][] = [];
+    for (let f = lo; f <= hi; f += nspan) parts.push([f, Math.min(hi, f + nspan - 1)]);
+    let res: any[][];
+    try { res = await Promise.all(parts.map(([f, t]) => getLogs({ address: PM_V4, topics: [T_V4_SWAP] }, f, t))); stats.calls += parts.length; }
+    catch (e) { nspan = Math.max(500, Math.floor(nspan / 2)); log('native back failed, span', nspan, (e as Error).message); await sleep(5000); continue; }
+    try { await ingest(res.flat()); } catch (e) { log('native back ingest failed:', (e as Error).message); await sleep(5000); continue; }
+    metaSet(db, 'nback', lo); back = lo;
+    const most = Math.max(...res.map((r) => r.length));
+    nspan = most > 15000 ? Math.max(500, Math.floor(nspan / 2)) : most < 6000 ? Math.min(WIDE_RPCS.length ? WIDE_RANGE : MAX_RANGE, Math.floor(nspan * 1.5)) : nspan;
+    if (Date.now() - nlog > 60_000) { nlog = Date.now(); log(`native back ${lo} (${((lo - NATIVE_FROM) / 1e6).toFixed(2)}M left) stored ${stats.stored}`); }
+    await sleep(PACE_MS * 2);
+  }
+  metaSet(db, 'nback_done', Date.now()); log('NATIVE USDC BACKFILL COMPLETE');
 }
 
 // ── live cursor: head follower ───────────────────────────────────────────────────────────────────────────────────────
@@ -510,6 +542,7 @@ async function main() {
   }
   if (!NO_LIVE) { live(); makersLoop(); ownersLoop(); setTimeout(statsLoop, 20_000); setTimeout(reservesLoop, 30_000); setTimeout(supplyLoop, 45_000); }
   await backfill();
+  if (!NO_LIVE && metaGet(db, 'nback_done') == null) nativeBackfill().catch((e) => log('native backfill stopped:', (e as Error).message));
   setInterval(() => metaSet(db, 'unknown_factories', JSON.stringify([...unknownFactories])), 600_000).unref();
 }
 main().catch((e) => { console.error(e); process.exit(1); });
