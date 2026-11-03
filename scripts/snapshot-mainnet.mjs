@@ -292,7 +292,8 @@ async function poolStats(token, pool) {
         row.volume24h = t.volume24h ?? null; row.change24h = t.change24h ?? null; row.change1h = t.change1h ?? null; row.createdAt = t.createdAt ?? null; if (Array.isArray(t.spark)) row.spark = t.spark;
         row.pool = t.pool ?? null; row.poolId = t.poolId ?? null; row.usdcIsC0 = !!t.usdcIsC0; row.decimals = t.decimals ?? 18; row.hooked = !!t.hooked;
         row.v4fee = t.v4fee ?? null; row.v4tick = t.v4tick ?? null; row.hooks = t.hooks ?? null; // V4 PoolKey → in-app swap routes it
-        row.v4PoolId = t.v4PoolId ?? t.poolId ?? null; row.v4UsdcIsC0 = t.v4PoolId ? !!t.v4UsdcIsC0 : !!t.usdcIsC0; // its V4 pool, kept when the row points at V3
+        row.v4PoolId = t.v4PoolId ?? t.poolId ?? null; row.v4UsdcIsC0 = t.v4PoolId ? !!t.v4UsdcIsC0 : !!t.usdcIsC0;
+        row.usdcDec = t.usdcDec ?? 6; row.v4UsdcDec = t.v4PoolId ? (t.v4UsdcDec ?? 6) : (t.usdcDec ?? 6); // 18 = native-USDC V4 pool (11-03) // its V4 pool, kept when the row points at V3
         row.v2Pairs = Array.isArray(t.v2Pairs) && t.v2Pairs.length ? t.v2Pairs : null; // pairs getPair() can't find (WarpV2 WARP)
         set(row); chainPriced.add(a);
         added++;

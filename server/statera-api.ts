@@ -138,6 +138,10 @@ function rebuild() {
   const st = Swaps.tokenStatsNow();
   if (st) for (const t of tokens) {
     const x = st.get(t.address.toLowerCase()); if (!x) continue;
+    // 11-03 (FAZE read $0.0025 off a thin side pool while its real native-USDC pool traded $191K at $0.00126): a token whose
+    // busiest pool traded $1K+ today takes its price from that pool's last trade (swap store). Quieter tokens keep the
+    // on-chain pool read — an old last trade is not a price. A/B on 179 tokens: 167 within 5%, FAZE the big fix.
+    if (x.price != null && isFinite(x.price) && x.price > 0 && (x.volume24h ?? 0) >= 1000) t.price = x.price;
     // liquidity = the token's pools' REAL reserves (swap-reserves.ts), never again the V4 "token side × price" estimate
     if (x.liq != null && isFinite(x.liq)) t.liq = x.liq;
     if (x.liqUsdc != null && isFinite(x.liqUsdc)) t.liqUsdc = x.liqUsdc;

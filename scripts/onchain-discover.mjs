@@ -19,6 +19,10 @@ const RPCS = ['https://rpc.mainnet.arc.io', 'https://arc.gateway.tenderly.co', '
 const USDC = '0x3600000000000000000000000000000000000000';
 const V3_FACTORY = '0xf0db7b58379503491d857db50ac9ece64c653918';
 const ZERO = '0x0000000000000000000000000000000000000000';
+// 11-03: Arc's native gas token IS USDC. A V4 pool may pair a token with native USDC (currency0 = address 0, 18 decimals)
+// instead of the 0x3600 ERC-20 (6 decimals) — FAZE's $141K pool is one. Both count as a USDC pool; the decimals differ.
+const isU = (a) => a === USDC || a === ZERO;
+const uDec = (c0) => (c0 === ZERO ? 18 : 6);
 const PM_V4 = '0x8366a39cc670b4001a1121b8f6a443a643e40951';
 const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
 const T_V3_CREATE = '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118'; // PoolCreated(token0,token1,fee,tickSpacing,pool)
@@ -140,7 +144,7 @@ function addInit(reg, logs) {
   let n = 0;
   for (const l of logs) {
     const c0 = ('0x' + l.topics[2].slice(26)).toLowerCase(), c1 = ('0x' + l.topics[3].slice(26)).toLowerCase();
-    if (c0 !== USDC && c1 !== USDC) continue;
+    if (!isU(c0) && !isU(c1)) continue;
     const d = l.data.slice(2);
     const fee = parseInt(d.slice(0, 64), 16);
     let ts = BigInt('0x' + d.slice(64, 128)); if (ts >= (1n << 255n)) ts -= (1n << 256n);   // int24, sign-extended
@@ -165,6 +169,17 @@ async function scanInitRanges(reg, ranges) {
 }
 async function updateV4Registry(state, head) {
   const reg = state.v4reg || (state.v4reg = { to: null, gaps: [], pools: {} });
+  if (!reg.nativeSeeded) {
+    try {
+      const db = new DatabaseSync(process.env.SWAPS_DB || '/root/statera-swaps/swaps.db', { readOnly: true });
+      let n = 0;
+      for (const r of db.prepare('SELECT pool, c0, c1, blk, hooks, fee, spacing FROM v4init WHERE c0 = ?').all(ZERO)) {
+        if (!reg.pools[r.pool]) { reg.pools[r.pool] = [r.c0, r.c1, r.blk, r.hooks, r.fee, r.spacing ?? null]; n++; }
+      }
+      db.close(); reg.nativeSeeded = Date.now();
+      console.log(`[disc] V4 registry: seeded ${n} native-USDC pools from the swap store`);
+    } catch (e) { console.log('[disc] native-USDC seed skipped:', e.message); }
+  }
   const ranges = [];
   for (const [f, t] of reg.gaps || []) ranges.push([BigInt(f), BigInt(t)]);   // retry earlier failures first
   const start = reg.to != null ? BigInt(reg.to) : V4_START;
@@ -276,18 +291,22 @@ async function main() {
     const byToken = new Map();
     for (const [poolId, cnt] of activeIds) {
       const cc = idMap.get(poolId); if (!cc) continue;
-      if (cc.c0 !== USDC && cc.c1 !== USDC) continue;
-      const token = cc.c0 === USDC ? cc.c1 : cc.c0;
+      if (!isU(cc.c0) && !isU(cc.c1)) continue;
+      const token = isU(cc.c0) ? cc.c1 : cc.c0;
+      if (isU(token)) continue;
       const prev = byToken.get(token);
-      if (!prev || cnt > prev.cnt) byToken.set(token, { poolId, cnt, usdcIsC0: cc.c0 === USDC, created: cc.created, hooks: cc.hooks, fee: cc.fee, tickSpacing: cc.tickSpacing });
+      if (!prev || cnt > prev.cnt) byToken.set(token, { poolId, cnt, usdcIsC0: isU(cc.c0), usdcDec: uDec(cc.c0), created: cc.created, hooks: cc.hooks, fee: cc.fee, tickSpacing: cc.tickSpacing });
     }
     for (const [token, info] of byToken) {
       const known = state.tokens[token];
       if (known && known.poolId === info.poolId) continue; // already have the best pool
       if (known && known.cnt != null && known.cnt >= info.cnt) continue; // keep the better existing choice
+      // 11-03: a token already filed on a USDC-ERC20 pool stays there (the in-app swap routes through that PoolKey; a native
+      // pool has no route yet). Its native pools still count: the swap store adds their liquidity, volume and price.
+      if (known && info.usdcDec === 18 && (known.usdcDec ?? 6) === 6 && (known.poolId || known.pool)) continue;
       // new token, OR upgrade an existing token whose stored pool was a weaker (decoy) one
-      if (known) { known.poolId = info.poolId; known.usdcIsC0 = info.usdcIsC0; known.cnt = info.cnt; known.hooks = info.hooks; continue; }
-      v4cand.push({ token, poolId: info.poolId, usdcIsC0: info.usdcIsC0, created: info.created, cnt: info.cnt, hooks: info.hooks });
+      if (known) { known.poolId = info.poolId; known.usdcIsC0 = info.usdcIsC0; known.usdcDec = info.usdcDec; known.cnt = info.cnt; known.hooks = info.hooks; continue; }
+      v4cand.push({ token, poolId: info.poolId, usdcIsC0: info.usdcIsC0, usdcDec: info.usdcDec, created: info.created, cnt: info.cnt, hooks: info.hooks });
     }
   }
   console.log(`[disc] V4 active pools: ${v4active.size}, new USDC tokens: ${v4cand.length}`);
@@ -334,7 +353,7 @@ async function main() {
       const supHex = mr[i * 5 + 3]?.data;
       let icon = decStr(mr[i * 5 + 4]?.data) || null; if (icon && !/^(https?:|ipfs:|ar:)/i.test(icon)) icon = null; // only keep a real URI (client resolves ipfs)
       state.tokens[t.token] = { symbol: sym, name: nm, decimals: Number.isFinite(dec) && dec <= 36 ? dec : 18,
-        kind: t.kind, pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: t.usdcIsC0 ?? t.usdcIsToken0 ?? false,
+        kind: t.kind, pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: t.usdcIsC0 ?? t.usdcIsToken0 ?? false, usdcDec: t.usdcDec ?? 6,
         supplyRaw: supHex && supHex !== '0x' ? supHex : null, created: t.created || null, cnt: t.cnt ?? null, hooks: t.hooks || null, iconUrl: icon, firstSeen: Date.now() };
     });
     // ⛔ Age from (head-created)*blockTime is inaccurate over millions of blocks (block time isn't constant
@@ -459,7 +478,7 @@ async function main() {
     cand.forEach((r, i) => {
       const t = state.tokens[r.token], usdc = bal[i] ? Number(BigInt(bal[i])) / 1e18 : 0;
       if (usdc < MIN_USDC || (t.lastLiq || 0) >= MIN_LIQ) return; // only tokens the floor would drop — listed tokens keep their pool
-      t.kind = 'v3'; t.pool = r.key; t.usdcIsC0 = !!r.usdc0; // V3 and V4 both sort by address, so the flag holds for its V4 pool too
+      t.kind = 'v3'; t.pool = r.key; t.usdcIsC0 = !!r.usdc0; t.usdcDec = 6; // V3 and V4 both sort by address, so the flag holds for its V4 pool too
       console.log(`[disc] ${t.symbol} ${r.token} moved onto its V3 pool ${r.key} ($${Math.round(usdc)} USDC)`);
     });
   } catch (e) { console.log('[disc] V3 pool check skipped:', e.message); }
@@ -497,7 +516,7 @@ async function main() {
     try {
       if (t.kind === 'v3' && r?.data && r.data.length >= 66) { const sq = BigInt(r.data.slice(0, 66)); if (sq > 0n) { const ra = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / ra : ra) * 10 ** (dec - 6); } }
       else if (t.kind === 'v2' && r?.data && r.data.length >= 130) { const r0 = Number(BigInt('0x' + r.data.slice(2, 66))), r1 = Number(BigInt('0x' + r.data.slice(66, 130))); const u = t.usdcIsC0 ? r0 : r1, k = t.usdcIsC0 ? r1 : r0; if (u > 0 && k > 0) price = (u / 1e6) / (k / 10 ** dec); }
-      else if (t.kind === 'v4' && r?.data && r.data !== '0x') { const sq = BigInt(r.data) & ((1n << 160n) - 1n); if (sq > 0n) { const ra = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / ra : ra) * 10 ** (dec - 6); } }
+      else if (t.kind === 'v4' && r?.data && r.data !== '0x') { const sq = BigInt(r.data) & ((1n << 160n) - 1n); if (sq > 0n) { const ra = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / ra : ra) * 10 ** (dec - (t.usdcDec ?? 6)); } }
     } catch { /* */ }
     if ((price == null || !isFinite(price) || price <= 0 || price >= 1e6) && t.lastPrice) price = t.lastPrice; // keep last-good on a transient RPC miss so tokens don't flicker out
     return { addr, t, price };
@@ -641,7 +660,7 @@ async function main() {
     // price filter below still drops junk pools.
     for (const pid of v4ByToken.get(x.addr) || []) {
       if (pid === x.t.poolId || pools.some((p) => p.poolId === pid) || (v4active.get(pid) || 0) < 20) continue;
-      const r = reg.pools[pid]; pools.push({ kind: 'v4', poolId: pid, usdcIsC0: r[0] === USDC, primary: false });
+      const r = reg.pools[pid]; pools.push({ kind: 'v4', poolId: pid, usdcIsC0: isU(r[0]), usdcDec: uDec(r[0]), primary: false });
     }
     for (const p of v2ByToken.get(x.addr) || []) if (!pools.some((q) => q.address === p.pair)) pools.push({ kind: 'v2', address: p.pair, usdcIsC0: p.usdcIsC0, primary: x.t.kind === 'v2' && x.t.pool === p.pair });
     // CL pools: V3 Swap layout, volume only (their depth was added above, never via extraUsdc — no double count).
@@ -666,7 +685,7 @@ async function main() {
     return { pools, extraUsdc };
   }
   const v4ByToken = new Map(); // token -> every USDC V4 poolId it has (from the registry)
-  for (const [pid, r] of Object.entries(reg.pools)) { const tok = r[0] === USDC ? r[1] : r[0]; (v4ByToken.get(tok) || v4ByToken.set(tok, []).get(tok)).push(pid); }
+  for (const [pid, r] of Object.entries(reg.pools)) { const tok = isU(r[0]) ? r[1] : r[0]; (v4ByToken.get(tok) || v4ByToken.set(tok, []).get(tok)).push(pid); }
   const blocks1h = Math.ceil(3600 / blockTime), cut1h = head - blocks1h;
   const dayMap = new Map();
   // ⛔ 10-28: this loop re-downloaded 24h of swap logs per token, ONE TOKEN AT A TIME (~2,400 tokens, ~17,800 requests, 25 min
@@ -686,9 +705,10 @@ async function main() {
       // each token's busiest V4 USDC pool by 24h USD volume (the chain scan picked by swap count — dust trades could win it)
       // (≥ 3 trades in the 24h, so one wash-traded junk pool can't take it)
       const v4 = new Map();
-      for (const r of db.prepare(`SELECT p.token, p.key, p.usdc0, SUM(c.v) v FROM c1m c JOIN pools p ON p.pid = c.pid
-          WHERE c.t >= ? AND p.kind = 'V4' AND p.ok = 1 GROUP BY c.pid HAVING SUM(c.n) >= 3`).all(Math.floor(Date.now() / 1000) - 86400)) {
-        const b = v4.get(r.token); if (!b || r.v > b.v) v4.set(r.token, { poolId: r.key, usdcIsC0: !!r.usdc0, v: r.v });
+      for (const r of db.prepare(`SELECT p.token, p.key, p.usdc0, p.udec, SUM(c.v) v FROM c1m c JOIN pools p ON p.pid = c.pid
+          WHERE c.t >= ? AND p.kind = 'V4' AND p.ok = 1 AND p.udec = 6 GROUP BY c.pid HAVING SUM(c.n) >= 3`).all(Math.floor(Date.now() / 1000) - 86400)) {
+        // udec = 6 only: v4PoolId feeds the in-app swap route, which needs a USDC-ERC20 PoolKey (native pools: not routed yet)
+        const b = v4.get(r.token); if (!b || r.v > b.v) v4.set(r.token, { poolId: r.key, usdcIsC0: !!r.usdc0, usdcDec: r.udec ?? 6, v: r.v });
       }
       db.close();
       return { st, v4 };
@@ -700,7 +720,7 @@ async function main() {
     if (store && (s?.liq != null || s?.volume24h != null)) {
       const b = store.v4.get(x.addr.toLowerCase());
       dayMap.set(x.addr, { vol: s.volume24h ?? 0, chg: s.change24h ?? null, chg1h: s.change1h ?? null, spark: s.spark?.length >= 4 ? s.spark : null,
-        extraUsdc: s.liq != null && isFinite(s.liq) ? Math.max(0, s.liq - (x.liq || 0)) : 0, v4best: b ? { poolId: b.poolId, usdcIsC0: b.usdcIsC0 } : null });
+        extraUsdc: s.liq != null && isFinite(s.liq) ? Math.max(0, s.liq - (x.liq || 0)) : 0, v4best: b ? { poolId: b.poolId, usdcIsC0: b.usdcIsC0, usdcDec: b.usdcDec ?? 6 } : null });
       fromStore++; continue;
     }
     try {
@@ -720,7 +740,7 @@ async function main() {
             pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd: u }); continue;
           }
           const sq = BigInt('0x' + d.slice(128, 192)); if (sq <= 0n) continue;
-          const ra = (Number(sq) / 2 ** 96) ** 2; const price = (pool.usdcIsC0 ? 1 / ra : ra) * 10 ** (x.t.decimals - 6);
+          const ra = (Number(sq) / 2 ** 96) ** 2; const price = (pool.usdcIsC0 ? 1 / ra : ra) * 10 ** (x.t.decimals - (pool.kind === 'v4' ? (pool.usdcDec ?? (pool.primary ? x.t.usdcDec : null) ?? 6) : 6));
           // ⛔ DECIMALS-ROBUST garbage filter: skip swaps whose price is wildly off the token's real price
           // (a near-empty decoy pool's broken sqrtP decoded ONE swap to $1e36). This is value-independent,
           // so it works for 8-dec cirBTC, whale trades, everything — unlike a fixed $ cap that clipped real trades.
@@ -735,7 +755,7 @@ async function main() {
           if (isFinite(usd) && usd >= 0) pts.push({ bn: Number(BigInt(l.blockNumber)), price, usd });
         }
         vol += pts.reduce((s, p) => s + p.usd, 0);
-        if (pool.kind === 'v4' && pts.length > v4bestN) { v4bestN = pts.length; v4best = { poolId: pool.poolId, usdcIsC0: !!pool.usdcIsC0 }; }
+        if (pool.kind === 'v4' && pts.length > v4bestN) { v4bestN = pts.length; v4best = { poolId: pool.poolId, usdcIsC0: !!pool.usdcIsC0, usdcDec: pool.usdcDec ?? (pool.primary ? x.t.usdcDec : null) ?? 6 }; }
         if (pool.primary && pts.length) primaryPts = pts;
       }
       primaryPts.sort((a, b) => a.bn - b.bn);
@@ -778,13 +798,14 @@ async function main() {
       holders: t.holders ?? null,
       iconUrl: t.iconUrl || null,
       // pool identity so the client can re-price the row LIVE (kills the ~15-min screener staleness).
-      pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: !!t.usdcIsC0, decimals: dec,
+      pool: t.pool || null, poolId: t.poolId || null, usdcIsC0: !!t.usdcIsC0, usdcDec: t.kind === 'v4' ? (t.usdcDec ?? 6) : 6, decimals: dec,
       // every USDC V2-style pair found by enumerating the factories (allPairs). ⛔ 10-04: WarpV2's getPair() returns 0x0 for
       // WARP's own \$8K pair, so the token page (which asked getPair) never listed it — it reads these instead.
       v2Pairs: (v2ByToken.get(addr) || []).map((p) => ({ pair: p.pair, label: p.label })),
       // The token's busiest V4 USDC pool, ALSO when its primary market is a V3 pool (09-30: ARGUS's page listed only its V3
       // pool, $615K of $1.26M — the snapshot points the row at V3 and the page's own V4 search only reaches back ~5 days).
       v4PoolId: ds?.v4best?.poolId || t.poolId || null, v4UsdcIsC0: ds?.v4best ? ds.v4best.usdcIsC0 : !!t.usdcIsC0,
+      v4UsdcDec: ds?.v4best ? (ds.v4best.usdcDec ?? 6) : t.kind === 'v4' ? (t.usdcDec ?? 6) : 6,
       v4fee: t.poolId && t.v4fee != null ? t.v4fee : null, v4tick: t.poolId && t.v4tick != null ? t.v4tick : null, hooks: t.poolId && t.hooks ? t.hooks : null,
       hooked: !!(t.hooks && t.hooks !== ZERO && /[1-9a-f]/.test(t.hooks.slice(2))),
       source: t.kind === 'v2' ? (t.dex || 'V2') : t.kind === 'v3' && t.dex ? t.dex : t.kind.toUpperCase(), launchpad: null }); // ⛔ was 'onchain' on every V4 row — a source, not a launchpad (09-26); the snapshot tags real pads

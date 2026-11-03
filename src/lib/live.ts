@@ -41,6 +41,7 @@ export const snapshotRow = (t: any): Token => ({
   pool: t.pool ?? null, poolId: t.poolId ?? null, usdcIsC0: !!t.usdcIsC0, decimals: t.decimals ?? 18, hooked: !!t.hooked,
   v4fee: t.v4fee ?? null, v4tick: t.v4tick ?? null, hooks: t.hooks ?? null,
   v4PoolId: t.v4PoolId ?? null, v4UsdcIsC0: !!t.v4UsdcIsC0,
+  usdcDec: t.usdcDec ?? 6, v4UsdcDec: t.v4UsdcDec ?? 6, // 18 when the V4 pool pairs NATIVE USDC (11-03)
   v2Pairs: Array.isArray(t.v2Pairs) ? t.v2Pairs.filter((p: any) => p && /^0x[0-9a-f]{40}$/i.test(p.pair)).slice(0, 8) : null, // ⛔ new fields must be copied HERE or the API drops them // the token's V4 pool when pool/poolId point at V3 (pools card)
   priceFrom: t.priceFrom ?? null,
 });
@@ -134,13 +135,13 @@ export async function deepPoolPrices(call: Call): Promise<Record<string, number>
 
 // Live price for a set of ON-CHAIN screener rows (V3 slot0 / V4 extsload), so the top rows aren't ~15 min
 // stale between indexer bakes. Bounded to whatever list the caller passes (the visible top rows).
-export async function onchainPrices(call: Call, rows: { address: string; source?: string | null; pool?: string | null; poolId?: string | null; usdcIsC0?: boolean; decimals?: number }[]): Promise<Record<string, number>> {
+export async function onchainPrices(call: Call, rows: { address: string; source?: string | null; pool?: string | null; poolId?: string | null; usdcIsC0?: boolean; decimals?: number; usdcDec?: number }[]): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   await runLimited(rows.map((t) => async () => {
     const dexp = 10 ** ((t.decimals ?? 18) - 6);
     let price: number | null = null;
     // a V3 row can also carry a V4 pool it was first filed under (XAUM read 2.9e-27 off one 11-01): price it on its own V3 pool
-    if (t.poolId && t.source !== 'V3') { const sq = await v4Slot0Sqrt(call, t.poolId); if (sq != null && sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } }
+    if (t.poolId && t.source !== 'V3') { const sq = await v4Slot0Sqrt(call, t.poolId); if (sq != null && sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * 10 ** ((t.decimals ?? 18) - (t.usdcDec ?? 6)); } }
     else if (t.pool) { const s0 = await call(t.pool, '0x3850c7bd').catch(() => null); if (s0 && s0.length >= 66) { try { const sq = BigInt(s0.slice(0, 66)); if (sq > 0n) { const r = (Number(sq) / 2 ** 96) ** 2; price = (t.usdcIsC0 ? 1 / r : r) * dexp; } } catch { /* */ } } }
     if (price != null && isFinite(price) && price > 0 && price < 1e6) out[t.address.toLowerCase()] = price;
   }), 8);

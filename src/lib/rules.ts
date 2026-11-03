@@ -32,6 +32,8 @@ export interface Token {
   poolId?: string | null;    // on-chain: the token's V4 poolId (for live re-pricing)
   v4PoolId?: string | null;  // on-chain: the token's busiest V4 USDC pool — kept also when pool/poolId point at a V3 pool
   v4UsdcIsC0?: boolean;      // on-chain: USDC is currency0 in that V4 pool
+  usdcDec?: number;          // 6 = the 0x3600 USDC ERC-20; 18 = NATIVE USDC in a V4 pool (currency0 = address 0), 11-03
+  v4UsdcDec?: number;        // same, for v4PoolId
   v2Pairs?: { pair: string; label: string }[] | null; // on-chain: USDC V2-style pairs from factory enumeration (getPair can miss them)
   usdcIsC0?: boolean;        // on-chain: USDC is currency0/token0 in that pool
   decimals?: number;         // on-chain: token decimals (for live re-pricing)
