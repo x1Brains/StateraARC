@@ -340,17 +340,21 @@ async function backfill() {
 const NATIVE_FROM = Number(process.env.SWAPS_NATIVE_FROM || 10_528_252); // first native-USDC Initialize on Arc
 const HIST_RPCS: [string, number][] = [['https://arc.gateway.tenderly.co', 95_000], ['https://rpc.mainnet.arc.io', 10_000], ['https://rpc.quicknode.mainnet.arc.io', 10_000]];
 async function histLogs(filter: Record<string, unknown>, from: number, to: number): Promise<any[]> {
-  for (let attempt = 0; ; attempt++) {
-    const [url, cap] = HIST_RPCS[attempt % HIST_RPCS.length];
+  // each piece is retried on its own (rotating nodes, each with its own range cap) and kept once it lands — at ~1 answer
+  // in 10 from this VPS, restarting a whole 95k window on one refusal would never finish
+  const out: any[] = [];
+  let f = from, attempt = 0;
+  while (f <= to) {
+    const [url, cap] = HIST_RPCS[attempt % HIST_RPCS.length], t = Math.min(to, f + cap - 1);
     try {
-      const out: any[] = [];
-      for (let f = from; f <= to; f += cap) out.push(...await rpc([url], 'eth_getLogs', [{ ...filter, fromBlock: hex(f), toBlock: hex(Math.min(to, f + cap - 1)) }], 1));
-      return out;
+      out.push(...await rpc([url], 'eth_getLogs', [{ ...filter, fromBlock: hex(f), toBlock: hex(t) }], 1));
+      f = t + 1; attempt = 0; stats.calls++;
     } catch (e) {
-      if (e instanceof TooMany && to - from > 2000) { const m = Math.floor((from + to) / 2); return [...await histLogs(filter, from, m), ...await histLogs(filter, m + 1, to)]; }
-      await sleep(Math.min(60_000, 3000 + attempt * 500));
+      if (e instanceof TooMany && t - f > 2000) { const m = Math.floor((f + t) / 2); out.push(...await histLogs(filter, f, m)); f = m + 1; continue; }
+      attempt++; await sleep(Math.min(30_000, 2000 + attempt * 300));
     }
   }
+  return out;
 }
 async function nativeTargets(): Promise<{ ids: string[]; lo: number }> {
   const SNAP = process.env.SNAPSHOT_FILE || '/root/statera-live/tokens-snapshot.json';
