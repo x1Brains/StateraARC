@@ -396,6 +396,13 @@ async function poolStats(token, pool) {
     const row = map.get(e.address.toLowerCase()); if (row) { row.isEcosystem = true; if (e.iconUrl && !row.iconUrl) row.iconUrl = e.iconUrl; }
   }
 
+  // 11-03: USDC's market cap = its total supply on Arc (6 decimals) × $1 — it has no pool of its own to price it from.
+  try {
+    const u = map.get(NATIVE_USDC), r = await call(NATIVE_USDC, '0x18160ddd');
+    const supply = r && r !== '0x' ? Number(BigInt(r)) / 1e6 : null;
+    if (u && supply && isFinite(supply) && supply > 0) { u.mcap = supply; u.fdv = supply; }
+  } catch { /* leave it blank, next run tries again */ }
+
   // Official STR has no pool yet, so nothing discovers it: listed by address (rules.ts NO_POOL_YET).
   set(mk({ address: '0xaaeea145196107f96a209a843e4f14a69dae99d0', name: 'Statera', symbol: 'STR', iconUrl: '/str-token-256.png', decimals: 18 }));
 

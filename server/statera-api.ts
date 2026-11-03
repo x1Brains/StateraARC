@@ -144,6 +144,14 @@ function rebuild() {
     if (x.change24h != null && isFinite(x.change24h)) t.change24h = x.change24h;
     if (x.spark && x.spark.length >= 2) t.spark = x.spark;
   }
+  // 11-03 (owner: "why usdc not showing mc, lp or holders?"): USDC is the quote side of every pool, so it has no pool of its own.
+  // Its liquidity = the real USDC sitting in every pool the swap store measures; its market cap comes from the snapshot
+  // (totalSupply on chain × $1). Holders: no source yet (arc-scan is down and explorer.arc.io blocks server fetches).
+  if (st) {
+    const u = tokens.find((t) => t.address.toLowerCase() === USDC_ADDR);
+    let sum = 0; for (const x of st.values()) if (x.liqUsdc != null && isFinite(x.liqUsdc) && x.liqUsdc > 0) sum += x.liqUsdc;
+    if (u && sum > 0) u.liq = sum;
+  }
   // 10-26 ONE set of numbers per row (review: "the same mcap is worked out different ways"):
   // a row the swap store does NOT measure keeps the snapshot's mcap/FDV, but at the CURRENT price (the on-chain re-price
   // moved price only, so mcap and price disagreed) — always rescaled from the snapshot's own numbers, never compounded.

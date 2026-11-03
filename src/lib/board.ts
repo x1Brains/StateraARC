@@ -15,6 +15,11 @@ export const MIN_HOLDERS = 50; // sub-50-holder pools are always hidden from the
 // in 24h. The default screener + dashboard show ACTIVE tokens only (24h volume >= $50, or a pinned/core asset); the rest
 // stay searchable and one tap away ("Show inactive").
 export const MIN_VOL_24H = 50;
+// ⛔ 11-03 (owner: "these 2 are scams"): PENNY ($30 USDC left, -64% 24h) and PMUP ($5) sat on the default board on volume
+// alone. A pool with under $100 of real USDC left is drained: not on the default board (search still finds it).
+// Unknown USDC side (not measured by the swap store) is not judged.
+export const MIN_USDC_LIQ = 100;
+const drained = (t: Token) => (t as any).liqUsdc != null && (t as any).liqUsdc < MIN_USDC_LIQ;
 
 export const LP_DESC: Record<string, string> = {
   'Argus pad': 'Minted by the Argus launchpad contracts (the ARGUS team) — GLITCH and most Arc meme launches.',
@@ -69,7 +74,7 @@ export const notDup = (ix: BoardIndex, t: Token) => !isDup(ix, t);
 // A real project earns holders; core ecosystem assets are exempt.
 export const hasHolders = (t: Token) => t.isEcosystem || (t.holders ?? 0) >= MIN_HOLDERS;
 const noPool = (t: Token) => !!NO_POOL_YET[t.address.toLowerCase()];
-export const quality = (ix: BoardIndex, t: Token) => notDup(ix, t) && hasHolders(t) && isActive(ix, t) && !noPool(t);
+export const quality = (ix: BoardIndex, t: Token) => notDup(ix, t) && hasHolders(t) && isActive(ix, t) && !noPool(t) && (t.isEcosystem || ix.pinned.has(t.address.toLowerCase()) || !drained(t));
 
 export interface BoardQuery { filter: Filter; q: string; sort: SortKey; dir: Dir; hideDupes: boolean; showInactive: boolean }
 
@@ -103,8 +108,9 @@ export function boardRows(tokens: Token[], ix: BoardIndex, o: BoardQuery): Token
   r = r.filter((t) => t.price != null || t.liq != null || (t.holders ?? 0) > 0 || t.volume24h != null || noPool(t));
   if (o.hideDupes) r = r.filter((t) => !isDup(ix, t));
   // Quality gate: hide sub-50-holder pools (KLO646 = 3, GLASSHOUSE = 12); unknown holder count = below the bar.
-  r = r.filter((t) => hasHolders(t) || noPool(t));
-  if (!o.showInactive) r = r.filter((t) => isActive(ix, t)); // no real trading in 24h = not on the default board
+  // 11-03 (owner): STR has no pool, so it stays off the board (search and its page still show it).
+  r = r.filter((t) => hasHolders(t) && !noPool(t));
+  if (!o.showInactive) r = r.filter((t) => isActive(ix, t) && (t.isEcosystem || ix.pinned.has(t.address.toLowerCase()) || !drained(t))); // no real trading in 24h = not on the default board
   const val = (t: Token): number | null => (
     o.sort === 'volume' ? t.volume24h
     : o.sort === 'change24h' ? t.change24h
@@ -146,7 +152,7 @@ export function launchpadLegend(tokens: Token[], ix: BoardIndex): { label: strin
 // Home dashboard tabs. Impersonators are always dropped; Top Liquidity + Movers also need the quality bar; New keeps every
 // fresh launch that trades (they're small by nature).
 export const trending = (tokens: Token[], ix: BoardIndex) => [...tokens].filter((t) => t.liq != null && quality(ix, t)).sort(byLiq).slice(0, 8);
-export const launches = (tokens: Token[], ix: BoardIndex) => [...tokens].filter((t) => t.launchpad && t.createdAt != null && notDup(ix, t) && isActive(ix, t))
+export const launches = (tokens: Token[], ix: BoardIndex) => [...tokens].filter((t) => t.launchpad && t.createdAt != null && notDup(ix, t) && isActive(ix, t) && !drained(t))
   .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).slice(0, 8);
 export const movers = (tokens: Token[], ix: BoardIndex) => [...tokens].filter((t) => t.change24h != null && t.liq != null && quality(ix, t))
   .sort((a, b) => (b.change24h ?? 0) - (a.change24h ?? 0)).slice(0, 8);
