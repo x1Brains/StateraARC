@@ -66,12 +66,13 @@ export function buildIndex(tokens: Token[], pinned: Set<string>): BoardIndex {
 
 // ⛔ 11-03 (owner: "volume can be slow, doesn't mean the liquidity is gone"): a quiet day no longer hides a real token. A token
 // with no $50 day is still on the board when it is ALIVE: $1K+ of real USDC in its pools, 10+ wallets traded it in the last
-// 30 days, it traded in the last 14 days, and its buys and sells are not the wash fingerprint (equal within 2% over the month).
+// 30 days, and it traded in the last 14 days. Owner 11-03: equal buys and sells (volume bots) do NOT keep a token off — some
+// projects run them on purpose. gap30 is still sent for display only.
 // The wallet numbers come from scripts/alive-tokens.mjs via the API (wallets30, gap30, lastTradeAt). A/B 11-03: 56 tokens back.
-export const ALIVE_USDC = 1000, ALIVE_WALLETS = 10, ALIVE_DAYS = 14, WASH_GAP = 0.02;
+export const ALIVE_USDC = 1000, ALIVE_WALLETS = 10, ALIVE_DAYS = 14;
 export const isAlive = (t: Token) => {
   const x = t as any;
-  return (x.liqUsdc ?? 0) >= ALIVE_USDC && (x.wallets30 ?? 0) >= ALIVE_WALLETS && x.gap30 != null && x.gap30 >= WASH_GAP
+  return (x.liqUsdc ?? 0) >= ALIVE_USDC && (x.wallets30 ?? 0) >= ALIVE_WALLETS
     && x.lastTradeAt != null && Date.now() - x.lastTradeAt <= ALIVE_DAYS * 86400e3;
 };
 export const isActive = (ix: BoardIndex, t: Token) => t.isEcosystem || ix.pinned.has(t.address.toLowerCase()) || (t.volume24h ?? 0) >= MIN_VOL_24H || isAlive(t);
