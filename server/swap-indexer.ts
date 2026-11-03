@@ -12,6 +12,7 @@
 // Archive RPC: tenderly (blockdaemon is pruned before ~26M, publicnode needs a token). ⛔ rpc.mainnet.arc.io + blockdaemon are what
 // the other services on this box use — the backfill stays OFF them (and paces itself) so it can never get
 // this IP rate-limited for them. The head follower makes ~1 call / 2 s.
+import fs from 'node:fs';
 import { openSwapDb, metaGet, metaSet, txToBlob, addrToBlob, USDC, NATIVE, START_BLOCK } from './swap-db.ts';
 import { encAggregate3, decAggregate3 } from '../scripts/lib/multicall.mjs';
 import { buildTokenStats } from './swap-stats.ts';
@@ -330,26 +331,50 @@ async function backfill() {
   log('BACKFILL COMPLETE — stored', stats.stored, 'swaps; unknown factories:', JSON.stringify([...unknownFactories].sort((a, b) => b[1] - a[1]).slice(0, 10)));
 }
 
-// ── 11-03 native-USDC history: the V4 swaps of pools skipped before the fix, newest first (recent days fill in first).
-// Only V4 Swap logs (V3/V2 history is already complete); INSERT OR IGNORE keeps every stored swap as it is.
+// ── 11-03 native-USDC history: the V4 swaps of pools skipped before the fix (FAZE's $141K pool was one).
+// Pass 1 (`nback`): every V4 swap, newest first, while the free nodes still serve the range (drpc: recent blocks only).
+// Pass 2 (`nhist`): only the native pools that matter — a listed token's native pool holding $100+ USDC now (30 pools on
+// 11-03; the other ~1,550 are empty decoys) — topic-filtered, so the whole history is ~100 wide calls. From this VPS
+// tenderly / arc.io / quicknode answer ~1 call in 10 (our own services use the quota), so it asks slowly and keeps asking.
+// INSERT OR IGNORE keeps every stored swap as it is. No paid RPC (owner).
 const NATIVE_FROM = Number(process.env.SWAPS_NATIVE_FROM || 10_528_252); // first native-USDC Initialize on Arc
+const HIST_RPCS: [string, number][] = [['https://arc.gateway.tenderly.co', 95_000], ['https://rpc.mainnet.arc.io', 10_000], ['https://rpc.quicknode.mainnet.arc.io', 10_000]];
+async function histLogs(filter: Record<string, unknown>, from: number, to: number): Promise<any[]> {
+  for (let attempt = 0; ; attempt++) {
+    const [url, cap] = HIST_RPCS[attempt % HIST_RPCS.length];
+    try {
+      const out: any[] = [];
+      for (let f = from; f <= to; f += cap) out.push(...await rpc([url], 'eth_getLogs', [{ ...filter, fromBlock: hex(f), toBlock: hex(Math.min(to, f + cap - 1)) }], 1));
+      return out;
+    } catch (e) {
+      if (e instanceof TooMany && to - from > 2000) { const m = Math.floor((from + to) / 2); return [...await histLogs(filter, from, m), ...await histLogs(filter, m + 1, to)]; }
+      await sleep(Math.min(60_000, 3000 + attempt * 500));
+    }
+  }
+}
+async function nativeTargets(): Promise<{ ids: string[]; lo: number }> {
+  const SNAP = process.env.SNAPSHOT_FILE || '/root/statera-live/tokens-snapshot.json';
+  const listed = new Set((JSON.parse(fs.readFileSync(SNAP, 'utf8')).tokens as any[]).filter((t) => (t.holders || 0) >= 50 || (t.liq || 0) >= 1000).map((t) => String(t.address).toLowerCase()));
+  const cand = (db.prepare('SELECT pool, c1, blk FROM v4init WHERE c0 = ?').all(NATIVE) as { pool: string; c1: string; blk: number }[]).filter((r) => listed.has(r.c1));
+  const SV = '0xf3334192d15450cdd385c8b70e03f9a6bd9e673b';
+  const r = await multicall(cand.flatMap((c) => [{ target: SV, data: '0xc815641c' + c.pool.slice(2) }, { target: SV, data: '0xfa6793d5' + c.pool.slice(2) }]));
+  const keep = cand.filter((c, i) => {
+    const s0 = r[i * 2], L = r[i * 2 + 1]; if (!s0 || s0.length < 66 || !L || L.length < 66) return false;
+    const sq = Number(BigInt(s0.slice(0, 66)) & ((1n << 160n) - 1n)) / 2 ** 96;
+    return sq > 0 && Number(BigInt(L.slice(0, 66))) / sq / 1e18 >= 100; // native USDC = currency0: in-range amount0 = L / sqrtP
+  });
+  return { ids: keep.map((c) => c.pool.toLowerCase()), lo: keep.length ? Math.min(...keep.map((c) => c.blk)) : 0 };
+}
 async function nativeBackfill() {
   let back = Number(metaGet(db, 'nback') || 0), nspan = 4000, nlog = 0, fails = 0;
-  while (back > NATIVE_FROM) {
+  // pass 1 — gives up (moves on) after a few failures: the free nodes do not serve older blocks
+  while (back > NATIVE_FROM && fails < 4) {
     const hi = back - 1, lo = Math.max(NATIVE_FROM, hi - nspan * 3 + 1);
     const parts: [number, number][] = [];
     for (let f = lo; f <= hi; f += nspan) parts.push([f, Math.min(hi, f + nspan - 1)]);
     let res: any[][];
-    try { res = await Promise.all(parts.map(([f, t]) => getLogs({ address: PM_V4, topics: [T_V4_SWAP] }, f, t))); stats.calls += parts.length; }
-    catch (e) {
-      // ⛔ 11-03: from this VPS, arc.io + tenderly 429, blockdaemon is pruned and drpc's free plan only serves recent blocks —
-      // older history can't be read from here. Back off (up to 30 min) instead of hammering; it resumes if access returns.
-      nspan = Math.max(500, Math.floor(nspan / 2)); fails++;
-      const wait = Math.min(30 * 60_000, 5000 * 2 ** Math.min(fails, 9));
-      if (fails <= 3 || fails % 10 === 0) log('native back failed', fails, 'x, next try in', Math.round(wait / 1000), 's:', (e as Error).message.slice(0, 120));
-      await sleep(wait); continue;
-    }
-    fails = 0;
+    try { res = await Promise.all(parts.map(([f, t]) => getLogs({ address: PM_V4, topics: [T_V4_SWAP] }, f, t))); stats.calls += parts.length; fails = 0; }
+    catch (e) { nspan = Math.max(500, Math.floor(nspan / 2)); fails++; log('native back failed', fails, (e as Error).message.slice(0, 120)); await sleep(5000); continue; }
     try { await ingest(res.flat()); } catch (e) { log('native back ingest failed:', (e as Error).message); await sleep(5000); continue; }
     metaSet(db, 'nback', lo); back = lo;
     const most = Math.max(...res.map((r) => r.length));
@@ -357,7 +382,20 @@ async function nativeBackfill() {
     if (Date.now() - nlog > 60_000) { nlog = Date.now(); log(`native back ${lo} (${((lo - NATIVE_FROM) / 1e6).toFixed(2)}M left) stored ${stats.stored}`); }
     await sleep(PACE_MS * 2);
   }
-  metaSet(db, 'nback_done', Date.now()); log('NATIVE USDC BACKFILL COMPLETE');
+  // pass 2 — the pools that matter, their whole history
+  const { ids, lo: from } = await nativeTargets();
+  if (metaGet(db, 'nhist') == null) metaSet(db, 'nhist', back);
+  let cur = Number(metaGet(db, 'nhist'));
+  log(`native history: ${ids.length} pools with real USDC, from block ${cur} down to ${from}`);
+  while (ids.length && cur > from) {
+    const hi = cur - 1, lo = Math.max(from, hi - 95_000 + 1), t0 = Date.now();
+    let logs: any[] = [];
+    for (let g = 0; g < ids.length; g += 50) logs.push(...await histLogs({ address: PM_V4, topics: [T_V4_SWAP, ids.slice(g, g + 50)] }, lo, hi));
+    try { await ingest(logs); } catch (e) { log('native history ingest failed:', (e as Error).message); await sleep(10_000); continue; }
+    metaSet(db, 'nhist', lo); cur = lo;
+    log(`native history ${lo} (${((lo - from) / 1e6).toFixed(2)}M left) +${logs.length} swaps ${Math.round((Date.now() - t0) / 1000)}s`);
+  }
+  metaSet(db, 'nback_done', Date.now()); log('NATIVE USDC HISTORY COMPLETE');
 }
 
 // ── live cursor: head follower ───────────────────────────────────────────────────────────────────────────────────────
