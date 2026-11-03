@@ -169,7 +169,7 @@ function rebuild() {
       // every swap on Arc's USDC pools has USDC on one side, so USDC's 24h DEX volume is the sum of every pool's (11-03)
       if (x.volume24h != null && isFinite(x.volume24h) && x.volume24h > 0) { vol += x.volume24h; tx += x.txns24 ?? 0; }
     }
-    if (u && sum > 0) u.liq = sum;
+    if (u && sum > 0) { u.liq = sum; u.liqUsdc = sum; } // liqUsdc set → the token page uses this row's volume (not a pool scan)
     if (u && vol > 0) { u.volume24h = vol; u.txns24 = tx; }
   }
   // 10-26 ONE set of numbers per row (review: "the same mcap is worked out different ways"):

@@ -7,7 +7,7 @@ import { fetchWarpToken, type WarpToken } from '../lib/warp';
 import { usd, tprice, compact, fetchTokenTransfers, fetchRadarTokenDetail, fetchRadarHolders, fetchRadarSwaps, fetchPoolTrades, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24, resolveMakers, fetchTokenHolders, fetchTokenBurn, fetchTokenDecimals, primePool, tokenShareUrl, type DayStats, type TokenTransfer, type RadarTokenDetail, type RadarHolder, type RadarSwap, type OnchainPool } from '../lib/arc';
 import type { Token } from '../lib/arc';
 import { v2Enabled, v2TokenDetail, v2Trades, v2WalletSwaps, v2History, v2MakerTrades, type V2TokenDetail, type V2Trades, type V2HistTrade } from '../lib/v2';
-import { isStateraImpersonator, stateraHasToken, ABANDONED, NO_POOL_YET } from '../lib/rules';
+import { isStateraImpersonator, stateraHasToken, ABANDONED, NO_POOL_YET, NATIVE_USDC_ADDR } from '../lib/rules';
 import { fetchWalletTokenTrades, type WalletTrade } from '../lib/arc';
 import { IconArrowLeft, IconArrowRight, IconExternal, IconCheck, IconCopy, IconChevronDown, IconX, IconLink, IconCamera } from './icons';
 import { useNames, displayName } from '../lib/names';
@@ -603,7 +603,9 @@ export function PremainDetail({ address, seed, ready = true, onBack, onTrade, wa
           </div>
 
           <div style={{ marginTop: 12 }}>
-            {dec != null && <PriceChart address={address} symbol={sym} decimals={dec} priceScale={chartScale} change24h={chg} trades={mine} supply={mc != null && px != null && px > 0 ? mc / px : null} makerTrades={makerTrades} maker={makerSel} onClearMaker={() => setMakerSel(null)} />}
+            {/* 11-03: USDC is the dollar every Arc pool is priced in — always $1, so no chart (its one "pool", native vs ERC-20 USDC, drew a fake price) */}
+            {address.toLowerCase() === NATIVE_USDC_ADDR.toLowerCase() ? <div className="nopool-banner"><b>USDC is always $1</b><span>USDC is the dollar every pool on Arc is priced in, so it has no price chart. Its volume is all USDC traded through Arc's pools in the last 24h.</span></div>
+            : dec != null && <PriceChart address={address} symbol={sym} decimals={dec} priceScale={chartScale} change24h={chg} trades={mine} supply={mc != null && px != null && px > 0 ? mc / px : null} makerTrades={makerTrades} maker={makerSel} onClearMaker={() => setMakerSel(null)} />}
           </div>
 
 

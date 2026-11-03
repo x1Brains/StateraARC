@@ -4,7 +4,7 @@ import path from 'node:path';
 // pool stats, every pool, 24h stats + makers, burn, holders, trades (+ real wallets), transfers. One computation serves
 // every visitor: fresh for 10 s, then served stale (up to 30 min) while a background refresh runs. v1 made each visitor's
 // tab do all of this itself: ~450–650 RPC calls and up to 15 MB of logs per token page.
-import { NO_POOL_YET, type Token } from '../src/lib/rules.ts';
+import { NO_POOL_YET, NATIVE_USDC_ADDR, type Token } from '../src/lib/rules.ts';
 import {
   primePool, fetchTokenDecimals, fetchOnchainPoolStats, fetchAllOnchainPools, fetchOnchainDayStats, fetchOnchainMakers24,
   fetchTokenBurn, fetchTokenHolders, fetchPoolTrades, TRADES_MAX, resolveMakers, fetchTokenTransfers, fetchPoolCandles, pruneChainCaches,
@@ -66,7 +66,9 @@ async function compute(address: string, seed: Token | undefined, urgent = true):
     // ⛔ makers24 must run AFTER the day stats: it samples the tx list fetchOnchainDayStats builds (dayTxList). 09-29 I ran
     // them in parallel to save ~2 s and makers came back empty on a first compute ("makers not loading on any" — GLITCH
     // dev). It now starts the moment the day stats land, still alongside the slower lookups.
-    const noPool = !!NO_POOL_YET[address]; // nothing to find: the pool and trade scans never end on a token with no pool (STR 11-01)
+    // nothing to find: the pool and trade scans never end on a token with no pool (STR 11-01). USDC too (11-03): it is the
+    // quote side of every pool; its only "pool" is native USDC vs the USDC ERC-20, which drew a fake $0.000000000001 chart.
+    const noPool = !!NO_POOL_YET[address] || address === NATIVE_USDC_ADDR;
     const dayP = noPool ? Promise.resolve(null) : settle(fetchOnchainDayStats(address, dec));
     const makersP = dayP.then((day) => (day ? settle(fetchOnchainMakers24(address)) : null));
     const [ocPool, ocPools, day, burn, holdersRaw, tradesRaw, txs, makers] = await Promise.all([
@@ -199,7 +201,7 @@ const candleInflight = new Map<string, Promise<Candle[]>>();
 const candleCache = new Map<string, { at: number; c: Candle[] }>();
 export async function tokenCandles(address: string, seed: Token | undefined, sec: number, look: number): Promise<Candle[]> {
   const a = address.toLowerCase(), k = `${a}:${sec}:${look}`;
-  if (NO_POOL_YET[a]) return [];
+  if (NO_POOL_YET[a] || a === NATIVE_USDC_ADDR) return [];
   const ttl = sec >= 14400 ? 5 * 60_000 : 20_000, hit = candleCache.get(k);
   if (hit && Date.now() - hit.at < ttl) return hit.c;
   // stale-while-revalidate: up to 30 min for every timeframe (the page re-reads and gets the refreshed candles)
