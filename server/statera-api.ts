@@ -163,8 +163,14 @@ function rebuild() {
   // (totalSupply on chain × $1). Holders: no source yet (arc-scan is down and explorer.arc.io blocks server fetches).
   if (st) {
     const u = tokens.find((t) => t.address.toLowerCase() === USDC_ADDR);
-    let sum = 0; for (const x of st.values()) if (x.liqUsdc != null && isFinite(x.liqUsdc) && x.liqUsdc > 0) sum += x.liqUsdc;
+    let sum = 0, vol = 0, tx = 0;
+    for (const x of st.values()) {
+      if (x.liqUsdc != null && isFinite(x.liqUsdc) && x.liqUsdc > 0) sum += x.liqUsdc;
+      // every swap on Arc's USDC pools has USDC on one side, so USDC's 24h DEX volume is the sum of every pool's (11-03)
+      if (x.volume24h != null && isFinite(x.volume24h) && x.volume24h > 0) { vol += x.volume24h; tx += x.txns24 ?? 0; }
+    }
     if (u && sum > 0) u.liq = sum;
+    if (u && vol > 0) { u.volume24h = vol; u.txns24 = tx; }
   }
   // 10-26 ONE set of numbers per row (review: "the same mcap is worked out different ways"):
   // a row the swap store does NOT measure keeps the snapshot's mcap/FDV, but at the CURRENT price (the on-chain re-price
