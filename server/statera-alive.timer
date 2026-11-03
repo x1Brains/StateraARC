@@ -1,0 +1,8 @@
+[Unit]
+Description=StateraArc alive tokens, every 30 min
+
+[Timer]
+OnCalendar=*:20,50
+
+[Install]
+WantedBy=timers.target

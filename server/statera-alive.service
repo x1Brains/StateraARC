@@ -1,0 +1,11 @@
+[Unit]
+Description=StateraArc alive tokens: 30-day wallets per token from the swap store (board rule)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/statera-repo
+ExecStartPre=/usr/bin/git -C /root/statera-repo pull -q --ff-only origin main
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning --max-old-space-size=300 scripts/alive-tokens.mjs
+Nice=19
+MemoryMax=400M
+TimeoutStartSec=600

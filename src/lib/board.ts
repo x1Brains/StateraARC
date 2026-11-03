@@ -64,7 +64,17 @@ export function buildIndex(tokens: Token[], pinned: Set<string>): BoardIndex {
   return { pinned, canonical: new Set([...best.values()].map((v) => v.addr)), tickerCount: count };
 }
 
-export const isActive = (ix: BoardIndex, t: Token) => t.isEcosystem || ix.pinned.has(t.address.toLowerCase()) || (t.volume24h ?? 0) >= MIN_VOL_24H;
+// ⛔ 11-03 (owner: "volume can be slow, doesn't mean the liquidity is gone"): a quiet day no longer hides a real token. A token
+// with no $50 day is still on the board when it is ALIVE: $1K+ of real USDC in its pools, 10+ wallets traded it in the last
+// 30 days, it traded in the last 14 days, and its buys and sells are not the wash fingerprint (equal within 2% over the month).
+// The wallet numbers come from scripts/alive-tokens.mjs via the API (wallets30, gap30, lastTradeAt). A/B 11-03: 56 tokens back.
+export const ALIVE_USDC = 1000, ALIVE_WALLETS = 10, ALIVE_DAYS = 14, WASH_GAP = 0.02;
+export const isAlive = (t: Token) => {
+  const x = t as any;
+  return (x.liqUsdc ?? 0) >= ALIVE_USDC && (x.wallets30 ?? 0) >= ALIVE_WALLETS && x.gap30 != null && x.gap30 >= WASH_GAP
+    && x.lastTradeAt != null && Date.now() - x.lastTradeAt <= ALIVE_DAYS * 86400e3;
+};
+export const isActive = (ix: BoardIndex, t: Token) => t.isEcosystem || ix.pinned.has(t.address.toLowerCase()) || (t.volume24h ?? 0) >= MIN_VOL_24H || isAlive(t);
 // A non-canonical duplicate ticker, before the hard-rule flag is considered (the hero typeahead uses this one).
 export const isDupTicker = (ix: BoardIndex, t: Token) => (ix.tickerCount.get((t.symbol || '').toUpperCase()) ?? 0) > 1 && !ix.canonical.has(t.address.toLowerCase());
 // A duplicate ticker OR a row that failed the hard rules (sanitizeToken: impossible numbers, Circle impersonator) is hidden

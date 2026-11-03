@@ -41,6 +41,7 @@ import { refreshWhere, whereSummary, whereStats } from './where.ts';
 
 const PORT = Number(process.env.PORT || 8790);
 const SNAP = process.env.SNAPSHOT_FILE || '/root/statera-live/tokens-snapshot.json';
+const ALIVE_FILE = process.env.ALIVE_FILE || '/root/statera-live/alive.json';
 const KEY_FILE = process.env.KEY_FILE || '/root/holdings-svc/key';
 const RADAR = process.env.RADAR_RELAY || 'http://127.0.0.1:8787';
 const RADAR_KEY_FILE = process.env.RADAR_KEY_FILE || '/root/radar-relay/key';
@@ -123,6 +124,15 @@ function rebuild() {
   // indexed at 235 holders, but its snapshot row said unknown until the next indexer pass, so the board's 50-holder rule hid it).
   // Only fills a missing number, never overrides one, and only when the index's count summed to the token's supply.
   for (const t of tokens) if (t.holders == null) { const h = holderCountOf(t.address); if (h && h.supplyOk && h.count > 0) t.holders = h.count; }
+  // 11-03: 30-day wallets per token (scripts/alive-tokens.mjs, statera-alive.timer) for the board's isAlive rule. A file older
+  // than 3 h is ignored, so a stopped job falls back to the 24h-volume rule instead of freezing old numbers on the board.
+  try {
+    const al = JSON.parse(fs.readFileSync(ALIVE_FILE, 'utf8'));
+    if (al?.tokens && Date.now() - al.asOf < 3 * 3600e3) for (const t of tokens) {
+      const x = al.tokens[t.address.toLowerCase()]; if (!x) continue;
+      (t as any).wallets30 = x.w; (t as any).gap30 = x.gap; (t as any).lastTradeAt = x.last;
+    }
+  } catch { /* no file yet */ }
   // 10-20: 24h volume / trade count, 1h + 24h change and the 7-day sparkline from the swap store (every real trade on every
   // counted pool) — only for tokens that traded in the store's last 7 days; every other row keeps its snapshot numbers
   const st = Swaps.tokenStatsNow();
