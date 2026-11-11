@@ -11,6 +11,10 @@ const SNAP = process.env.SNAPSHOT || '/root/statera-live/tokens-snapshot.json', 
 const DRY = process.argv.includes('--dry');
 const MIN_WALLETS = 25, MIN_TRADES = 20, MIN_VOL = 100, WASH = 0.02, QUIET_H = 72, MAX_CHECK = 60; // judged by wallets, not one volume cut (owner: slow days happen)
 const KEEP_LIQ = 10_000, KEEP_MCAP = 50_000, REPEAT_H = 24, STALE_MIN = 90;
+// ⛔ 11-11: a vanity-address spam factory floods Arc with tokens ground to end in 7777/77777 (identical ~$2.8K seed liq,
+// 3-6 holders, DONTBUY/MEMESPAD names). The alerter skips them so the owner isn't pinged every run; this touches NOTHING
+// on the public board or the indexer — the board still judges them by the alive rule on its own.
+const SPAM = (a) => /7777$/.test(a || '');
 
 const read = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
 async function notify(title, body) {
@@ -46,7 +50,7 @@ if (shrank && due('shrank')) { lines.push(`List shrank: ${st.count} to ${board.s
 
 // 2) listed tokens that dropped off (a failed build above would flag everything, so it's skipped then)
 if (!shrank) for (const [a, o] of Object.entries(st.listed)) {
-  if (board.has(a) || ack[a] || !due(a)) continue;
+  if (board.has(a) || ack[a] || SPAM(a) || !due(a)) continue;
   lines.push(`Dropped: ${o.s} liq $${Math.round(o.l).toLocaleString('en-US')} ${a}`); st.sent[a] = now;
 }
 
@@ -54,7 +58,7 @@ if (!shrank) for (const [a, o] of Object.entries(st.listed)) {
 const db = new DatabaseSync(SWAPS, { readOnly: true }); db.exec('PRAGMA busy_timeout=5000');
 const rows = db.prepare(`SELECT p.token t, SUM(c.v) v, SUM(c.n) n, MAX(c.t) last FROM c1m c JOIN pools p ON p.pid = c.pid
   WHERE c.t >= ? AND p.ok = 1 GROUP BY p.token`).all(nowS - 7 * 86400);
-const cand = rows.filter((r) => !board.has(r.t) && !ack[r.t] && r.n >= MIN_TRADES && r.v >= MIN_VOL && nowS - r.last < QUIET_H * 3600)
+const cand = rows.filter((r) => !board.has(r.t) && !ack[r.t] && !SPAM(r.t) && r.n >= MIN_TRADES && r.v >= MIN_VOL && nowS - r.last < QUIET_H * 3600)
   .sort((a, b) => b.v - a.v).slice(0, MAX_CHECK);
 const q = db.prepare(`SELECT COUNT(DISTINCT m.maker) w, SUM(CASE WHEN s.side > 0 THEN s.usd ELSE 0 END) b, SUM(CASE WHEN s.side < 0 THEN s.usd ELSE 0 END) se
   FROM swaps s JOIN pools p ON p.pid = s.pid JOIN makers m ON m.tx = s.tx WHERE p.token = ? AND p.ok = 1 AND s.ts >= ?`);
@@ -73,7 +77,7 @@ db.close();
 
 // remember what's listed and worth watching
 st.count = board.size; st.listed = {};
-for (const [a, t] of board) if ((t.liq ?? 0) >= KEEP_LIQ || (t.mcap ?? 0) >= KEEP_MCAP) st.listed[a] = { s: t.symbol, l: t.liq ?? 0 };
+for (const [a, t] of board) if (!SPAM(a) && ((t.liq ?? 0) >= KEEP_LIQ || (t.mcap ?? 0) >= KEEP_MCAP)) st.listed[a] = { s: t.symbol, l: t.liq ?? 0 };
 for (const k of Object.keys(st.sent)) if (now - st.sent[k] > 14 * 86400e3) delete st.sent[k];
 
 console.log(`[board-watch] ${new Date(now).toISOString()} board ${board.size} watched ${Object.keys(st.listed).length} checked ${cand.length} real ${real} alerts ${lines.length}`);
