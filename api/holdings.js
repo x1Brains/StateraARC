@@ -95,7 +95,7 @@ export default async function handler(req, res) {
     if (UP && HK) {
       const t0 = Date.now();
       try {
-        const r = await fetchUpstream(`${UP.replace(/\/+$/, '')}/holdings?addr=${addr}`, { headers: { 'x-relay-key': HK } }, { timeoutMs: 8000, lastTimeoutMs: 100000 }); // connect retries: lib/upstream.js
+        const r = await fetchUpstream(`${UP.replace(/\/+$/, '')}/holdings?addr=${addr}`, { headers: { 'x-relay-key': HK } }, { timeoutMs: 8000, lastTimeoutMs: 20000 }); // connect retries: lib/upstream.js. ⛔ 11-12: was 100000 — a hung funnel burned up to 120 s/call; 20 s stays above the 15 s cold-wallet guard below.
         const txt = await r.text();
         const j = JSON.parse(txt);
         if (r.ok && Array.isArray(j.holdings)) {
@@ -106,7 +106,7 @@ export default async function handler(req, res) {
       } catch { /* VPS unreachable/slow — fall back to the local scan below */ }
       // If the VPS was merely SLOW (not a fast connection failure), don't also run the heavy local scan
       // (that could blow the function timeout) — return 503 so the client keeps its fast partial view.
-      if (Date.now() - t0 > 15000) { res.statusCode = 503; res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ error: 'indexer busy' })); }
+      if (Date.now() - t0 > 15000) { res.statusCode = 503; res.setHeader('content-type', 'application/json'); res.setHeader('cache-control', 'public, s-maxage=10, stale-while-revalidate=30'); return res.end(JSON.stringify({ error: 'indexer busy' })); }
     }
 
     // Snapshot = free metadata + prices for the tokens we already track.
@@ -327,6 +327,7 @@ export default async function handler(req, res) {
     res.end(JSON.stringify({ address: addr, count: holdings.length, total, holdings, generatedAt: Date.now() }));
   } catch (e) {
     res.statusCode = 500; res.setHeader('content-type', 'application/json');
+    res.setHeader('cache-control', 'public, s-maxage=10, stale-while-revalidate=30'); // ⛔ 11-12: don't let a down upstream re-invoke per request
     res.end(JSON.stringify({ error: 'holdings failed: ' + (e?.message || String(e)) }));
   }
 }

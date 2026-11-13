@@ -4,6 +4,10 @@ import { fetchUpstream } from '../lib/upstream.js';
 // visitors; the browser gets KBs instead of the 1.14 MB list + ~130 RPC calls per page (v1). On any failure this answers
 // 502 and the page falls back to the v1 path by itself (src/lib/v2.ts → App.tsx).
 const ALLOWED = /^(health|visits|home|board|search|list|swap-tokens|tokens|chain|activity|lending|where|token\/0x[0-9a-fA-F]{40}(\/(detail|candles|trades|bars|history|flow|traders|profitability))?|wallet\/0x[0-9a-fA-F]{40}\/(transfers|holdings|swaps))$/;
+// ⛔ 11-12: when the VPS is unreachable, edge-cache the failure for 10 s so a dead funnel can't be re-polled per request
+// (every open tab refreshes the board ~every 20 s — uncached, 2 days of that overran Vercel compute 11-08→11). The
+// healthy path keeps its own s-maxage below; this ONLY applies to the down case. The browser already falls back to v1 on 502.
+const DOWN = 'public, s-maxage=10, stale-while-revalidate=30';
 export default async function handler(req, res) {
   const UP = process.env.HOLDINGS_UPSTREAM, KEY = process.env.HOLDINGS_KEY;
   const path = String(req.query.path || '').replace(/^\/+|\/+$/g, '');
@@ -13,13 +17,13 @@ export default async function handler(req, res) {
   for (const [k, v] of Object.entries(req.query)) if (k !== 'path' && typeof v === 'string') qs.set(k, v.slice(0, 4000));
   try {
     // connect failures retried (lib/upstream.js — a Tailscale funnel entry server was failing half the calls, 09-28)
-    const r = await fetchUpstream(`${UP.replace(/\/+$/, '')}/v2/${path}${qs.toString() ? '?' + qs : ''}`, { headers: { 'x-relay-key': KEY, 'accept-encoding': 'gzip' } }, { lastTimeoutMs: 20000 });
+    const r = await fetchUpstream(`${UP.replace(/\/+$/, '')}/v2/${path}${qs.toString() ? '?' + qs : ''}`, { headers: { 'x-relay-key': KEY, 'accept-encoding': 'gzip' } }, { lastTimeoutMs: 8000 });
     res.setHeader('x-v2-tries', String(r.tries || 1));
     const text = await r.text();
-    if (r.status >= 500) return res.status(502).json({ error: 'v2 upstream ' + r.status });
+    if (r.status >= 500) { res.setHeader('cache-control', DOWN); return res.status(502).json({ error: 'v2 upstream ' + r.status }); }
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.setHeader('cache-control', r.headers.get('cache-control') || 'public, s-maxage=10, stale-while-revalidate=60');
     for (const h of ['x-statera-asof', 'x-snapshot-age']) if (r.headers.get(h)) res.setHeader(h, r.headers.get(h));
     return res.status(r.status).send(text);
-  } catch (e) { return res.status(502).json({ error: 'v2 unreachable' }); }
+  } catch (e) { res.setHeader('cache-control', DOWN); return res.status(502).json({ error: 'v2 unreachable' }); }
 }

@@ -23,7 +23,8 @@ export default async function handler(req, res) {
       }
     } catch { /* fall back to the static file */ }
   }
-  res.setHeader('cache-control', 'no-store');
+  // ⛔ 11-12: edge-cache the fallback 10 s too — a dead funnel shouldn't re-invoke this on every poll (see api/v2.js DOWN).
+  res.setHeader('cache-control', 'public, s-maxage=10, stale-while-revalidate=30');
   res.setHeader('location', '/tokens-snapshot.json');
   return res.status(307).end();
 }
